@@ -1,0 +1,39 @@
+# LiteLLM-Routing + Kosten-Caps, ARCHITECTURE.md §3.3/§5.1/§6.3.
+# Getrennte LiteLLM-Keys je Agent-Rolle x Persona werden im LiteLLM-Proxy selbst verwaltet
+# (virtuelle Keys, nicht hier) - diese Datei beschreibt nur Routing + die Orchestrator-
+# seitigen Caps (Ebene 2 der doppelten Kosten-Bremse, Invariante 7).
+
+base_url: http://localhost:4000
+
+caps:
+  system_daily_usd: 5.0
+  persona_daily_usd: 1.0
+  monthly_soft_cap_usd: 120.0
+  monthly_soft_cap_warn_pct: 0.8
+
+roles:
+  market_research:
+    model: claude-haiku-4-5
+    provider: anthropic
+    shared: true
+    prompt_caching: true
+  news_research:
+    model: claude-haiku-4-5
+    provider: groq
+    shared: true
+    prompt_caching: true
+  persona_analysis:
+    model: claude-sonnet-5
+    provider: anthropic
+    shared: false
+    prompt_caching: true
+  trading:
+    model: claude-haiku-4-5
+    provider: anthropic
+    shared: false
+    prompt_caching: false
+  review:
+    model: claude-sonnet-5
+    provider: anthropic
+    shared: true
+    prompt_caching: true
