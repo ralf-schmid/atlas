@@ -1,12 +1,11 @@
-"""Core lineage tables: persona -> portfolio -> cycle -> research_item -> decision -> order_record.
+"""Full DB schema per ARCHITECTURE.md §3.6: persona, portfolio, cycle, research_item,
+decision, order_record, agent_run, position_snapshot, portfolio_snapshot, review,
+cost_ledger.
 
-Schema per ARCHITECTURE.md §3.6. See docs/features/F003-db-schema-decision-order-record.md
-for the design decisions not literally specified there (status enums, UUID PKs, and why
-`input_research_ids[]` existence is validated at the application layer, not via DB-level
-foreign key — src/db/validation.py).
-
-Deliberately out of scope here (separate features): agent_run, position_snapshot,
-portfolio_snapshot, review, cost_ledger.
+See docs/features/F003-db-schema-decision-order-record.md for the design decisions not
+literally specified there (status enums, UUID PKs, and why `input_research_ids[]`
+existence is validated at the application layer, not via DB-level foreign key —
+src/db/validation.py).
 """
 
 from __future__ import annotations
@@ -63,6 +62,25 @@ class OrderRecordStatus(enum.Enum):
     CANCELED = "canceled"
     REJECTED = "rejected"
     EXPIRED = "expired"
+
+
+class AgentRunStatus(enum.Enum):
+    """Not literally specified in ARCHITECTURE.md §3.6 — proposed, see F003 §2."""
+
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class CostLedgerScope(enum.Enum):
+    SYSTEM = "system"
+    PERSONA = "persona"
+
+
+class ReviewVerdict(enum.Enum):
+    THESIS_CONFIRMED = "thesis_confirmed"
+    THESIS_FAILED = "thesis_failed"
+    INCONCLUSIVE = "inconclusive"
 
 
 class Persona(Base):
@@ -164,3 +182,77 @@ class OrderRecord(Base):
         Enum(OrderRecordStatus, name="order_record_status"), default=OrderRecordStatus.NEW
     )
     raw: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
+
+
+class AgentRun(Base):
+    """One row per agent invocation. `portfolio_id` is NULL for shared agents
+    (market_research, news_research) that run once per cycle, not once per persona."""
+
+    __tablename__ = "agent_run"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    cycle_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("cycle.id"), nullable=False)
+    portfolio_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("portfolio.id"), nullable=True
+    )
+    agent: Mapped[str] = mapped_column(String(100))
+    status: Mapped[AgentRunStatus] = mapped_column(Enum(AgentRunStatus, name="agent_run_status"))
+    tokens_in: Mapped[int | None] = mapped_column(nullable=True)
+    tokens_out: Mapped[int | None] = mapped_column(nullable=True)
+    cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PositionSnapshot(Base):
+    __tablename__ = "position_snapshot"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ts: Mapped[datetime]
+    portfolio_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("portfolio.id"), nullable=False)
+    instrument: Mapped[str] = mapped_column(String(20))
+    qty: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    avg_price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    market_value: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    pnl_unrealized: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+
+
+class PortfolioSnapshot(Base):
+    __tablename__ = "portfolio_snapshot"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ts: Mapped[datetime]
+    portfolio_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("portfolio.id"), nullable=False)
+    total_value: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    cash: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    pnl_realized: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    pnl_unrealized: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    benchmark_value: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    max_drawdown: Mapped[Decimal] = mapped_column(Numeric(6, 4))
+
+
+class Review(Base):
+    __tablename__ = "review"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decision.id"), nullable=False)
+    reviewed_at: Mapped[datetime]
+    expected: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    actual: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    deviation: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    slippage_malus: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    verdict: Mapped[ReviewVerdict] = mapped_column(Enum(ReviewVerdict, name="review_verdict"))
+    lessons_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CostLedger(Base):
+    __tablename__ = "cost_ledger"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ts: Mapped[datetime]
+    scope: Mapped[CostLedgerScope] = mapped_column(Enum(CostLedgerScope, name="cost_ledger_scope"))
+    persona_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("persona.id"), nullable=True)
+    provider: Mapped[str] = mapped_column(String(50))
+    model: Mapped[str] = mapped_column(String(100))
+    tokens_in: Mapped[int] = mapped_column(default=0)
+    tokens_out: Mapped[int] = mapped_column(default=0)
+    cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))
