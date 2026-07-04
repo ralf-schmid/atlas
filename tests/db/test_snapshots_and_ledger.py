@@ -38,9 +38,7 @@ def test_agent_run_allows_null_portfolio_for_shared_agents(session):
 
 
 def test_agent_run_requires_cycle_id(session):
-    run = AgentRun(
-        cycle_id=uuid.uuid4(), agent="market_research", status=AgentRunStatus.SUCCEEDED
-    )
+    run = AgentRun(cycle_id=uuid.uuid4(), agent="market_research", status=AgentRunStatus.SUCCEEDED)
     session.add(run)
     with pytest.raises(IntegrityError, match="foreign key"):
         session.flush()

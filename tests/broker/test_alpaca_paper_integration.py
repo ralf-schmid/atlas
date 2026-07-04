@@ -42,9 +42,7 @@ def adapter() -> AlpacaPaperAdapter:
     key_id = os.environ.get("ALPACA_PAPER_VULTURE_KEY_ID")
     secret_key = os.environ.get("ALPACA_PAPER_VULTURE_SECRET_KEY")
     if not key_id or not secret_key:
-        pytest.skip(
-            "ALPACA_PAPER_VULTURE_KEY_ID/SECRET_KEY not set — needs real Alpaca Paper keys"
-        )
+        pytest.skip("ALPACA_PAPER_VULTURE_KEY_ID/SECRET_KEY not set — needs real Alpaca Paper keys")
     return AlpacaPaperAdapter(api_key=key_id, secret_key=secret_key)
 
 

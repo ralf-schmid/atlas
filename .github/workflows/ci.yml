@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: atlas
+          POSTGRES_PASSWORD: atlas
+          POSTGRES_DB: atlas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U atlas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://atlas:atlas@localhost:5432/atlas
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - run: uv run pytest tests/ --cov=src --cov-report=term-missing --cov-fail-under=90
+      - name: Enforce 100% branch coverage for src/risk and src/broker
+        run: |
+          uv run pytest tests/risk/ tests/broker/ --cov=src/risk --cov=src/broker \
+            --cov-branch --cov-fail-under=100 -q --no-header -p no:cacheprovider \
+            --ignore=tests/broker/test_alpaca_paper_integration.py
+
+  integration:
+    runs-on: ubuntu-latest
+    if: github.repository == 'ralf-schmid/atlas'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      - name: Alpaca Paper integration test
+        env:
+          ALPACA_PAPER_VULTURE_KEY_ID: ${{ secrets.ALPACA_PAPER_VULTURE_KEY_ID }}
+          ALPACA_PAPER_VULTURE_SECRET_KEY: ${{ secrets.ALPACA_PAPER_VULTURE_SECRET_KEY }}
+        run: uv run pytest tests/broker/test_alpaca_paper_integration.py -m integration -v
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

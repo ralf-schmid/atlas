@@ -69,17 +69,13 @@ def test_circuit_breaker_does_not_block_close(system, persona_fixed, base_buy_kw
 
 
 def test_drawdown_is_zero_when_peak_equity_is_zero(system, persona_fixed, base_buy_kwargs):
-    result = _evaluate(
-        system, persona_fixed, base_buy_kwargs, portfolio_peak_equity_usd=0.0
-    )
+    result = _evaluate(system, persona_fixed, base_buy_kwargs, portfolio_peak_equity_usd=0.0)
 
     assert result.rules_evaluated["circuit_breaker"]["drawdown"] == 0.0
     assert "circuit_breaker_sell_only" not in result.rejection_reasons
 
 
-def test_drawdown_exactly_at_threshold_does_not_trigger(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_drawdown_exactly_at_threshold_does_not_trigger(system, persona_fixed, base_buy_kwargs):
     # 15% drawdown == threshold, not strictly greater -> not triggered
     result = _evaluate(
         system,
@@ -142,9 +138,7 @@ def test_buy_exceeding_cash_is_rejected_when_margin_disallowed(
     assert "insufficient_cash_no_margin" in result.rejection_reasons
 
 
-def test_buy_exceeding_cash_is_allowed_when_margin_allowed(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_buy_exceeding_cash_is_allowed_when_margin_allowed(system, persona_fixed, base_buy_kwargs):
     margin_system = dataclasses.replace(system, allow_margin=True)
 
     result = _evaluate(
@@ -161,9 +155,7 @@ def test_buy_exceeding_cash_is_allowed_when_margin_allowed(
 # --- Position size ------------------------------------------------------------
 
 
-def test_position_pct_exceeding_persona_limit_is_rejected(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_position_pct_exceeding_persona_limit_is_rejected(system, persona_fixed, base_buy_kwargs):
     # persona_fixed.max_position_pct == 0.03 -> 3% of 50_000 == 1_500
     result = _evaluate(system, persona_fixed, base_buy_kwargs, position_value_usd=2_000.0)
 
@@ -258,9 +250,7 @@ def test_missing_stop_loss_is_rejected_when_required(system, persona_fixed, base
     assert "missing_stop_loss" in result.rejection_reasons
 
 
-def test_missing_stop_loss_is_allowed_when_not_required(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_missing_stop_loss_is_allowed_when_not_required(system, persona_fixed, base_buy_kwargs):
     lenient_system = dataclasses.replace(system, require_stop_loss=False)
 
     result = _evaluate(lenient_system, persona_fixed, base_buy_kwargs, stop_loss_price=None)
@@ -276,9 +266,7 @@ def test_zero_stop_loss_price_counts_as_missing(system, persona_fixed, base_buy_
     assert "missing_stop_loss" in result.rejection_reasons
 
 
-def test_stop_loss_above_entry_price_is_invalid_direction(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_stop_loss_above_entry_price_is_invalid_direction(system, persona_fixed, base_buy_kwargs):
     result = _evaluate(system, persona_fixed, base_buy_kwargs, stop_loss_price=110.0)
 
     assert "stop_loss_invalid_direction" in result.rejection_reasons
@@ -296,26 +284,20 @@ def test_stop_loss_equal_to_entry_price_is_invalid_direction(
 # --- Stop-loss policy: fixed -----------------------------------------------------
 
 
-def test_fixed_stop_loss_wider_than_ceiling_is_rejected(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_fixed_stop_loss_wider_than_ceiling_is_rejected(system, persona_fixed, base_buy_kwargs):
     # persona_fixed.max_loss_pct == 0.25 -> stop below 75.0 is too wide
     result = _evaluate(system, persona_fixed, base_buy_kwargs, stop_loss_price=70.0)
 
     assert "stop_loss_too_wide" in result.rejection_reasons
 
 
-def test_fixed_stop_loss_exactly_at_ceiling_is_allowed(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_fixed_stop_loss_exactly_at_ceiling_is_allowed(system, persona_fixed, base_buy_kwargs):
     result = _evaluate(system, persona_fixed, base_buy_kwargs, stop_loss_price=75.0)
 
     assert "stop_loss_too_wide" not in result.rejection_reasons
 
 
-def test_fixed_stop_loss_tighter_than_ceiling_is_allowed(
-    system, persona_fixed, base_buy_kwargs
-):
+def test_fixed_stop_loss_tighter_than_ceiling_is_allowed(system, persona_fixed, base_buy_kwargs):
     result = _evaluate(system, persona_fixed, base_buy_kwargs, stop_loss_price=95.0)
 
     assert "stop_loss_too_wide" not in result.rejection_reasons

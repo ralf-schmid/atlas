@@ -34,6 +34,9 @@ select = ["E", "F", "I", "UP", "B"]
 # not hand-formatted to project style.
 "alembic/versions/*.py" = ["E501", "I001", "UP007", "UP035"]
 
+[tool.ruff.format]
+exclude = ["alembic/versions/*.py"]
+
 [tool.mypy]
 python_version = "3.12"
 warn_unused_ignores = true
