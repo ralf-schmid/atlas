@@ -1,7 +1,7 @@
 # F001 — BrokerAdapter Protocol + AlpacaPaperAdapter (native Personas)
 
-Status: in Umsetzung
-Datum: 2026-07-04
+Status: abgeschlossen
+Datum: 2026-07-04, aktualisiert 2026-07-05
 Phase: 2
 
 ## 1. Zieldefinition
@@ -30,7 +30,7 @@ Config + Environment-Variablen auf.
 | #1 Risk-Gate deterministisch | indirekt | Adapter trifft keine Risk-Entscheidungen, nimmt nur fertige Order-Parameter entgegen. Kein LLM ruft diesen Code in diesem Feature auf. |
 | #2 Privilege Separation | nein (noch) | Adapter kennt keine Rollen; Durchsetzung "nur Handels-Agent" ist Aufgabe der späteren Agenten-Schicht. |
 | #3 Keine Order ohne persistierte Decision | ja | `place_order()` verlangt `decision_id: int` als Pflichtparameter (kein Default) — auch wenn `order_record` als Tabelle noch nicht existiert, verhindert die Signatur schon jetzt "Order aus Freitext ohne Decision-Referenz". |
-| #4 GTC-Stop-Loss beim Broker | ja | `place_order()` verlangt `stop_loss_price: float` als Pflichtparameter (kein Fire-and-Forget-Kauf ohne Stop möglich). Implementiert als zwei getrennte Orders (Market-Entry + separate GTC-Stop-Order), nicht als Alpaca-Bracket-Order — einfacher zu testen/nachzuvollziehen als Parent-Child-Bracket-Semantik. Rein technische Entscheidung, hier dokumentiert statt eigenem ADR. |
+| #4 GTC-Stop-Loss beim Broker | ja | `place_order()` verlangt `stop_loss_price: float` als Pflichtparameter (kein Fire-and-Forget-Kauf ohne Stop möglich). **Korrigiert nach Integrationstest (siehe §5):** ursprünglich als zwei getrennte Orders geplant (Market-Entry + separate GTC-Stop-Order) — das lehnt Alpaca real als "potential wash trade" ab, sobald die Entry-Order noch nicht gefüllt ist (z. B. Markt geschlossen). Jetzt eine **OTO-Order** (`order_class=OrderClass.OTO`, Stop als Child-Leg), die Alpaca selbst erst nach Fill aktiviert — passt auch inhaltlich besser zur Invariante (ein Stop schützt erst eine tatsächlich existierende Position). |
 | #5 Paper/Live-Trennung | ja | `AlpacaPaperAdapter` instanziiert `TradingClient` ausnahmslos mit `paper=True`. Kein Live-Pfad in diesem Feature; `AlpacaLiveAdapter` existiert nicht. |
 | #6 Secrets nie im Repo | ja | Keys ausschließlich aus Environment (`ALPACA_PAPER_<PERSONA>_KEY_ID/SECRET_KEY`, bereits in `.env`, gitignored). Kein Hardcoding, kein Default. |
 | #10 Fairness | ja | Alle 3 nativen Adapter-Instanzen laufen durch identischen Code-Pfad; kein persona-spezifisches Verhalten im Adapter selbst. |
@@ -43,9 +43,9 @@ Config + Environment-Variablen auf.
 Unit-Tests (`tests/broker/`), Alpaca-Client vollständig gemockt, keine Netzwerkzugriffe:
 
 1. `place_order` ohne `decision_id` oder ohne `stop_loss_price` → `TypeError` (Pflichtparameter).
-2. `place_order` mit gültigen Parametern → genau zwei `submit_order`-Aufrufe am gemockten
-   Client: Market-Entry (korrekt Symbol/Qty/Side) und GTC-Stop-Order (`time_in_force=GTC`,
-   korrekter Stop-Preis).
+2. `place_order` mit gültigen Parametern → ein `submit_order`-Aufruf am gemockten Client:
+   OTO-Order (korrekt Symbol/Qty/Side, `time_in_force=GTC`, `stop_loss.stop_price` korrekt),
+   Stop-Order-ID wird aus `entry.legs[0].id` extrahiert.
 3. `get_positions()` normalisiert Alpaca-`Position`-Objekte in eigene `Position`-Dataclass.
 4. `get_account_balance()` normalisiert Alpaca-`TradeAccount` in eigene `AccountBalance`-
    Dataclass (cash, equity, buying_power).
@@ -60,7 +60,10 @@ Unit-Tests (`tests/broker/`), Alpaca-Client vollständig gemockt, keine Netzwerk
 Integrationstest (separat markiert, `@pytest.mark.integration`, übersprungen wenn Keys
 fehlen — DoD-Punkt "Integrationstest läuft in CI gegen Alpaca-Paper", ARCHITECTURE.md
 Phase-2-DoD): 1 Aktie Market-Buy + GTC-Stop auf dem echten VULTURE-Paper-Account platzieren,
-Order-Status abfragen, danach Position + offene Stop-Order wieder glattstellen.
+Order-Status abfragen, danach Position + offene Stop-Order wieder glattstellen. Da ein
+Market-Order außerhalb der NYSE-Handelszeiten nicht sofort füllt, prüft der Test nur, dass
+Alpaca die Order **akzeptiert** (nicht `rejected`/`expired`) — ein tatsächlicher Fill wird
+nur verifiziert, wenn der Markt gerade offen ist.
 
 ## 4. Implementierung
 
@@ -69,14 +72,24 @@ Siehe `src/broker/protocol.py`, `src/broker/alpaca_paper.py`, `src/broker/regist
 
 ## 5. Testdurchlauf
 
-`uv run pytest tests/broker/ -v --cov=src/broker` → 12/12 grün, 100 % Line-Coverage
+`uv run pytest tests/broker/ -v --cov=src/broker` → grün, 100 % Line-Coverage
 (`src/broker/alpaca_paper.py`, `protocol.py`, `registry.py`). `uv run ruff check src/broker`
 und `uv run mypy src/broker` (strict, per `pyproject.toml`-Override) → beide sauber.
 
-Nicht ausgeführt (kein Teil dieses Durchlaufs, siehe Testdefinition Punkt "Integrationstest"):
-der Live-Smoke-Test gegen den echten VULTURE-Paper-Account — noch kein CI-Workflow
-vorhanden, der die Keys aus GitHub Encrypted Secrets zieht. Folgearbeit für die
-CI-Einrichtung (Phase-2-DoD-Punkt).
+**Integrationstest gegen den echten VULTURE-Paper-Account durchgeführt (2026-07-05).**
+Erster Versuch mit BTC/USD (24/7-Handel, unabhängig von NYSE-Zeiten) deckte zwei echte
+Alpaca-API-Restriktionen auf: Krypto lehnt `time_in_force=day` ab ("invalid crypto
+time_in_force") und Krypto akzeptiert generell keine `stop`-Orders ("invalid order type
+for crypto order"). Da `AlpacaPaperAdapter` ohnehin nur von den Aktien-Personas
+(VULTURE/GUARDIAN/CHARTIST) genutzt wird, wurde der Test auf AAPL umgestellt — dabei ein
+dritter, wichtigerer Fund: Eine separate Stop-Order direkt nach der (noch offenen)
+Entry-Order einreichen wird von Alpaca als **"potential wash trade"** abgelehnt. Fix: OTO-
+Order (Stop als Child-Leg, siehe §2) statt zwei getrennter `submit_order`-Aufrufe. Danach
+lief der Integrationstest sauber durch (Order akzeptiert, GTC-Stop als Child-Leg platziert,
+Cleanup via `cancel_order` + `close_position`).
+
+Nicht ausgeführt: derselbe Testlauf **in CI** (GitHub Encrypted Secrets) — Folgearbeit,
+siehe CI-Workflow-Einrichtung (Phase-2-DoD-Punkt, in Arbeit).
 
 ## 6. Rollback-Pfad
 

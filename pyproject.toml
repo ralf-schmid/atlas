@@ -53,6 +53,10 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: needs a real external service (Alpaca Paper); excluded by default, see CI.",
+]
+addopts = "-m 'not integration'"
 
 [tool.coverage.run]
 source = ["src"]
