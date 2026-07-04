@@ -1,23 +1,23 @@
-# F003 — DB-Schema: persona/portfolio/cycle/research_item/decision/order_record
+# F003 — DB-Schema: vollständiges Schema aus ARCHITECTURE.md §3.6
 
-Status: in Umsetzung
+Status: abgeschlossen
 Datum: 2026-07-04
 Phase: 2
 
 ## 1. Zieldefinition
 
-PostgreSQL-Schema (SQLAlchemy-Modelle + Alembic-Migration) für die Data-Lineage-Kette
-Persona → Portfolio → Cycle → Research-Item → **Decision** → **Order-Record** aus
-ARCHITECTURE.md §3.6. Ralf hat explizit `decision` und `order_record` angefragt; die vier
-referenzierten Eltern-Tabellen (`persona`, `portfolio`, `cycle`, `research_item`) werden als
-schlanke Stubs mitgebaut, damit deren Foreign Keys echt sind statt ins Leere zu laufen
-(mit Ralf abgestimmt).
+PostgreSQL-Schema (SQLAlchemy-Modelle + Alembic-Migration) für alle 11 Tabellen aus
+ARCHITECTURE.md §3.6: `persona`, `portfolio`, `cycle`, `research_item`, `decision`,
+`order_record`, `agent_run`, `position_snapshot`, `portfolio_snapshot`, `review`,
+`cost_ledger`. Ursprünglich hatte Ralf nur `decision`/`order_record` angefragt; die vier
+Eltern-Tabellen (`persona`, `portfolio`, `cycle`, `research_item`) kamen dazu, damit deren
+Foreign Keys echt sind statt ins Leere zu laufen; die restlichen 5 Tabellen
+(`agent_run`/Snapshots/`review`/`cost_ledger`) wurden in einem zweiten Schritt ergänzt, um
+§3.6 komplett abzuschließen (mit Ralf abgestimmt).
 
-**Nicht Teil dieses Features** (bewusst abgegrenzt, spätere Features): `agent_run`,
-`position_snapshot`, `portfolio_snapshot`, `review`, `cost_ledger`. Auch keine Seed-Daten
-(die 6 Personas werden nicht in dieser Migration angelegt — das ist Aufgabe eines
-Config-Loaders, der `config/personas/*.yaml` in die `persona`-Tabelle einliest und noch
-nicht existiert).
+**Weiterhin nicht Teil dieses Features:** keine Seed-Daten (die 6 Personas werden nicht in
+dieser Migration angelegt — das ist Aufgabe eines Config-Loaders, der
+`config/personas/*.yaml` in die `persona`-Tabelle einliest und noch nicht existiert).
 
 ## 2. Kritische Betrachtung
 
@@ -28,6 +28,9 @@ nicht existiert).
 | Lineage (`input_research_ids[]` Pflicht) | ja | `decision.input_research_ids` ist `ARRAY(UUID) NOT NULL` mit `CHECK`-Constraint (nicht leer). Die **Existenz** der referenzierten `research_item`-Zeilen kann Postgres bei einer Array-Spalte nicht nativ per Foreign Key prüfen (das bräuchte einen Trigger oder eine Normalisierung in eine Join-Tabelle). ARCHITECTURE.md Zeile 219 sagt explizit "Persistenz-Layer validiert Existenz" — das ist hier als Anwendungs-Funktion (`validate_research_ids_exist`, `src/db/validation.py`) umgesetzt, die vor jedem Insert läuft, nicht als DB-Constraint. Dokumentiert als bewusste, spezifikationskonforme Entscheidung. |
 | #6 Secrets nie im Repo | ja | `DATABASE_URL` aus Environment, Dummy-Wert in `.env.example` passt zu `docker-compose.yml`. |
 | Reject-Idea-Persistenz (Kernprinzip 3) | ja | `decision.rejection_reason` existiert, `action` erlaubt `reject_idea`; kein separates Reject-Modell nötig. |
+| #7 Kosten-Caps doppelt durchgesetzt | ja | `cost_ledger` existiert als DB-Tabelle für den Orchestrator-Zähler (eine der zwei geforderten Bremsen neben LiteLLM-Budgets). Der Enforcement-Code selbst (Zähler, 80%/100%-Schwellen) ist ein späteres Feature. |
+| "kein LLM" beim Risk-Gate (§5.1) | ja | `agent_run.tokens_in/tokens_out/cost_usd` sind nullable — ein `agent_run`-Eintrag für den Risk-Gate-Agenten kann ohne Token-/Kostenwerte persistiert werden. |
+| Slippage-Malus (§4.7 Kriterium 2, Phase 5) | ja | `review.slippage_malus` existiert als Spalte; die Berechnungslogik selbst ist explizit Phase-5-Scope (Review-Agent), hier nur das Schema. |
 
 **Design-Entscheidungen, die ARCHITECTURE.md §3.6 nicht wörtlich festlegt** (rein technisch,
 hier dokumentiert statt einzeln nachgefragt):
@@ -42,6 +45,12 @@ hier dokumentiert statt einzeln nachgefragt):
   bleibt in `order_record.raw` (JSONB) erhalten — nichts geht verloren, nur die normalisierte
   `status`-Spalte ist bewusst schlanker.
 - **`decision.quantity`**: `NULL` erlaubt (für `hold`/`reject_idea`, die keine Menge haben).
+- **`agent_run.status`**: eigenes Enum `running, succeeded, failed`. Nicht in
+  ARCHITECTURE.md enumeriert — Vorschlag, anpassbar.
+- **`portfolio_snapshot.benchmark_value`**: `NULL` erlaubt (SPY-Benchmark-Portfolio startet
+  laut Entscheidungsstand erst mit dem offiziellen Wettbewerbsstart, nicht ab Tag 1).
+- **`review.decision_id`**: keine Unique-Constraint — mehrere Reviews pro Decision sind
+  technisch möglich (z. B. Nachbesserung), ARCHITECTURE.md schließt das nicht aus.
 
 **Kosten:** keine LLM-Calls. **Fairness:** reines Schema, keine Persona-spezifische Logik.
 
@@ -64,13 +73,22 @@ Integrationstests (`tests/db/`) gegen echtes Postgres (`docker-compose.yml`, `pg
 7. `decision.action = 'reject_idea'` mit `rejection_reason` gesetzt, ohne `order_record` —
    lässt sich anlegen (verworfene Ideen sind eigenständig persistiert, Kernprinzip 3).
 8. Enum-Spalten (`portfolio.mode`, `cycle.market_session`, `decision.action`,
-   `decision.status`, `order_record.status`) lehnen ungültige Werte ab.
+   `decision.status`, `order_record.status`, `agent_run.status`, `cost_ledger.scope`,
+   `review.verdict`) lehnen ungültige Werte ab.
+9. `agent_run.portfolio_id = NULL` lässt sich anlegen (shared agents wie market_research
+   laufen einmal pro Zyklus, nicht einmal je Portfolio).
+10. `cost_ledger.persona_id = NULL` mit `scope = 'system'` lässt sich anlegen (systemweite
+    Kosten sind keiner Persona zugeordnet).
+11. `portfolio_snapshot.benchmark_value = NULL` lässt sich anlegen.
+12. `order_record`/`position_snapshot`/`portfolio_snapshot`/`review` ohne ihren jeweiligen
+    Pflicht-Foreign-Key (`decision_id`/`portfolio_id`) → `IntegrityError`.
 
 ## 4. Implementierung
 
-`src/db/base.py` (Engine/Session aus `DATABASE_URL`), `src/db/models.py` (6 Modelle),
-`src/db/validation.py` (`validate_research_ids_exist`), `alembic/` (Migration),
-`docker-compose.yml` (Postgres+pgvector für lokale Entwicklung/Tests).
+`src/db/base.py` (Engine/Session aus `DATABASE_URL`), `src/db/models.py` (11 Modelle),
+`src/db/validation.py` (`validate_research_ids_exist`), `alembic/` (2 Migrationen: Kern-
+Lineage-Kette, dann `agent_run`/Snapshots/`review`/`cost_ledger`), `docker-compose.yml`
+(Postgres+pgvector für lokale Entwicklung/Tests).
 
 ## 5. Testdurchlauf
 
@@ -85,16 +103,18 @@ gleiche pgvector-Extension); `docker-compose.yml` wurde von `pg16` auf `pg17` an
 konsistent zu bleiben.
 
 Durchgeführt:
-- `alembic upgrade head` → alle 6 Tabellen angelegt, verifiziert per `\dt`/`\dT`.
+- `alembic upgrade head` → alle 11 Tabellen angelegt (2 Migrationen: Kern-Lineage-Kette,
+  dann `agent_run`/Snapshots/`review`/`cost_ledger`), verifiziert per `\dt`/`\dT`.
 - Idempotenz-Zyklus manuell verifiziert: `upgrade head` → `downgrade base` →
   `upgrade head` — beim ersten Versuch schlug der zweite `upgrade` mit
   `DuplicateObject: type "market_session" already exists` fehl, weil Postgres-ENUM-Typen
-  ein `DROP TABLE` überleben. Fix: `downgrade()` droppt jetzt explizit alle 5 ENUM-Typen
-  (`sa.Enum(name=...).drop(...)`). Zyklus danach dreimal sauber wiederholt.
-- `uv run pytest tests/db/ tests/broker/ --cov=src` → **48/48 grün, 100 % Line-Coverage**
-  über `src/broker` und `src/db` zusammen. Isolation der DB-Tests über
-  Connection+Transaction+Rollback pro Test (`tests/db/conftest.py`); Schema wird einmal
-  pro Testsession via echtem Alembic-Migrationslauf auf- und abgebaut.
+  ein `DROP TABLE` überleben. Fix: `downgrade()` droppt jetzt explizit alle ENUM-Typen
+  (`sa.Enum(name=...).drop(...)`) in beiden Migrationen. Zyklus danach mehrfach sauber
+  wiederholt, auch nach Ergänzung der zweiten Migration erneut verifiziert.
+- `uv run pytest tests/ --cov=src` → **58/58 grün, 100 % Line-Coverage** über `src/broker`
+  und `src/db` zusammen. Isolation der DB-Tests über Connection+Transaction+Rollback pro
+  Test (`tests/db/conftest.py`); Schema wird einmal pro Testsession via echtem
+  Alembic-Migrationslauf auf- und abgebaut.
 - `uv run ruff check` und `uv run mypy src/db` (strict) → beide sauber. Alembic-Revisionen
   sind vom Line-Length/Import-Lint ausgenommen (`pyproject.toml`
   `per-file-ignores` — maschinengeneriert, nicht von Hand formatiert).

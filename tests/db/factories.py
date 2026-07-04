@@ -10,6 +10,10 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from src.db.models import (
+    AgentRun,
+    AgentRunStatus,
+    CostLedger,
+    CostLedgerScope,
     Cycle,
     Decision,
     DecisionAction,
@@ -19,7 +23,11 @@ from src.db.models import (
     Persona,
     Portfolio,
     PortfolioMode,
+    PortfolioSnapshot,
+    PositionSnapshot,
     ResearchItem,
+    Review,
+    ReviewVerdict,
 )
 
 
@@ -111,3 +119,85 @@ def make_order_record(session: Session, decision: Decision, **overrides: object)
     session.add(order)
     session.flush()
     return order
+
+
+def make_agent_run(session: Session, cycle: Cycle, **overrides: object) -> AgentRun:
+    run = AgentRun(
+        cycle_id=cycle.id,
+        portfolio_id=overrides.get("portfolio_id"),
+        agent=overrides.get("agent", "market_research"),
+        status=overrides.get("status", AgentRunStatus.SUCCEEDED),
+        tokens_in=overrides.get("tokens_in", 1000),
+        tokens_out=overrides.get("tokens_out", 200),
+        cost_usd=overrides.get("cost_usd", Decimal("0.05")),
+    )
+    session.add(run)
+    session.flush()
+    return run
+
+
+def make_position_snapshot(
+    session: Session, portfolio: Portfolio, **overrides: object
+) -> PositionSnapshot:
+    snapshot = PositionSnapshot(
+        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        portfolio_id=portfolio.id,
+        instrument="AAPL",
+        qty=Decimal("10"),
+        avg_price=Decimal("150.00"),
+        market_value=Decimal("1550.00"),
+        pnl_unrealized=Decimal("50.00"),
+    )
+    session.add(snapshot)
+    session.flush()
+    return snapshot
+
+
+def make_portfolio_snapshot(
+    session: Session, portfolio: Portfolio, **overrides: object
+) -> PortfolioSnapshot:
+    snapshot = PortfolioSnapshot(
+        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        portfolio_id=portfolio.id,
+        total_value=Decimal("5050.00"),
+        cash=Decimal("3500.00"),
+        pnl_realized=Decimal("0.00"),
+        pnl_unrealized=Decimal("50.00"),
+        benchmark_value=overrides.get("benchmark_value"),
+        max_drawdown=Decimal("0.0000"),
+    )
+    session.add(snapshot)
+    session.flush()
+    return snapshot
+
+
+def make_review(session: Session, decision: Decision, **overrides: object) -> Review:
+    review = Review(
+        decision_id=decision.id,
+        reviewed_at=datetime.datetime(2026, 7, 11, 9, 0),
+        expected={"target_price": 160.0},
+        actual={"price": 158.0},
+        deviation=Decimal("-1.25"),
+        slippage_malus=overrides.get("slippage_malus", Decimal("0.02")),
+        verdict=overrides.get("verdict", ReviewVerdict.THESIS_CONFIRMED),
+        lessons_text=overrides.get("lessons_text"),
+    )
+    session.add(review)
+    session.flush()
+    return review
+
+
+def make_cost_ledger_entry(session: Session, **overrides: object) -> CostLedger:
+    entry = CostLedger(
+        ts=datetime.datetime(2026, 7, 4, 9, 0),
+        scope=overrides.get("scope", CostLedgerScope.PERSONA),
+        persona_id=overrides.get("persona_id"),
+        provider="anthropic",
+        model="claude-sonnet-5",
+        tokens_in=1000,
+        tokens_out=200,
+        cost_usd=Decimal("0.05"),
+    )
+    session.add(entry)
+    session.flush()
+    return entry
