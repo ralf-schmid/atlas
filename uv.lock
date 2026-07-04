@@ -74,6 +74,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "alpaca-py" },
+    { name = "httpx" },
     { name = "jinja2" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary"] },
@@ -96,6 +97,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13,<2.0" },
     { name = "alpaca-py", specifier = ">=0.33,<1.0" },
+    { name = "httpx", specifier = ">=0.27,<1.0" },
     { name = "jinja2", specifier = ">=3.1,<4.0" },
     { name = "pgvector", specifier = ">=0.3,<1.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4.0" },
