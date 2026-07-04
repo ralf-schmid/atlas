@@ -1,0 +1,22 @@
+# CRYPTOR — Krypto-Spezialist, ARCHITECTURE.md §4.6
+# max_open_positions: ARCHITECTURE.md nennt keine Zahl fuer CRYPTOR ("kleines Universum").
+# Auf null gesetzt -> Risk-Gate faellt auf die systemweite Ceiling zurueck (config/risk.yaml).
+# Bitte von Ralf gegenpruefen/fixieren, siehe docs/features/F004-risk-gate.md §2.
+
+name: CRYPTOR
+charter_version: 1
+model: claude-sonnet-5
+
+max_position_pct: 0.20
+max_trades_per_day: 8
+max_open_positions: null
+min_cash_pct: 0.0
+
+stop_loss_policy:
+  type: fixed
+  max_loss_pct: 0.10
+
+order_types_allowed: [market, stop]
+
+universe_screen:
+  universe: [BTC/USD, ETH/USD, SOL/USD]

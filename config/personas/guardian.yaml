@@ -1,0 +1,20 @@
+# GUARDIAN — Der Konservative, ARCHITECTURE.md §4.3
+
+name: GUARDIAN
+charter_version: 1
+model: claude-sonnet-5
+
+max_position_pct: 0.15
+max_trades_per_day: 5
+max_open_positions: 12
+min_cash_pct: 0.20
+
+stop_loss_policy:
+  type: fixed
+  max_loss_pct: 0.15
+
+order_types_allowed: [market, stop]
+
+universe_screen:
+  min_earnings_history_years: 10
+  fair_value_discount_min: 0.15
