@@ -147,6 +147,9 @@ activemq-data/
 # SageMath parsed files
 *.sage.py
 
+# ATLAS: local InternalLedgerAdapter state (runtime data, not source)
+/data/ledger/
+
 # Environments
 .env
 .envrc

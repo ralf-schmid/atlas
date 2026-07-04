@@ -16,7 +16,16 @@ personas:
     secret_key_env: ALPACA_PAPER_CHARTIST_SECRET_KEY
   HYPE:
     adapter: internal_ledger
+    market: stock
   CONTRA:
     adapter: internal_ledger
+    market: stock
   CRYPTOR:
     adapter: internal_ledger
+    market: crypto
+
+# Marktdaten-Key fuer InternalLedgerAdapter: bewusst persona-unabhaengig, da Alpaca-
+# Marktdaten fuer alle Personas ohnehin identisch sind (Shared Research Pool, Invariante 10).
+market_data:
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
