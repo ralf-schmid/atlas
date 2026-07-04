@@ -1,0 +1,20 @@
+# CONTRA — Der Antizykliker, ARCHITECTURE.md §4.5
+
+name: CONTRA
+charter_version: 1
+model: claude-sonnet-5
+
+max_position_pct: 0.10
+max_trades_per_day: 5
+max_open_positions: 12
+min_cash_pct: 0.0
+
+stop_loss_policy:
+  type: fixed
+  max_loss_pct: 0.15
+
+order_types_allowed: [market, stop]
+
+universe_screen:
+  drawdown_min_pct: 0.15
+  drawdown_window_days: 20

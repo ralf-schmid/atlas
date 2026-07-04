@@ -1,0 +1,19 @@
+# HYPE — Tipp-Jaeger, ARCHITECTURE.md §4.2
+
+name: HYPE
+charter_version: 1
+model: claude-sonnet-5
+
+max_position_pct: 0.08
+max_trades_per_day: 6
+max_open_positions: 15
+min_cash_pct: 0.0
+
+stop_loss_policy:
+  type: fixed
+  max_loss_pct: 0.12
+
+order_types_allowed: [market, stop]
+
+universe_screen:
+  recommendation_max_age_days: 14

@@ -1,0 +1,21 @@
+# VULTURE — Penny-Stock-Jaeger, ARCHITECTURE.md §4.1
+
+name: VULTURE
+charter_version: 1
+model: claude-sonnet-5
+
+max_position_pct: 0.03
+max_trades_per_day: 10
+max_open_positions: 25
+min_cash_pct: 0.0
+
+stop_loss_policy:
+  type: fixed
+  max_loss_pct: 0.25
+
+order_types_allowed: [market, stop]
+
+universe_screen:
+  price_max: 5
+  market_cap_max: 300000000
+  daily_volume_min: 500000

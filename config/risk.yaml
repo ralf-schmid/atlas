@@ -1,0 +1,13 @@
+# Systemweite Guardrails (Ebene 1) — durch Personas unveraenderlich, ARCHITECTURE.md §6.1.
+# Aenderung nur via ADR + Config-Deploy. Ceilings sind Sicherheitsnetze gegen fehlerhafte
+# Persona-Configs, siehe docs/features/F004-risk-gate.md §2.
+
+circuit_breaker_drawdown_pct: 0.15   # exakter Spec-Wert, keine Ceiling
+allow_margin: false
+allow_short: false
+require_stop_loss: true
+
+max_position_pct_ceiling: 0.25
+max_trades_per_day_ceiling: 15
+max_open_positions_ceiling: 30
+min_cash_pct_floor: 0.0
