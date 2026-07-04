@@ -7,6 +7,10 @@ dependencies = [
     "alpaca-py>=0.33,<1.0",
     "pydantic>=2.7,<3.0",
     "pyyaml>=6.0,<7.0",
+    "sqlalchemy>=2.0,<3.0",
+    "alembic>=1.13,<2.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "pgvector>=0.3,<1.0",
 ]
 
 [dependency-groups]
@@ -25,6 +29,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Alembic revision files are machine-generated (`alembic revision --autogenerate`);
+# not hand-formatted to project style.
+"alembic/versions/*.py" = ["E501", "I001", "UP007", "UP035"]
+
 [tool.mypy]
 python_version = "3.12"
 warn_unused_ignores = true
@@ -36,6 +45,10 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "src.broker.*"
+strict = true
+
+[[tool.mypy.overrides]]
+module = "src.db.*"
 strict = true
 
 [tool.pytest.ini_options]
