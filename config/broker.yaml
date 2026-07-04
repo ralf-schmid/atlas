@@ -1,0 +1,22 @@
+# Persona -> Broker-Adapter-Zuordnung, siehe docs/adr/0001-alpaca-paper-account-limit.md
+# Keys kommen ausschliesslich aus Environment-Variablen (Invariante 6), nie aus dieser Datei.
+
+personas:
+  VULTURE:
+    adapter: alpaca_paper
+    key_id_env: ALPACA_PAPER_VULTURE_KEY_ID
+    secret_key_env: ALPACA_PAPER_VULTURE_SECRET_KEY
+  GUARDIAN:
+    adapter: alpaca_paper
+    key_id_env: ALPACA_PAPER_GUARDIAN_KEY_ID
+    secret_key_env: ALPACA_PAPER_GUARDIAN_SECRET_KEY
+  CHARTIST:
+    adapter: alpaca_paper
+    key_id_env: ALPACA_PAPER_CHARTIST_KEY_ID
+    secret_key_env: ALPACA_PAPER_CHARTIST_SECRET_KEY
+  HYPE:
+    adapter: internal_ledger
+  CONTRA:
+    adapter: internal_ledger
+  CRYPTOR:
+    adapter: internal_ledger
