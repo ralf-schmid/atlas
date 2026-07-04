@@ -8,22 +8,18 @@ endpoint (Invariant #5) — there is no live code path here.
 from __future__ import annotations
 
 from alpaca.trading.client import TradingClient
+from alpaca.trading.enums import OrderClass, TimeInForce
 from alpaca.trading.enums import OrderSide as AlpacaOrderSide
-from alpaca.trading.enums import TimeInForce
 from alpaca.trading.models import Order as AlpacaOrder
 from alpaca.trading.models import Position as AlpacaPosition
 from alpaca.trading.models import TradeAccount
-from alpaca.trading.requests import MarketOrderRequest, StopOrderRequest
+from alpaca.trading.requests import MarketOrderRequest, StopLossRequest
 
 from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 
 _TO_ALPACA_SIDE = {
     OrderSide.BUY: AlpacaOrderSide.BUY,
     OrderSide.SELL: AlpacaOrderSide.SELL,
-}
-_OPPOSITE_SIDE = {
-    OrderSide.BUY: AlpacaOrderSide.SELL,
-    OrderSide.SELL: AlpacaOrderSide.BUY,
 }
 
 
@@ -44,28 +40,29 @@ class AlpacaPaperAdapter:
     ) -> OrderResult:
         del decision_id  # not persisted here yet — order_record is a later feature (F001 §1)
 
+        # Bracket order, not two separate submit_order calls: submitting the GTC stop
+        # as its own order immediately after the entry gets rejected by Alpaca as a
+        # "potential wash trade" whenever the entry hasn't filled yet (e.g. market
+        # closed) — found by the real integration test against Alpaca Paper. A bracket
+        # order attaches the stop as a child leg that Alpaca itself only activates once
+        # the entry fills, which is also a closer match to Invariant #4 (a stop only
+        # makes sense once the position exists).
         entry = self._client.submit_order(
             order_data=MarketOrderRequest(
                 symbol=symbol,
                 qty=qty,
                 side=_TO_ALPACA_SIDE[side],
-                time_in_force=TimeInForce.DAY,
-            )
-        )
-        stop = self._client.submit_order(
-            order_data=StopOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=_OPPOSITE_SIDE[side],
                 time_in_force=TimeInForce.GTC,
-                stop_price=stop_loss_price,
+                order_class=OrderClass.OTO,  # one-triggers-other: stop_loss only, no take_profit
+                stop_loss=StopLossRequest(stop_price=stop_loss_price),
             )
         )
         assert isinstance(entry, AlpacaOrder)
-        assert isinstance(stop, AlpacaOrder)
+        assert entry.legs and len(entry.legs) == 1
+        stop_leg = entry.legs[0]
         return OrderResult(
             entry_order_id=str(entry.id),
-            stop_order_id=str(stop.id),
+            stop_order_id=str(stop_leg.id),
             symbol=symbol,
             qty=qty,
             side=side,

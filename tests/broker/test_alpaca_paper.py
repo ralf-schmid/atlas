@@ -41,10 +41,14 @@ def test_place_order_requires_stop_loss_price(adapter):
         )
 
 
-def test_place_order_submits_entry_and_gtc_stop(adapter, mock_client):
-    entry_result = AlpacaOrder.model_construct(id="entry-123")
-    stop_result = AlpacaOrder.model_construct(id="stop-456")
-    mock_client.submit_order.side_effect = [entry_result, stop_result]
+def test_place_order_submits_oto_bracket_with_gtc_stop_leg(adapter, mock_client):
+    # A single OTO order with the stop as a child leg — not two separate submit_order
+    # calls. Alpaca rejects a standalone opposite-side stop order as a "potential wash
+    # trade" whenever the entry hasn't filled yet (e.g. market closed); the stop must
+    # be submitted as part of the same order so Alpaca activates it only after fill.
+    stop_leg = AlpacaOrder.model_construct(id="stop-456")
+    entry_result = AlpacaOrder.model_construct(id="entry-123", legs=[stop_leg])
+    mock_client.submit_order.return_value = entry_result
 
     result = adapter.place_order(
         decision_id=42,
@@ -54,19 +58,16 @@ def test_place_order_submits_entry_and_gtc_stop(adapter, mock_client):
         stop_loss_price=150.0,
     )
 
-    assert mock_client.submit_order.call_count == 2
-    entry_call, stop_call = mock_client.submit_order.call_args_list
+    assert mock_client.submit_order.call_count == 1
+    (call,) = mock_client.submit_order.call_args_list
 
-    entry_request = entry_call.kwargs["order_data"]
+    entry_request = call.kwargs["order_data"]
     assert entry_request.symbol == "AAPL"
     assert entry_request.qty == 1
     assert entry_request.side.value == "buy"
-
-    stop_request = stop_call.kwargs["order_data"]
-    assert stop_request.symbol == "AAPL"
-    assert stop_request.stop_price == 150.0
-    assert stop_request.side.value == "sell"  # opposite of entry
-    assert stop_request.time_in_force.value == "gtc"
+    assert entry_request.time_in_force.value == "gtc"  # DAY is rejected for crypto symbols
+    assert entry_request.order_class.value == "oto"
+    assert entry_request.stop_loss.stop_price == 150.0
 
     assert result.entry_order_id == "entry-123"
     assert result.stop_order_id == "stop-456"
