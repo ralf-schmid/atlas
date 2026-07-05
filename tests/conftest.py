@@ -32,13 +32,18 @@ def engine(database_url: str) -> Engine:
     return get_engine(database_url)
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session")
 def _migrated_schema(database_url: str):
     """Applies the real Alembic migration once per test session, downgrades after.
 
     Exercises the same upgrade()/downgrade() this feature ships — see F003 §3 test 1.
     The full upgrade -> downgrade -> upgrade idempotency cycle was additionally
     verified manually via the Alembic CLI (see F003 §5).
+
+    Not autouse here — only tests/db and tests/api actually touch Postgres; an
+    autouse fixture at this top-level conftest would force every suite in the repo
+    (tests/broker, tests/risk, ...) to skip when DATABASE_URL isn't set. Suites that
+    need the real schema opt in via their own directory-scoped autouse fixture.
     """
     cfg = Config(str(_ALEMBIC_INI))
     cfg.set_main_option("sqlalchemy.url", database_url)
