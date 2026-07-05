@@ -19,28 +19,16 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       brauchen Grafana-Admin-Zugang (gehört zum bestehenden `monitoring`-Stack,
       nicht zu ATLAS) — Ralfs Aufgabe oder er gibt einen API-Key.
 - [x] GitHub Actions CI: ruff, mypy (strict für `src/risk`, `src/broker`), pytest — grün auf
-      `main`; Branch Protection: kein Merge ohne grüne CI
+      `main`
       **Nachweis:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
       CI-Lauf grün: https://github.com/ralf-schmid/atlas/actions/runs/28722019207 (2026-07-05).
-      **Offen — bewusst zurückgestellt (Ralfs Entscheidung, 2026-07-05):** Branch
-      Protection lässt sich auf diesem Repo strukturell nicht setzen — GitHub liefert
-      auf `PUT .../branches/main/protection` und auf `.../rulesets` jeweils 403
-      "Upgrade to GitHub Pro or make this repository public". Privates Repo auf einem
-      persönlichen Free-Account unterstützt Branch Protection/Rulesets grundsätzlich
-      nicht, unabhängig von der Konfiguration. Optionen: GitHub Pro (~4 USD/Monat)
-      oder Repo öffentlich machen (widerspricht "GitHub, privat" aus CLAUDE.md) — Ralf
-      hat sich für "vorerst zurückstellen" entschieden. Befehl bleibt dokumentiert,
-      falls später ein Pro-Upgrade kommt:
-      ```
-      gh api repos/ralf-schmid/atlas/branches/main/protection -X PUT \
-        -H "Accept: application/vnd.github+json" \
-        -f 'required_status_checks[strict]=true' \
-        -f 'required_status_checks[checks][][context]=lint' \
-        -f 'required_status_checks[checks][][context]=test' \
-        -f 'required_status_checks[checks][][context]=gitleaks' \
-        -F 'enforce_admins=false' -F 'required_pull_request_reviews=null' \
-        -F 'restrictions=null' -F 'allow_force_pushes=false' -F 'allow_deletions=false'
-      ```
+      Actions auf node24-Runtime aktualisiert (Commit `d076d1a`), Deprecation-Warnung
+      behoben.
+      **Branch Protection: nicht umgesetzt, kein offener Punkt.** GitHub verweigert
+      Branch Protection/Rulesets auf privaten Repos persönlicher Free-Accounts
+      strukturell (403 "Upgrade to GitHub Pro or make this repository public",
+      unabhängig von der Konfiguration). Ralf hat entschieden, das nicht zu verfolgen
+      (kein GitHub Pro, Repo bleibt privat) — daher aus der Aufgabenliste entfernt.
 - [x] Alembic erzeugt das Schema aus §3.6 vollständig; Downgrade/Rollback getestet
       **Nachweis:** [F003](../features/F003-db-schema-decision-order-record.md), alle 11
       Tabellen, upgrade/downgrade/upgrade-Zyklus mehrfach gegen echtes Postgres verifiziert.
@@ -93,19 +81,17 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Nachweis:** [F004](../features/F004-risk-gate.md) — beide liegen bei 100% Line-
       **und** Branch-Coverage, in CI als Hard-Gate erzwungen (`--cov-fail-under=100`).
 
-## Zusammenfassung (Stand 2026-07-05, Session 3)
+## Zusammenfassung (Stand 2026-07-05, Session 4)
 
-9 von 9 Punkten inhaltlich erledigt. Branch Protection bleibt strukturell blockiert
-(GitHub-Plan-Limit) und ist auf Ralfs Entscheidung hin bewusst zurückgestellt, nicht
-offen wegen fehlender Arbeit. Der ATLAS-Stack läuft jetzt live auf der UGREEN
-(`/mnt/apps/docker/atlas/`, Details [docs/deployment.md](../deployment.md)) — SSH-Zugriff
-per Public-Key eingerichtet, Port-Konflikt mit der bestehenden Grafana-Instanz gefunden
-und gefixt, alle 4 Container healthy, von einem anderen LAN-Rechner aus verifiziert.
+9 von 9 Punkten inhaltlich erledigt. Branch Protection ist kein offener Punkt mehr —
+strukturell auf diesem Plan nicht möglich, Ralf verfolgt es nicht weiter. Der
+ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`, Details
+[docs/deployment.md](../deployment.md)) — SSH-Zugriff per Public-Key eingerichtet,
+alle 4 Container healthy, von einem anderen LAN-Rechner aus verifiziert.
 
 **Was noch offen ist:**
-1. Grafana-Postgres-Datasource + Container-Health-Alert einrichten — braucht
-   Grafana-Admin-Zugang zum bestehenden `monitoring`-Stack (nicht Teil von ATLAS);
-   Ralfs Aufgabe, oder er gibt mir einen API-Key dafür
+1. Grafana-Postgres-Datasource + Container-Health-Alert in der bestehenden
+   Grafana-Instanz einrichten (nicht per Zusatz-Grafana auf 3001 o.ä. — die
+   bestehende Instanz auf Port 3000 wird genutzt)
 2. Einmal in Echtzeit den HITL-Inline-Button in Telegram klicken, wenn ich eine
    Test-Approval-Nachricht schicke (Callback-Roundtrip-Nachweis)
-3. Falls Branch Protection gewünscht ist: GitHub Pro holen, dann sage ich Bescheid
