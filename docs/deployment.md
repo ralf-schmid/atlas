@@ -74,27 +74,26 @@ Wichtig für Port-/Namenskonflikte beim ATLAS-Deployment:
 ## Grafana-Integration (bestehende Instanz, Port 3000)
 
 Kein eigenes Grafana für ATLAS — die bestehende Instanz auf der Box bekommt eine
-zusätzliche Postgres-Datasource plus eine Alert-Regel für Container-Health. Dafür
-per API (nicht manuell in der UI), also braucht es einmalig ein Token:
+zusätzliche Postgres-Datasource. Dafür per API, mit einem Service-Account-Token
+(Grafana 13 hat klassische API-Keys entfernt): Administration → Users and access →
+Service accounts → Add service account (Rolle **Admin**, Datasources anlegen braucht
+Org-Admin-Rechte) → Add service account token → Token in `.env` als
+`GRAFANA_API_KEY` (Eintrag schon vorbereitet in `.env`/`.env.example`, `GRAFANA_URL`
+ist schon gesetzt).
 
-**Service-Account-Token anlegen** (Grafana 13 hat klassische API-Keys entfernt,
-Service-Account-Token sind der Ersatz — funktional identisch, ein Bearer-Token):
+**Status (2026-07-05):** Token angelegt und eingetragen, gegen `$GRAFANA_URL/api/org`
+verifiziert. Postgres-Datasource `atlas-postgres` (uid `dfr7iupqjs4cgb`) per API
+angelegt: Host `nas.fritz.box:5432` (der Grafana-Container erreicht den
+veröffentlichten Host-Port über den LAN-Hostnamen — mit `nc` aus dem
+`grafana`-Container getestet, bevor die Datasource angelegt wurde), DB `atlas`,
+User/Passwort `atlas`/`atlas`. Health-Check: `"Database Connection OK"`.
 
-1. In Grafana einloggen: http://nas.fritz.box:3000
-2. Links: **Administration → Users and access → Service accounts**
-3. **Add service account** — Name z.B. `atlas-integration`, Rolle **Admin**
-   (Datasources/Alert-Regeln anlegen braucht Org-Admin-Rechte, `Editor` reicht dafür
-   nicht)
-4. Im neu angelegten Service Account: **Add service account token** — Name/Ablauf
-   nach Wunsch, **Generate token**
-5. Den angezeigten Token **sofort kopieren** (wird nur einmal angezeigt) und in die
-   lokale `.env` eintragen: `GRAFANA_API_KEY=<token>` (Eintrag ist schon vorbereitet,
-   siehe `.env` und `.env.example`)
-
-Sobald der Token in der `.env` steht, richte ich Datasource + Alert-Regel darüber
-per API ein (Postgres-Datasource: Host `nas.fritz.box`, Port 5432, DB `atlas`,
-User/Passwort `atlas`/`atlas`; Alert-Regel + Telegram-Contact-Point für
-Container-Health, wie in ARCHITECTURE.md §"Container-Health-Alert" beschrieben).
+**Container-Health-Alert-Regel: bewusst nicht von mir eingerichtet.** Grafana kann
+nur auf Metriken alerten, nicht direkt auf rohe HTTP-Healthcheck-Endpoints — der
+Standardweg wäre ein `blackbox_exporter` als neuer Service im bestehenden
+`monitoring`-Stack (`/mnt/apps/docker/monitoring/compose.yaml` + `prometheus.yml`,
+kein Teil von ATLAS). Ralf hat entschieden, das selbst in der Grafana-UI
+einzurichten, statt dass ich in seinen bestehenden monitoring-Stack eingreife.
 
 ## Sonstiges
 
