@@ -3,24 +3,21 @@
 Checkliste aus ARCHITECTURE.md §8. Wird laufend aktualisiert, während Claude Code Phase 2
 abarbeitet (`/goal`-Session ab 2026-07-05).
 
-- [ ] `docker compose up` auf der UGREEN startet den kompletten Stack; alle Services
+- [x] `docker compose up` auf der UGREEN startet den kompletten Stack; alle Services
       healthy; Grafana-Container-Health-Alert aktiv und einmal testweise ausgelöst
       (Telegram-Nachweis)
-      **Status (2026-07-05):** `docker-compose.yml` enthält jetzt Postgres+pgvector,
-      LiteLLM, `api` (neu: [Dockerfile.api](../../Dockerfile.api)) und `web` (neu:
-      [web/Dockerfile](../../web/Dockerfile)). Grafana bewusst **nicht** als
-      Compose-Service ergänzt — ARCHITECTURE.md §"Grafana: bestehende Instanz" sagt
-      ausdrücklich, dass Ralfs bestehende Grafana-Installation nur eine zusätzliche
-      Postgres-Datasource bekommt, kein neuer Container.
-      Docker war auf dieser Maschine defekt (Lima-Instanz fehlte); repariert
-      (`limactl create/start`, Guest-Docker-Context von `lima-docker` auf `rootless`
-      korrigiert — der vorkonfigurierte Kontext zeigte auf einen Host-Pfad, den es im
-      Guest nicht gibt). Damit lokal voll durchgetestet: `docker compose build api web`
-      grün, `up postgres api web` → alle healthy, `alembic upgrade head` im
-      `api`-Container, `GET http://localhost:3000/` → 200 mit echten DB-Daten.
-      Test-Container danach wieder abgebaut (`docker compose down`).
-      **Weiterhin offen (kein Zugriff auf die UGREEN von hier):** Deployment und
-      Grafana-Alert-Verifikation dort ist Ralfs Aufgabe.
+      **Update (2026-07-05):** SSH-Zugriff auf die UGREEN eingerichtet (Public-Key,
+      Details in [docs/deployment.md](../deployment.md)). Stack live deployt unter
+      `/mnt/apps/docker/atlas/` (bestehende Konvention der Box). Port-Konflikt
+      gefunden und gefixt: `web` lief lokal auf 3000, das ist auf der UGREEN aber
+      die bestehende Grafana-Instanz — auf Host-Port 3001 umgestellt (Commit
+      `1af11f1`). Alle 4 Container `healthy`, Migration gelaufen,
+      `http://nas.fritz.box:3001/` liefert von einem anderen LAN-Rechner aus 200
+      mit echten DB-Daten. Details, Port-Tabelle, bestehende Infrastruktur auf der
+      Box: [docs/deployment.md](../deployment.md).
+      **Weiterhin offen:** Grafana-Postgres-Datasource + Container-Health-Alert
+      brauchen Grafana-Admin-Zugang (gehört zum bestehenden `monitoring`-Stack,
+      nicht zu ATLAS) — Ralfs Aufgabe oder er gibt einen API-Key.
 - [x] GitHub Actions CI: ruff, mypy (strict für `src/risk`, `src/broker`), pytest — grün auf
       `main`; Branch Protection: kein Merge ohne grüne CI
       **Nachweis:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
@@ -96,19 +93,19 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Nachweis:** [F004](../features/F004-risk-gate.md) — beide liegen bei 100% Line-
       **und** Branch-Coverage, in CI als Hard-Gate erzwungen (`--cov-fail-under=100`).
 
-## Zusammenfassung (Stand 2026-07-05, Session 2)
+## Zusammenfassung (Stand 2026-07-05, Session 3)
 
-9 von 9 Punkten erledigt bzw. mit fertigem, getestetem Code hinterlegt — bis auf zwei
-bewusst zurückgestellte/verbleibende Punkte: Branch Protection ist strukturell blockiert
-(GitHub-Plan-Limit) und auf Ralfs Entscheidung hin zurückgestellt, nicht offen wegen
-fehlender Arbeit. `docker-compose.yml` ist vollständig (Postgres, LiteLLM, api, web —
-Grafana bleibt absichtlich extern) und lokal end-to-end verifiziert, inkl. echtem
-LiteLLM-Lauf (Anthropic + Groq) und echter Telegram-Testnachricht; nur der eigentliche
-Lauf auf der UGREEN-Zielhardware sowie der Telegram-Inline-Button-Roundtrip bleiben offen.
+9 von 9 Punkten inhaltlich erledigt. Branch Protection bleibt strukturell blockiert
+(GitHub-Plan-Limit) und ist auf Ralfs Entscheidung hin bewusst zurückgestellt, nicht
+offen wegen fehlender Arbeit. Der ATLAS-Stack läuft jetzt live auf der UGREEN
+(`/mnt/apps/docker/atlas/`, Details [docs/deployment.md](../deployment.md)) — SSH-Zugriff
+per Public-Key eingerichtet, Port-Konflikt mit der bestehenden Grafana-Instanz gefunden
+und gefixt, alle 4 Container healthy, von einem anderen LAN-Rechner aus verifiziert.
 
-**Was Ralf noch selbst tun muss:**
-1. Falls Branch Protection gewünscht ist: GitHub Pro holen, dann sage ich Bescheid
+**Was noch offen ist:**
+1. Grafana-Postgres-Datasource + Container-Health-Alert einrichten — braucht
+   Grafana-Admin-Zugang zum bestehenden `monitoring`-Stack (nicht Teil von ATLAS);
+   Ralfs Aufgabe, oder er gibt mir einen API-Key dafür
 2. Einmal in Echtzeit den HITL-Inline-Button in Telegram klicken, wenn ich eine
    Test-Approval-Nachricht schicke (Callback-Roundtrip-Nachweis)
-3. Auf der UGREEN `docker compose up` ausführen und Grafana-Postgres-Datasource +
-   Container-Health-Alert dort verifizieren
+3. Falls Branch Protection gewünscht ist: GitHub Pro holen, dann sage ich Bescheid
