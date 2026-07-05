@@ -39,7 +39,7 @@ Die verbindliche Architektur ist in zwei Dokumenten definiert:
 
 1. **`ARCHITECTURE.md`** — vollständige technische Architektur, Datenmodell, Agenten-Design, Guardrails, Phasenplan mit harten DoD (Definition of Done), Feature-Einbau-Prozess, Risiken & Mitigationen. **Lesen Sie dieses Dokument zuerst.**
 
-2. **`CLAUDE.md`** — Projektdatei für Claude Code: Konventionen, Repo-Struktur, nicht verhandelbare Sicherheits-Invarianten, Arbeitsweise. Definiert, was Code NICHT darf (z.B. Live-Keys vor Phase 6, Whitelisting-Umgehung, HITL-Deaktivierung).
+2. **`AGENTS.md`** — Projektdatei für Codex: Konventionen, Repo-Struktur, nicht verhandelbare Sicherheits-Invarianten, Arbeitsweise. Definiert, was Code NICHT darf (z.B. Live-Keys vor Phase 6, Risk-/HITL-Umgehung, Persona-Bevorzugung).
 
 **Die Doku entsteht parallel zum Code, nicht danach.** Architecture Decision Records (ADRs) gehören nach `docs/adr/`.
 
@@ -53,12 +53,18 @@ Die verbindliche Architektur ist in zwei Dokumenten definiert:
 - Kosten-Modell und Guardrails fixiert
 - **Freigegeben für Phase 2**
 
-### Phase 2: Fundament (aktiv)
-- [ ] Repo-Setup, GitHub Actions CI (ruff, mypy, pytest, gitleaks)
-- [ ] Docker-Compose-Stack (Postgres, LiteLLM, FastAPI, Next.js, Telegram-Bot-Skeleton)
-- [ ] Alpaca-Spikes: Paper-Account-Anzahl (Ziel 6), Krypto-DE, Startkapital 5.000 USD (ADRs)
-- [ ] Broker-Adapter (Paper), erste UI-Seite (Portfolio-Snapshot)
-- **DoD:** `docker compose up` starten alle Services healthy; erste Paper-Order end-to-end
+### Phase 2: Fundament ✅ weitgehend abgeschlossen
+- [x] Docker-Compose-Stack auf der UGREEN live deployt; API, Web, Postgres und LiteLLM laufen healthy
+- [x] GitHub Actions CI mit ruff, mypy und pytest ist grün; Branch Protection ist auf dem privaten Free-Repo strukturell nicht verfügbar
+- [x] Alembic-Schema für die Kerntabellen aus ARCHITECTURE.md §3.6 steht und ist upgrade/downgrade-getestet
+- [x] Broker-Adapter: Alpaca-Paper-Order inklusive GTC-Stop getestet; interner Ledger als Fallback vorhanden
+- [x] LiteLLM-Proxy mit Anthropic + Groq verifiziert; Orchestrator-Kostenbremse getestet
+- [x] Telegram-Bot-Grundgerüst inklusive HITL-Inline-Callbacks, Chat-ID-Gate, Timeout = Reject und DB-Persistenz auf `decision.hitl`
+- [x] FastAPI + Next.js zeigen Portfolio-Snapshots aus der DB; mobile Lighthouse-Ziele erreicht
+- [x] Alpaca-Spikes als ADRs dokumentiert
+
+Details und Nachweise stehen in `docs/dod/phase-2.md`. Noch außerhalb von ATLAS offen:
+Container-Health-Alert-Regel + Telegram-Contact-Point in Ralfs bestehender Grafana-Instanz.
 
 ### Weitere Phasen
 Phase 3 (Ingestion), Phase 4 (Agenten-Core), Phase 5 (Review & Wettbewerb-Start), Phase 6 (Live), Phase 7 (Autonomie & Experimente) — siehe ARCHITECTURE.md §8 für vollständige DoD.
@@ -99,7 +105,7 @@ mypy src/risk src/broker --strict
 ```
 atlas/
 ├── ARCHITECTURE.md        # Verbindliche Architektur (lesen Sie zuerst!)
-├── CLAUDE.md             # Projektdatei für Claude Code
+├── AGENTS.md             # Projektdatei für Codex
 ├── README.md             # Diese Datei
 ├── config/               # Konfiguration (Risk-Regeln, Personas, Zyklen, HITL)
 ├── src/                  # Python: Orchestrierung, Agenten, DB, Broker, API
@@ -114,7 +120,7 @@ atlas/
 ## Wichtigste Konventionen
 
 - **Sprache:** Code/Commits/Identifier auf Englisch; Doku/UI auf Deutsch; Kommunikation mit Ralf auf Deutsch (Technical Terms englisch)
-- **Sicherheits-Invarianten:** 10 nicht verhandelbare Regeln (CLAUDE.md) — bei Konflikt: nachfragen, nicht aufweichen
+- **Sicherheits-Invarianten:** 10 nicht verhandelbare Regeln (AGENTS.md) — bei Konflikt: nachfragen, nicht aufweichen
 - **CI/CD:** GitHub Actions ab Phase 2 — ruff, mypy strict, pytest, gitleaks (keine Live-Keys im Repo)
 - **Feature-Prozess:** Zieldefinition → kritische Betrachtung → Testdefinition (vor Code!) → Umsetzung → Paper-Smoke-Test → Livesetzung (ARCHITECTURE.md §10)
 - **Tests:** Risk-Gate und Broker-Adapter müssen 100 % Branch-Coverage haben; Prompt-Prompts brauchen Eval-Fixtures
@@ -182,7 +188,7 @@ Alle Risikomodelle, Guardrails und Testpläne sind in ARCHITECTURE.md §12 dokum
 ## Weitere Ressourcen
 
 - **ARCHITECTURE.md** — vollständige technische Architektur, Datenmodell, Phasenplan, Risk-Modell, Persona-Rationale
-- **CLAUDE.md** — Projektdatei für Claude Code, Repo-Struktur, Konventionen, nicht verhandelbare Regeln
+- **AGENTS.md** — Projektdatei für Codex, Repo-Struktur, Konventionen, nicht verhandelbare Regeln
 - **docs/adr/** — Architecture Decision Records (entsteht parallel zum Code)
 - **docs/dod/** — Definition-of-Done-Checklisten je Phase (mit Nachweisen)
 - **docs/features/** — Feature-Dokumentation (Zieldefinition, Testplan, Rollback, Deployment-Datum)
@@ -196,5 +202,5 @@ Dieses Projekt entstand in enger Zusammenarbeit mit Claude (Anthropic) für die 
 ---
 
 **Zuletzt aktualisiert:** Juli 2026  
-**Phase:** 2 (aktiv)  
-**Status:** Freigegeben nach Phase-1-Abschluss
+**Phase:** 2 (Fundament weitgehend abgeschlossen)  
+**Status:** UGREEN-Stack live, CI grün, Telegram-HITL-Callback implementiert

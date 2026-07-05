@@ -1,4 +1,5 @@
 import datetime
+import uuid
 
 import pytest
 
@@ -6,17 +7,19 @@ from src.telegram.hitl import (
     HitlDecision,
     HitlRequest,
     format_approval_message,
+    format_outcome_message,
     make_callback_data,
     process_callback,
 )
 
-_CREATED_AT = datetime.datetime(2026, 7, 5, 12, 0)
+_DECISION_ID = uuid.UUID("550e8400-e29b-41d4-a716-446655440000")
+_CREATED_AT = datetime.datetime(2026, 7, 5, 12, 0, tzinfo=datetime.UTC)
 
 
 @pytest.fixture
 def request_() -> HitlRequest:
     return HitlRequest(
-        decision_id=1,
+        decision_id=_DECISION_ID,
         instrument="AAPL",
         thesis_text="Fair-Value-Abschlag > 15%",
         amount_usd=1500.0,
@@ -40,7 +43,7 @@ def test_is_expired_true_after_timeout(request_):
 def test_process_callback_approve_before_timeout(request_):
     now = _CREATED_AT + datetime.timedelta(minutes=5)
 
-    outcome = process_callback(request_, "hitl:approve:1", now)
+    outcome = process_callback(request_, f"hitl:approve:{_DECISION_ID}", now)
 
     assert outcome.decision == HitlDecision.APPROVED
     assert outcome.decided_by == "user"
@@ -49,7 +52,7 @@ def test_process_callback_approve_before_timeout(request_):
 def test_process_callback_reject_before_timeout(request_):
     now = _CREATED_AT + datetime.timedelta(minutes=5)
 
-    outcome = process_callback(request_, "hitl:reject:1", now)
+    outcome = process_callback(request_, f"hitl:reject:{_DECISION_ID}", now)
 
     assert outcome.decision == HitlDecision.REJECTED
     assert outcome.decided_by == "user"
@@ -58,7 +61,7 @@ def test_process_callback_reject_before_timeout(request_):
 def test_process_callback_after_timeout_rejects_regardless_of_callback(request_):
     now = _CREATED_AT + datetime.timedelta(minutes=31)
 
-    outcome = process_callback(request_, "hitl:approve:1", now)
+    outcome = process_callback(request_, f"hitl:approve:{_DECISION_ID}", now)
 
     assert outcome.decision == HitlDecision.REJECTED
     assert outcome.decided_by == "timeout"
@@ -82,17 +85,50 @@ def test_process_callback_mismatched_decision_id_raises(request_):
     now = _CREATED_AT + datetime.timedelta(minutes=5)
 
     with pytest.raises(ValueError, match="does not match"):
-        process_callback(request_, "hitl:approve:99", now)
+        process_callback(request_, f"hitl:approve:{uuid.uuid4()}", now)
 
 
 def test_make_callback_data_round_trips():
-    assert make_callback_data("approve", 7) == "hitl:approve:7"
-    assert make_callback_data("reject", 7) == "hitl:reject:7"
+    decision_id = uuid.UUID("00000000-0000-0000-0000-000000000007")
+    assert make_callback_data("approve", decision_id) == f"hitl:approve:{decision_id}"
+    assert make_callback_data("reject", decision_id) == f"hitl:reject:{decision_id}"
 
 
 def test_make_callback_data_unknown_action_raises():
     with pytest.raises(ValueError, match="Unknown HITL action"):
-        make_callback_data("delete", 7)
+        make_callback_data("delete", _DECISION_ID)
+
+
+def test_format_outcome_message_approve():
+    outcome = process_callback(
+        HitlRequest(
+            decision_id=_DECISION_ID,
+            instrument="AAPL",
+            thesis_text="x",
+            amount_usd=1.0,
+            stop_loss_price=1.0,
+            created_at=_CREATED_AT,
+        ),
+        f"hitl:approve:{_DECISION_ID}",
+        _CREATED_AT,
+    )
+    assert "Freigabe erteilt" in format_outcome_message("AAPL", outcome)
+
+
+def test_format_outcome_message_timeout():
+    outcome = process_callback(
+        HitlRequest(
+            decision_id=_DECISION_ID,
+            instrument="AAPL",
+            thesis_text="x",
+            amount_usd=1.0,
+            stop_loss_price=1.0,
+            created_at=_CREATED_AT,
+        ),
+        f"hitl:approve:{_DECISION_ID}",
+        _CREATED_AT + datetime.timedelta(minutes=31),
+    )
+    assert "Timeout" in format_outcome_message("AAPL", outcome)
 
 
 def test_format_approval_message_contains_key_fields(request_):
