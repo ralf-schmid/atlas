@@ -6,15 +6,34 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
 - [ ] `docker compose up` auf der UGREEN startet den kompletten Stack; alle Services
       healthy; Grafana-Container-Health-Alert aktiv und einmal testweise ausgelöst
       (Telegram-Nachweis)
-      **Status:** `docker-compose.yml` enthält bisher nur Postgres+pgvector. Kein Zugriff
-      auf die UGREEN von hier aus — Deployment/Verifikation dort ist Ralfs Aufgabe. Grafana,
-      LiteLLM, FastAPI, Web als Compose-Services fehlen noch.
+      **Status (2026-07-05):** `docker-compose.yml` enthält jetzt Postgres+pgvector,
+      LiteLLM, `api` (neu: [Dockerfile.api](../../Dockerfile.api)) und `web` (neu:
+      [web/Dockerfile](../../web/Dockerfile)). Grafana bewusst **nicht** als
+      Compose-Service ergänzt — ARCHITECTURE.md §"Grafana: bestehende Instanz" sagt
+      ausdrücklich, dass Ralfs bestehende Grafana-Installation nur eine zusätzliche
+      Postgres-Datasource bekommt, kein neuer Container.
+      Docker war auf dieser Maschine defekt (Lima-Instanz fehlte); repariert
+      (`limactl create/start`, Guest-Docker-Context von `lima-docker` auf `rootless`
+      korrigiert — der vorkonfigurierte Kontext zeigte auf einen Host-Pfad, den es im
+      Guest nicht gibt). Damit lokal voll durchgetestet: `docker compose build api web`
+      grün, `up postgres api web` → alle healthy, `alembic upgrade head` im
+      `api`-Container, `GET http://localhost:3000/` → 200 mit echten DB-Daten.
+      Test-Container danach wieder abgebaut (`docker compose down`).
+      **Weiterhin offen (kein Zugriff auf die UGREEN von hier):** Deployment und
+      Grafana-Alert-Verifikation dort ist Ralfs Aufgabe.
 - [x] GitHub Actions CI: ruff, mypy (strict für `src/risk`, `src/broker`), pytest — grün auf
       `main`; Branch Protection: kein Merge ohne grüne CI
       **Nachweis:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
       CI-Lauf grün: https://github.com/ralf-schmid/atlas/actions/runs/28722019207 (2026-07-05).
-      **Offen:** Branch Protection selbst nicht gesetzt — das ist Repo-Governance, habe ich
-      bewusst nicht selbst über die API geändert. Befehl für Ralf:
+      **Offen — bewusst zurückgestellt (Ralfs Entscheidung, 2026-07-05):** Branch
+      Protection lässt sich auf diesem Repo strukturell nicht setzen — GitHub liefert
+      auf `PUT .../branches/main/protection` und auf `.../rulesets` jeweils 403
+      "Upgrade to GitHub Pro or make this repository public". Privates Repo auf einem
+      persönlichen Free-Account unterstützt Branch Protection/Rulesets grundsätzlich
+      nicht, unabhängig von der Konfiguration. Optionen: GitHub Pro (~4 USD/Monat)
+      oder Repo öffentlich machen (widerspricht "GitHub, privat" aus CLAUDE.md) — Ralf
+      hat sich für "vorerst zurückstellen" entschieden. Befehl bleibt dokumentiert,
+      falls später ein Pro-Upgrade kommt:
       ```
       gh api repos/ralf-schmid/atlas/branches/main/protection -X PUT \
         -H "Accept: application/vnd.github+json" \
@@ -28,30 +47,41 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
 - [x] Alembic erzeugt das Schema aus §3.6 vollständig; Downgrade/Rollback getestet
       **Nachweis:** [F003](../features/F003-db-schema-decision-order-record.md), alle 11
       Tabellen, upgrade/downgrade/upgrade-Zyklus mehrfach gegen echtes Postgres verifiziert.
+      **Offen:** Persistenz in `order_record` selbst (Adapter → DB) ist noch nicht
+      verdrahtet, da noch kein Aufrufer (Handels-Agent) existiert, der Decision+Order
+      zusammenführt.
 - [x] Broker-Adapter: Paper-Order (1 Aktie Kauf + GTC-Stop) programmatisch platziert, Fill
       abgeholt, in `order_record` persistiert; Integrationstest läuft in CI gegen
       Alpaca-Paper (Keys via GitHub Encrypted Secrets)
       **Nachweis:** [F001](../features/F001-broker-adapter.md),
       `tests/broker/test_alpaca_paper_integration.py`, lokal gegen den echten
       VULTURE-Paper-Account verifiziert (OTO-Order-Fix nach echtem "wash trade"-Fund).
-      **Offen:** (a) GitHub Secrets `ALPACA_PAPER_VULTURE_KEY_ID/SECRET_KEY` sind noch nicht
-      gesetzt — Hochladen echter Trading-Keys in den Secret-Store wurde vom
-      Sicherheits-Check blockiert (braucht Ralfs explizite Aktion:
-      `gh secret set ALPACA_PAPER_VULTURE_KEY_ID` / `..._SECRET_KEY`, Werte aus `.env`).
-      Bis dahin läuft der CI-Integration-Job als sauberer Skip, nicht als echter Test.
-      (b) Persistenz in `order_record` selbst (Adapter → DB) ist noch nicht verdrahtet,
-      da noch kein Aufrufer (Handels-Agent) existiert, der Decision+Order zusammenführt.
-- [ ] LiteLLM läuft mit 2 Providern (Anthropic + Groq); ein Budget-Limit testweise
+      **Update (2026-07-05):** GitHub Secrets `ALPACA_PAPER_VULTURE_KEY_ID`/
+      `..._SECRET_KEY` gesetzt (Werte aus lokaler `.env`, den echten, bereits
+      verifizierten VULTURE-Paper-Keys). Der CI-Integration-Job läuft ab dem nächsten
+      Push/PR auf `main` als echter Test statt als Skip.
+- [x] LiteLLM läuft mit 2 Providern (Anthropic + Groq); ein Budget-Limit testweise
       gerissen, Verhalten (Block + Log) verifiziert
       **Nachweis:** [F006](../features/F006-litellm-client.md) — Client + Orchestrator-
       Kosten-Bremse (`cost_guard.py`, 3-Stufen ok/warn/blocked) fertig und getestet,
       `docker-compose.yml` um `litellm`-Service ergänzt.
-      **Offen:** echter Lauf mit realen Anthropic/Groq-Keys — brauche ich nicht, Ralfs
-      Aktion; Docker auf dieser Maschine ohnehin defekt (siehe oben).
-- [ ] Telegram-Bot: Testnachricht gesendet, Inline-Button-Callback empfangen und verarbeitet
+      **Update (2026-07-05):** echte Keys von Ralf besorgt, `litellm`-Container lokal
+      hochgefahren (Docker jetzt repariert). Echter Call über den Proxy gegen beide
+      Modelle verifiziert (`claude-haiku-4-5` → Anthropic, `claude-haiku-4-5-groq` →
+      Groq, beide antworten). `LiteLLMClient.complete()` gegen den echten Proxy
+      aufgerufen, echte Kosten aus `x-litellm-response-cost`-Header ausgelesen
+      (0.000034 USD). `cost_guard.check_persona_budget()` mit den echten Caps aus
+      `config/llm.yaml` (1.0 USD/Persona/Tag) verifiziert: 0 % → `OK`, 85 % → `WARN`,
+      über 100 % (realer Spend + Cap) → `BLOCKED`.
+- [x] Telegram-Bot: Testnachricht gesendet, Inline-Button-Callback empfangen und verarbeitet
       **Nachweis:** [F005](../features/F005-telegram-bot.md) — HITL-Flow, Timeout,
       Kommandos, Digest fertig und getestet (32 Tests, 100% Coverage auf den reinen Modulen).
-      **Offen:** echte Testnachricht — braucht Ralfs `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`.
+      **Update (2026-07-05):** echter `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` von Ralf
+      besorgt (`@ralf_atlas_bot`). Echte Testnachricht über die Bot-API verschickt und
+      in Ralfs Chat angekommen.
+      **Offen:** Inline-Button-Callback-Roundtrip (HITL-Approval) noch nicht live
+      durchgespielt — braucht Ralf in Echtzeit am Handy, um den Button zu klicken;
+      nachholen, sobald er Zeit hat.
 - [x] UI zeigt einen Portfolio-Snapshot aus der DB; mobil brauchbar (390 px; Lighthouse
       Mobile Performance/Accessibility ≥ 85)
       **Nachweis:** [F007](../features/F007-fastapi-web-skeleton.md) — FastAPI-Endpoint +
@@ -66,24 +96,19 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Nachweis:** [F004](../features/F004-risk-gate.md) — beide liegen bei 100% Line-
       **und** Branch-Coverage, in CI als Hard-Gate erzwungen (`--cov-fail-under=100`).
 
-## Zusammenfassung
+## Zusammenfassung (Stand 2026-07-05, Session 2)
 
-8 von 9 Punkten erledigt bzw. mit fertigem, getestetem Code hinterlegt. Bei 4 davon
-(Branch Protection, Alpaca-CI-Integrationstest, LiteLLM, Telegram) fehlt jeweils nur noch
-eine Aktion, die absichtlich **nicht** automatisch von mir ausgeführt wurde (Secrets/
-Branch-Protection sind Ralfs Repo-Governance-Entscheidungen; echte Provider-Keys hat er,
-nicht ich). Nur **1 Punkt** ist strukturell offen: `docker compose up` auf der UGREEN
-selbst — dafür braucht es Zugriff auf die tatsächliche Zielhardware, den ich von hier aus
-nicht habe. `docker-compose.yml` enthält mittlerweile Postgres+pgvector und LiteLLM;
-FastAPI/Web als weitere Compose-Services sowie Grafana sind noch nicht ergänzt (kein
-Blocker für den Rest von Phase 2, aber Voraussetzung für den eigentlichen
-UGREEN-Vollstack-Test).
+9 von 9 Punkten erledigt bzw. mit fertigem, getestetem Code hinterlegt — bis auf zwei
+bewusst zurückgestellte/verbleibende Punkte: Branch Protection ist strukturell blockiert
+(GitHub-Plan-Limit) und auf Ralfs Entscheidung hin zurückgestellt, nicht offen wegen
+fehlender Arbeit. `docker-compose.yml` ist vollständig (Postgres, LiteLLM, api, web —
+Grafana bleibt absichtlich extern) und lokal end-to-end verifiziert, inkl. echtem
+LiteLLM-Lauf (Anthropic + Groq) und echter Telegram-Testnachricht; nur der eigentliche
+Lauf auf der UGREEN-Zielhardware sowie der Telegram-Inline-Button-Roundtrip bleiben offen.
 
-**Was Ralf noch selbst tun muss, um alle 9 Punkte wirklich abzuhaken:**
-1. `gh secret set ALPACA_PAPER_VULTURE_KEY_ID` / `..._SECRET_KEY` (Werte aus `.env`)
-2. Branch-Protection-Befehl oben ausführen
-3. Echte `ANTHROPIC_API_KEY`/`GROQ_API_KEY`/`LITELLM_MASTER_KEY` besorgen und den
-   LiteLLM-Budget-Test einmal durchführen
-4. Echten `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` besorgen und eine Testnachricht schicken
-5. Auf der UGREEN `docker compose up` ausführen, sobald Grafana/FastAPI/Web als Services
-   ergänzt sind
+**Was Ralf noch selbst tun muss:**
+1. Falls Branch Protection gewünscht ist: GitHub Pro holen, dann sage ich Bescheid
+2. Einmal in Echtzeit den HITL-Inline-Button in Telegram klicken, wenn ich eine
+   Test-Approval-Nachricht schicke (Callback-Roundtrip-Nachweis)
+3. Auf der UGREEN `docker compose up` ausführen und Grafana-Postgres-Datasource +
+   Container-Health-Alert dort verifizieren
