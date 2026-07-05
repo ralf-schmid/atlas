@@ -15,9 +15,12 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       `http://nas.fritz.box:3001/` liefert von einem anderen LAN-Rechner aus 200
       mit echten DB-Daten. Details, Port-Tabelle, bestehende Infrastruktur auf der
       Box: [docs/deployment.md](../deployment.md).
-      **Weiterhin offen:** Grafana-Postgres-Datasource + Container-Health-Alert
-      brauchen Grafana-Admin-Zugang (gehört zum bestehenden `monitoring`-Stack,
-      nicht zu ATLAS) — Ralfs Aufgabe oder er gibt einen API-Key.
+      **Update (2026-07-05):** Grafana-Postgres-Datasource `atlas-postgres` per API
+      angelegt und verifiziert ("Database Connection OK") — Details
+      [docs/deployment.md](../deployment.md). Container-Health-Alert-Regel bewusst
+      nicht von mir eingerichtet: bräuchte einen `blackbox_exporter` im bestehenden
+      `monitoring`-Stack (nicht Teil von ATLAS); Ralf macht das selbst in der
+      Grafana-UI.
 - [x] GitHub Actions CI: ruff, mypy (strict für `src/risk`, `src/broker`), pytest — grün auf
       `main`
       **Nachweis:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
@@ -90,8 +93,9 @@ ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`, Details
 alle 4 Container healthy, von einem anderen LAN-Rechner aus verifiziert.
 
 **Was noch offen ist:**
-1. Grafana-Postgres-Datasource + Container-Health-Alert in der bestehenden
-   Grafana-Instanz einrichten (nicht per Zusatz-Grafana auf 3001 o.ä. — die
-   bestehende Instanz auf Port 3000 wird genutzt)
+1. Container-Health-Alert-Regel + Telegram-Contact-Point in der bestehenden
+   Grafana-Instanz — Ralf richtet das selbst ein (bräuchte sonst einen
+   `blackbox_exporter` im bestehenden `monitoring`-Stack, den ich nicht ungefragt
+   anfasse)
 2. Einmal in Echtzeit den HITL-Inline-Button in Telegram klicken, wenn ich eine
    Test-Approval-Nachricht schicke (Callback-Roundtrip-Nachweis)
