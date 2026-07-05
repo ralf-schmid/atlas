@@ -336,3 +336,32 @@ class ScreenerResult(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class PublicationArticle(Base):
+    """One segmented article from a Boersenmedien-PDF-Ausgabe, see
+    docs/features/F011-publications-pdf-fallback.md.
+
+    Full article text is stored here for agent consumption only — CLAUDE.md forbids
+    surfacing Zeitschriften-Volltexte in UI or repo (metadata/summaries/source refs
+    only); that constraint lives in the UI/API layer, not here.
+    """
+
+    __tablename__ = "publication_article"
+    __table_args__ = (
+        UniqueConstraint(
+            "publication", "issue_date", "seq", name="uq_publication_article_issue_seq"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    publication: Mapped[str] = mapped_column(String(100))
+    issue_date: Mapped[date]
+    seq: Mapped[int]
+    page: Mapped[int]
+    title: Mapped[str] = mapped_column(String(500))
+    text: Mapped[str] = mapped_column(Text)
+    source_file: Mapped[str] = mapped_column(String(500))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

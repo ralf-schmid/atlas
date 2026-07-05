@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.115,<1.0",
     "uvicorn[standard]>=0.30,<1.0",
     "defusedxml>=0.7.1",
+    "pymupdf>=1.28.0",
 ]
 
 [dependency-groups]
@@ -63,6 +64,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = "src.db.*"
 strict = true
+
+[[tool.mypy.overrides]]
+module = "src.ingestion.publications_pipeline"
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
