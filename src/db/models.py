@@ -15,7 +15,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
-from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -256,3 +256,36 @@ class CostLedger(Base):
     tokens_in: Mapped[int] = mapped_column(default=0)
     tokens_out: Mapped[int] = mapped_column(default=0)
     cost_usd: Mapped[Decimal] = mapped_column(Numeric(10, 4))
+
+
+class MarketBarTimeframe(enum.Enum):
+    DAY = "1Day"
+
+
+class MarketBar(Base):
+    """OHLCV bars per instrument, see docs/features/F008-marktdaten-sync.md.
+
+    Not part of the ARCHITECTURE.md §3.6 table list (which predates P3) — added here
+    per §3.5.3 ("Kurse/Bars: Alpaca Market Data ... technische Indikatoren werden im
+    Code berechnet"), which requires persisted history to compute indicators from.
+    """
+
+    __tablename__ = "market_bar"
+    __table_args__ = (
+        UniqueConstraint("symbol", "timeframe", "ts", name="uq_market_bar_symbol_timeframe_ts"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(20))
+    timeframe: Mapped[MarketBarTimeframe] = mapped_column(
+        Enum(MarketBarTimeframe, name="market_bar_timeframe")
+    )
+    ts: Mapped[datetime]
+    open: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    high: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    low: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    close: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    volume: Mapped[Decimal] = mapped_column(Numeric(24, 6))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

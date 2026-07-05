@@ -1,0 +1,13 @@
+# Ingestion-Jobs, siehe docs/features/F008-marktdaten-sync.md.
+# Keys kommen ausschliesslich aus Environment-Variablen (Invariante 6), nie aus dieser Datei.
+
+market_data:
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  # Seed-Watchlist fuer P3: Symbole, die schon heute in einem Portfolio/Decision-Kontext
+  # vorkommen koennten. Wird in P4 durch eine dynamische Liste (offene Positionen +
+  # Screener-Kandidaten) ersetzt, siehe F008 Kritische Betrachtung Punkt 2.
+  watchlist:
+    - AAPL
+    - MSFT
+    - SPY
