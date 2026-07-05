@@ -43,12 +43,21 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       da noch kein Aufrufer (Handels-Agent) existiert, der Decision+Order zusammenführt.
 - [ ] LiteLLM läuft mit 2 Providern (Anthropic + Groq); ein Budget-Limit testweise
       gerissen, Verhalten (Block + Log) verifiziert
-      **Status:** noch nicht begonnen.
+      **Nachweis:** [F006](../features/F006-litellm-client.md) — Client + Orchestrator-
+      Kosten-Bremse (`cost_guard.py`, 3-Stufen ok/warn/blocked) fertig und getestet,
+      `docker-compose.yml` um `litellm`-Service ergänzt.
+      **Offen:** echter Lauf mit realen Anthropic/Groq-Keys — brauche ich nicht, Ralfs
+      Aktion; Docker auf dieser Maschine ohnehin defekt (siehe oben).
 - [ ] Telegram-Bot: Testnachricht gesendet, Inline-Button-Callback empfangen und verarbeitet
-      **Status:** noch nicht begonnen.
-- [ ] UI zeigt einen Portfolio-Snapshot aus der DB; mobil brauchbar (390 px; Lighthouse
+      **Nachweis:** [F005](../features/F005-telegram-bot.md) — HITL-Flow, Timeout,
+      Kommandos, Digest fertig und getestet (32 Tests, 100% Coverage auf den reinen Modulen).
+      **Offen:** echte Testnachricht — braucht Ralfs `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID`.
+- [x] UI zeigt einen Portfolio-Snapshot aus der DB; mobil brauchbar (390 px; Lighthouse
       Mobile Performance/Accessibility ≥ 85)
-      **Status:** noch nicht begonnen.
+      **Nachweis:** [F007](../features/F007-fastapi-web-skeleton.md) — FastAPI-Endpoint +
+      Next.js-Seite, mit echten Demo-Daten gegen Postgres verifiziert. Echter Lighthouse-Lauf
+      (Production-Build): **Performance 99, Accessibility 100** (Ziel: ≥ 85). Bei 390 px kein
+      horizontaler Scroll, Touch-Targets ≥ 44 px per `preview_inspect` verifiziert.
 - [x] Alpaca-Spikes beantwortet, Ergebnisse als ADRs in `docs/adr/`
       **Nachweis:** [ADR-0001](../adr/0001-alpaca-paper-account-limit.md),
       [ADR-0002](../adr/0002-alpaca-crypto-de-residents.md),
@@ -59,6 +68,22 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
 
 ## Zusammenfassung
 
-5 von 9 Punkten erledigt (bzw. mit klar benannten Restpunkten, die Ralfs Aktion brauchen:
-GitHub Secrets, Branch Protection, UGREEN-Deployment). 4 Punkte noch offen: Docker-Vollstack,
-LiteLLM, Telegram-Bot, FastAPI/UI — daran wird als Nächstes gearbeitet.
+8 von 9 Punkten erledigt bzw. mit fertigem, getestetem Code hinterlegt. Bei 4 davon
+(Branch Protection, Alpaca-CI-Integrationstest, LiteLLM, Telegram) fehlt jeweils nur noch
+eine Aktion, die absichtlich **nicht** automatisch von mir ausgeführt wurde (Secrets/
+Branch-Protection sind Ralfs Repo-Governance-Entscheidungen; echte Provider-Keys hat er,
+nicht ich). Nur **1 Punkt** ist strukturell offen: `docker compose up` auf der UGREEN
+selbst — dafür braucht es Zugriff auf die tatsächliche Zielhardware, den ich von hier aus
+nicht habe. `docker-compose.yml` enthält mittlerweile Postgres+pgvector und LiteLLM;
+FastAPI/Web als weitere Compose-Services sowie Grafana sind noch nicht ergänzt (kein
+Blocker für den Rest von Phase 2, aber Voraussetzung für den eigentlichen
+UGREEN-Vollstack-Test).
+
+**Was Ralf noch selbst tun muss, um alle 9 Punkte wirklich abzuhaken:**
+1. `gh secret set ALPACA_PAPER_VULTURE_KEY_ID` / `..._SECRET_KEY` (Werte aus `.env`)
+2. Branch-Protection-Befehl oben ausführen
+3. Echte `ANTHROPIC_API_KEY`/`GROQ_API_KEY`/`LITELLM_MASTER_KEY` besorgen und den
+   LiteLLM-Budget-Test einmal durchführen
+4. Echten `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` besorgen und eine Testnachricht schicken
+5. Auf der UGREEN `docker compose up` ausführen, sobald Grafana/FastAPI/Web als Services
+   ergänzt sind

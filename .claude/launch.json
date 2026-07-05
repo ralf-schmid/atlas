@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "cd web && API_URL=http://localhost:8000 npm run dev"
+      ],
+      "port": 3000
+    }
+  ]
+}
