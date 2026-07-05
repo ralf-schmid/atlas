@@ -1,5 +1,8 @@
+from decimal import Decimal
+
 from fastapi.testclient import TestClient
 
+from src.db.models import PortfolioMode
 from tests.db.factories import (
     make_persona,
     make_portfolio,
@@ -61,6 +64,56 @@ def test_get_persona_snapshot_without_snapshot_returns_404(client: TestClient, s
     response = client.get("/api/personas/CONTRA/snapshot")
 
     assert response.status_code == 404
+
+
+def test_get_persona_snapshot_defaults_to_paper_mode(client: TestClient, session):
+    persona = make_persona(session, name="HYPE")
+    paper = make_portfolio(session, persona, mode=PortfolioMode.PAPER)
+    live = make_portfolio(session, persona, mode=PortfolioMode.LIVE)
+    make_portfolio_snapshot(session, paper)
+    live_snapshot = make_portfolio_snapshot(session, live)
+    live_snapshot.total_value = Decimal("2000.00")
+    session.flush()
+
+    response = client.get("/api/personas/HYPE/snapshot")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["mode"] == "paper"
+    assert body["total_value"] == 5050.0
+
+
+def test_get_persona_snapshot_mode_live_selects_live_portfolio(client: TestClient, session):
+    persona = make_persona(session, name="HYPE")
+    make_portfolio(session, persona, mode=PortfolioMode.PAPER)
+    live = make_portfolio(session, persona, mode=PortfolioMode.LIVE)
+    make_portfolio_snapshot(session, live)
+    session.flush()
+
+    response = client.get("/api/personas/HYPE/snapshot?mode=live")
+
+    assert response.status_code == 200
+    assert response.json()["mode"] == "live"
+
+
+def test_get_persona_snapshot_missing_mode_portfolio_returns_404(client: TestClient, session):
+    persona = make_persona(session, name="HYPE")
+    make_portfolio(session, persona, mode=PortfolioMode.PAPER)
+    session.flush()
+
+    response = client.get("/api/personas/HYPE/snapshot?mode=live")
+
+    assert response.status_code == 404
+    assert "live" in response.json()["detail"]
+
+
+def test_get_persona_snapshot_invalid_mode_returns_422(client: TestClient, session):
+    make_persona(session, name="HYPE")
+    session.flush()
+
+    response = client.get("/api/personas/HYPE/snapshot?mode=demo")
+
+    assert response.status_code == 422
 
 
 def test_health_endpoint(client: TestClient):
