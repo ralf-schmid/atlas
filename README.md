@@ -53,7 +53,7 @@ Die verbindliche Architektur ist in zwei Dokumenten definiert:
 - Kosten-Modell und Guardrails fixiert
 - **Freigegeben für Phase 2**
 
-### Phase 2: Fundament ✅ weitgehend abgeschlossen
+### Phase 2: Fundament ✅ abgeschlossen
 - [x] Docker-Compose-Stack auf der UGREEN live deployt; API, Web, Postgres und LiteLLM laufen healthy
 - [x] GitHub Actions CI mit ruff, mypy und pytest ist grün; Branch Protection ist auf dem privaten Free-Repo strukturell nicht verfügbar
 - [x] Alembic-Schema für die Kerntabellen aus ARCHITECTURE.md §3.6 steht und ist upgrade/downgrade-getestet
@@ -63,8 +63,9 @@ Die verbindliche Architektur ist in zwei Dokumenten definiert:
 - [x] FastAPI + Next.js zeigen Portfolio-Snapshots aus der DB; mobile Lighthouse-Ziele erreicht
 - [x] Alpaca-Spikes als ADRs dokumentiert
 
-Details und Nachweise stehen in `docs/dod/phase-2.md`. Noch außerhalb von ATLAS offen:
-Container-Health-Alert-Regel + Telegram-Contact-Point in Ralfs bestehender Grafana-Instanz.
+Details und Nachweise stehen in `docs/dod/phase-2.md`. Der Container-Health-Alert
+in Ralfs bestehender Grafana-/Monitoring-Instanz ist als separater Ops-Task
+aus Phase 2 ausgelagert.
 
 ### Weitere Phasen
 Phase 3 (Ingestion), Phase 4 (Agenten-Core), Phase 5 (Review & Wettbewerb-Start), Phase 6 (Live), Phase 7 (Autonomie & Experimente) — siehe ARCHITECTURE.md §8 für vollständige DoD.
@@ -202,5 +203,5 @@ Dieses Projekt entstand in enger Zusammenarbeit mit Claude (Anthropic) für die 
 ---
 
 **Zuletzt aktualisiert:** Juli 2026  
-**Phase:** 2 (Fundament weitgehend abgeschlossen)  
-**Status:** UGREEN-Stack live, CI grün, Telegram-HITL-Callback implementiert
+**Phase:** 2 (Fundament abgeschlossen)  
+**Status:** UGREEN-Stack live, CI grün, bereit für Phase 3

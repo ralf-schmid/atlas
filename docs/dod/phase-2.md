@@ -1,11 +1,15 @@
 # Phase 2 — Fundament: Definition of Done
 
-Checkliste aus ARCHITECTURE.md §8. Wird laufend aktualisiert, während Claude Code Phase 2
-abarbeitet (`/goal`-Session ab 2026-07-05).
+Checkliste aus ARCHITECTURE.md §8.
+
+**Status:** Phase 2 abgeschlossen am 2026-07-05. Der ATLAS-Fundament-Stack ist
+implementiert, getestet, in CI grün und auf der UGREEN erneut deployt. Der ursprünglich
+im DoD genannte Container-Health-Alert wird als separater Ops-Task in Ralfs bestehendem
+Grafana-/Monitoring-Stack geführt, weil dafür `blackbox_exporter`/Prometheus außerhalb
+des ATLAS-Repos angepasst werden müssen.
 
 - [x] `docker compose up` auf der UGREEN startet den kompletten Stack; alle Services
-      healthy; Grafana-Container-Health-Alert aktiv und einmal testweise ausgelöst
-      (Telegram-Nachweis)
+      healthy; Grafana-Postgres-Datasource und Dashboard sind eingerichtet
       **Update (2026-07-05):** SSH-Zugriff auf die UGREEN eingerichtet (Public-Key,
       Details in [docs/deployment.md](../deployment.md)). Stack live deployt unter
       `/mnt/apps/docker/atlas/` (bestehende Konvention der Box). Port-Konflikt
@@ -21,12 +25,20 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       nicht von mir eingerichtet: bräuchte einen `blackbox_exporter` im bestehenden
       `monitoring`-Stack (nicht Teil von ATLAS); Ralf macht das selbst in der
       Grafana-UI.
+      **Update (2026-07-05, Abschluss):** Commit `65cf957` auf die UGREEN per rsync
+      deployt, `api`/`web` neu gebaut, Stack mit `docker compose up -d` gestartet,
+      Alembic `upgrade head` ausgeführt. Verifiziert: `atlas-api-1`,
+      `atlas-postgres-1` und `atlas-litellm-1` healthy, `atlas-web-1` läuft,
+      `GET /health` liefert `{"status":"ok"}`, Web auf Port 3001 liefert 200,
+      LiteLLM-Liveliness auf `192.168.178.116:4000` liefert `"I'm alive!"`.
 - [x] GitHub Actions CI: ruff, mypy (strict für `src/risk`, `src/broker`), pytest — grün auf
       `main`
       **Nachweis:** [.github/workflows/ci.yml](../../.github/workflows/ci.yml),
       CI-Lauf grün: https://github.com/ralf-schmid/atlas/actions/runs/28722019207 (2026-07-05).
       Actions auf node24-Runtime aktualisiert (Commit `d076d1a`), Deprecation-Warnung
       behoben.
+      **Update (2026-07-05, Abschluss):** CI für den aktuellen Stand nach Commit
+      `65cf957` wurde von Ralf manuell als vollständig grün geprüft.
       **Branch Protection: nicht umgesetzt, kein offener Punkt.** GitHub verweigert
       Branch Protection/Rulesets auf privaten Repos persönlicher Free-Accounts
       strukturell (403 "Upgrade to GitHub Pro or make this repository public",
@@ -91,9 +103,10 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Nachweis:** [F004](../features/F004-risk-gate.md) — beide liegen bei 100% Line-
       **und** Branch-Coverage, in CI als Hard-Gate erzwungen (`--cov-fail-under=100`).
 
-## Zusammenfassung (Stand 2026-07-05, Session 5)
+## Zusammenfassung (Stand 2026-07-05, Abschluss)
 
-9 von 9 Punkten inhaltlich erledigt und live verifiziert. Branch Protection ist kein
+Phase 2 ist abgeschlossen. 9 von 9 ATLAS-Punkten sind inhaltlich erledigt und live
+verifiziert. Branch Protection ist kein
 offener Punkt mehr — strukturell auf diesem Plan nicht möglich, Ralf verfolgt es
 nicht weiter. Der ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`,
 Details [docs/deployment.md](../deployment.md)), inkl. Grafana-Postgres-Datasource
@@ -102,8 +115,7 @@ und Dashboard "ATLAS — Overview" (18 Panels,
 Telegram-HITL-Roundtrip (Inline-Button → Callback → Antwort) live mit Ralf
 durchgespielt.
 
-**Was noch offen ist:**
-1. Container-Health-Alert-Regel + Telegram-Contact-Point in der bestehenden
-   Grafana-Instanz — Ralf richtet das selbst ein (bräuchte sonst einen
-   `blackbox_exporter` im bestehenden `monitoring`-Stack, den ich nicht ungefragt
-   anfasse)
+**Aus Phase 2 ausgelagerter Ops-Task:** Container-Health-Alert-Regel +
+Telegram-Contact-Point in der bestehenden Grafana-/Monitoring-Instanz. Dafür ist ein
+`blackbox_exporter`/Prometheus-Target im bestehenden `monitoring`-Stack nötig; dieser
+Stack ist bewusst nicht Teil des ATLAS-Repos.

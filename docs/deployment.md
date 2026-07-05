@@ -93,6 +93,14 @@ Wichtig für Port-/Namenskonflikte beim ATLAS-Deployment:
   gegen die Box-DB; genau das Szenario aus dem Docstring von
   `scripts/seed_demo_snapshot.py`). Bei Bedarf neu seeden:
   `sudo docker compose exec -T api uv run python - < scripts/seed_demo_snapshot.py`.
+- **Re-Verifiziert 2026-07-05 (Phase-2-Abschluss):** Commit `65cf957`
+  (`feat(telegram): persist HITL callback outcomes`) per `rsync` auf die UGREEN
+  deployt, `api`/`web` neu gebaut, `sudo docker compose up -d` ausgeführt und
+  Alembic `upgrade head` im API-Container ausgeführt. Ergebnis: `atlas-api-1`,
+  `atlas-postgres-1` und `atlas-litellm-1` healthy, `atlas-web-1` läuft.
+  Healthchecks: `http://localhost:8000/health` → `{"status":"ok"}`,
+  `http://localhost:3001/` → 200 OK,
+  `http://192.168.178.116:4000/health/liveliness` → `"I'm alive!"`.
 
 ## Grafana-Integration (bestehende Instanz, Port 3000)
 
@@ -111,12 +119,12 @@ veröffentlichten Host-Port über den LAN-Hostnamen — mit `nc` aus dem
 `grafana`-Container getestet, bevor die Datasource angelegt wurde), DB `atlas`,
 User/Passwort `atlas`/`atlas`. Health-Check: `"Database Connection OK"`.
 
-**Container-Health-Alert-Regel: bewusst nicht von mir eingerichtet.** Grafana kann
+**Container-Health-Alert-Regel: separater Ops-Task.** Grafana kann
 nur auf Metriken alerten, nicht direkt auf rohe HTTP-Healthcheck-Endpoints — der
 Standardweg wäre ein `blackbox_exporter` als neuer Service im bestehenden
 `monitoring`-Stack (`/mnt/apps/docker/monitoring/compose.yaml` + `prometheus.yml`,
-kein Teil von ATLAS). Ralf hat entschieden, das selbst in der Grafana-UI
-einzurichten, statt dass ich in seinen bestehenden monitoring-Stack eingreife.
+kein Teil von ATLAS). Dieser Punkt ist deshalb aus ATLAS Phase 2 ausgelagert und
+wird in Ralfs bestehender Monitoring-Umgebung eingerichtet.
 
 ### Dashboard "ATLAS — Overview"
 
