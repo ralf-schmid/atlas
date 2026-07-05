@@ -109,17 +109,27 @@ class InternalLedgerAdapter:
         """
         state = self._load()
         triggered: list[str] = []
+        changed = False
 
         for order_id, stop in list(state.pending_stops.items()):
             last_price = self._market_data.get_last_price(stop.symbol)
-            if _is_triggered(stop, last_price):
+            if not _is_triggered(stop, last_price):
+                continue
+            # A pending stop can be stale by the time it triggers: the position may
+            # have been (partially) sold, or cash spent, since it was registered.
+            # Clamp to what is actually executable (no shorting, no margin) instead
+            # of raising mid-sweep — an exception here would abort the remaining
+            # stops and lose the fills already applied in this pass.
+            fill_qty = min(stop.qty, _max_executable_qty(state, stop, last_price))
+            if fill_qty > 0:
                 self._apply_fill(
-                    state, symbol=stop.symbol, qty=stop.qty, side=stop.side, price=last_price
+                    state, symbol=stop.symbol, qty=fill_qty, side=stop.side, price=last_price
                 )
-                del state.pending_stops[order_id]
                 triggered.append(order_id)
+            del state.pending_stops[order_id]
+            changed = True
 
-        if triggered:
+        if changed:
             self._store.save(self._persona, state)
         return triggered
 
@@ -160,6 +170,13 @@ class InternalLedgerAdapter:
             existing.qty -= qty
             if existing.qty == 0:
                 del state.positions[symbol]
+
+
+def _max_executable_qty(state: LedgerState, stop: PendingStop, last_price: float) -> float:
+    if stop.side == OrderSide.SELL:
+        existing = state.positions.get(stop.symbol)
+        return existing.qty if existing is not None else 0.0
+    return state.cash / last_price  # BUY-side close-out stop: bounded by cash (no margin)
 
 
 def _is_triggered(stop: PendingStop, last_price: float) -> bool:

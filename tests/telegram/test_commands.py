@@ -26,6 +26,11 @@ def test_parse_persona_command_wrong_command_raises():
         parse_persona_command("/pause VULTURE", "resume")
 
 
+def test_parse_persona_command_unknown_persona_raises():
+    with pytest.raises(ValueError, match="Unknown persona: FOO"):
+        parse_persona_command("/pause FOO", "pause")
+
+
 def test_parse_hitl_command_on():
     assert parse_hitl_command("/hitl on") is True
 

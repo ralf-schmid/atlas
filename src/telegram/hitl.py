@@ -38,18 +38,41 @@ class HitlOutcome:
     decided_by: str  # "user" | "timeout"
 
 
+def make_callback_data(action: str, decision_id: int) -> str:
+    """Callback payload carries the decision id — a button press must only ever be
+    able to approve/reject the exact decision its message belongs to, even with
+    several HITL requests pending at once."""
+    if action not in ("approve", "reject"):
+        raise ValueError(f"Unknown HITL action: {action!r}")
+    return f"hitl:{action}:{decision_id}"
+
+
+def _parse_callback_data(callback_data: str) -> tuple[str, int]:
+    parts = callback_data.split(":")
+    if len(parts) != 3 or parts[0] != "hitl" or parts[1] not in ("approve", "reject"):
+        raise ValueError(f"Unknown callback_data: {callback_data!r}")
+    try:
+        decision_id = int(parts[2])
+    except ValueError as exc:
+        raise ValueError(f"Unknown callback_data: {callback_data!r}") from exc
+    return parts[1], decision_id
+
+
 def process_callback(
     request: HitlRequest, callback_data: str, now: datetime.datetime
 ) -> HitlOutcome:
-    """Timeout is checked first and wins regardless of callback_data — a stale
-    button press after the window has closed must not approve anything."""
+    """Timeout is checked before the action — a stale button press after the window
+    has closed must not approve anything. A decision-id mismatch always raises."""
+    action, decision_id = _parse_callback_data(callback_data)
+    if decision_id != request.decision_id:
+        raise ValueError(
+            f"callback decision id {decision_id} does not match request {request.decision_id}"
+        )
     if request.is_expired(now):
         return HitlOutcome(decision=HitlDecision.REJECTED, decided_by="timeout")
-    if callback_data == "approve":
+    if action == "approve":
         return HitlOutcome(decision=HitlDecision.APPROVED, decided_by="user")
-    if callback_data == "reject":
-        return HitlOutcome(decision=HitlDecision.REJECTED, decided_by="user")
-    raise ValueError(f"Unknown callback_data: {callback_data!r}")
+    return HitlOutcome(decision=HitlDecision.REJECTED, decided_by="user")
 
 
 def format_approval_message(request: HitlRequest) -> str:

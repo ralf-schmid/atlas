@@ -17,6 +17,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 
 from src.telegram.commands import parse_hitl_command, parse_persona_command
 from src.telegram.config import TelegramConfig
+from src.telegram.hitl import make_callback_data
 from src.telegram.security import is_authorized_chat
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
@@ -35,12 +36,16 @@ def build_application(config: TelegramConfig) -> Application[Any, Any, Any, Any,
     return app
 
 
-def hitl_approval_keyboard() -> InlineKeyboardMarkup:
+def hitl_approval_keyboard(decision_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Freigeben", callback_data="approve"),
-                InlineKeyboardButton("❌ Ablehnen", callback_data="reject"),
+                InlineKeyboardButton(
+                    "✅ Freigeben", callback_data=make_callback_data("approve", decision_id)
+                ),
+                InlineKeyboardButton(
+                    "❌ Ablehnen", callback_data=make_callback_data("reject", decision_id)
+                ),
             ]
         ]
     )

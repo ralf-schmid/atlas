@@ -20,11 +20,11 @@ def test_build_application_succeeds_with_dummy_token():
     assert app is not None
 
 
-def test_hitl_approval_keyboard_has_approve_and_reject_buttons():
-    keyboard = hitl_approval_keyboard()
+def test_hitl_approval_keyboard_binds_buttons_to_decision_id():
+    keyboard = hitl_approval_keyboard(decision_id=42)
 
     callback_data = {button.callback_data for row in keyboard.inline_keyboard for button in row}
-    assert callback_data == {"approve", "reject"}
+    assert callback_data == {"hitl:approve:42", "hitl:reject:42"}
 
 
 def _mock_update(chat_id: int, text: str | None = None):

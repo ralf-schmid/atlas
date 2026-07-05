@@ -74,6 +74,34 @@ def test_place_order_submits_oto_bracket_with_gtc_stop_leg(adapter, mock_client)
     assert result.stop_loss_price == 150.0
 
 
+def test_place_order_rejects_unexpected_response_type(adapter, mock_client):
+    mock_client.submit_order.return_value = {"id": "raw-dict"}
+
+    with pytest.raises(TypeError, match="Unexpected submit_order response"):
+        adapter.place_order(
+            decision_id=1, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+        )
+
+
+def test_place_order_rejects_missing_stop_leg(adapter, mock_client):
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="entry-123", legs=None)
+
+    with pytest.raises(RuntimeError, match="without exactly one stop leg"):
+        adapter.place_order(
+            decision_id=1, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+        )
+
+
+def test_place_order_rejects_multiple_legs(adapter, mock_client):
+    legs = [AlpacaOrder.model_construct(id="a"), AlpacaOrder.model_construct(id="b")]
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="entry-123", legs=legs)
+
+    with pytest.raises(RuntimeError, match="without exactly one stop leg"):
+        adapter.place_order(
+            decision_id=1, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+        )
+
+
 def test_cancel_order(adapter, mock_client):
     adapter.cancel_order("order-789")
     mock_client.cancel_order_by_id.assert_called_once_with("order-789")
