@@ -1,6 +1,6 @@
 # F005 — Telegram-Bot-Grundgerüst
 
-Status: in Umsetzung
+Status: umgesetzt
 Datum: 2026-07-05
 Phase: 2
 
@@ -11,14 +11,14 @@ HITL-Approvals (Inline-Buttons ✅/❌, 30-Min-Timeout = Reject), Alerts, tägli
 Plus Kommandos `/status`, `/pause <persona>`, `/resume <persona>`, `/hitl on|off`,
 `/digest`. Sicherheit: nur die konfigurierte Chat-ID wird akzeptiert.
 
-Per explizitem Entscheidungsstand (CLAUDE.md, Punkt 6): *"Telegram-Bot: Ralf liefert
+Per explizitem Entscheidungsstand (AGENTS.md, Punkt 6): *"Telegram-Bot: Ralf liefert
 Token + Chat-ID, sobald das Bot-Grundgerüst steht — bis dahin gegen Dummy-Config
 entwickeln, Bot-Funktionen testbar mocken."* Dieses Feature liefert genau das: die komplette
 Logik (HITL-Zustandsmaschine, Timeout, Kommando-Parsing, Digest-Rendering,
 Chat-ID-Sicherheitsgate) als reine, getestete Funktionen, plus eine dünne
-`python-telegram-bot`-Verdrahtung. **Nicht Teil dieses Features:** ein echter Bot-Token/
-Chat-ID-Test (DoD-Punkt "Testnachricht gesendet, Callback empfangen") — das kann erst
-laufen, sobald Ralf Token + Chat-ID liefert.
+`python-telegram-bot`-Verdrahtung. Der Inline-Button-Callback lädt eine pending
+Decision per UUID, wendet Timeout/Approve/Reject deterministisch an und persistiert das
+Ergebnis in `decision.hitl` + `decision.status`.
 
 ## 2. Kritische Betrachtung
 
@@ -33,11 +33,10 @@ laufen, sobald Ralf Token + Chat-ID liefert.
 **Design-Entscheidungen:**
 - **Library:** `python-telegram-bot` (async, `Application`-Pattern) — Standard für
   Telegram-Bots in Python, aktiv gepflegt.
-- **HITL-Persistenz:** In diesem Feature nur die reine Zustandslogik (`HitlRequest`
-  Dataclass, `is_expired`, `process_callback`). Tatsächliche Persistenz der offenen
-  Requests (damit ein Timeout auch nach einem Prozess-Neustart korrekt greift) braucht
-  eine DB-Tabelle, die es noch nicht gibt (`decision.hitl` JSONB existiert bereits als
-  Zielort, siehe F003) — Verdrahtung folgt mit dem Handels-Agenten.
+- **HITL-Persistenz:** Offene Requests liegen auf der persistierten Decision:
+  `decision.status = hitl_pending`, Metadaten in `decision.hitl`. Der Callback verarbeitet
+  ausschließlich pending Decisions per DB-ID und schreibt `approved` oder `hitl_rejected`
+  zurück. Eine separate HITL-Tabelle ist für Phase 2 nicht nötig.
 - **Digest-Daten:** `DigestData` ist bewusst eine einfache Dataclass (nicht direkt an
   SQLAlchemy-Modelle gekoppelt), damit `digest.py` ohne DB-Verbindung testbar bleibt —
   das tatsächliche Füllen aus `portfolio_snapshot`/`order_record`/`cost_ledger` ist
@@ -65,26 +64,29 @@ Unit-Tests (`tests/telegram/`), keine echte Telegram-API, keine Netzwerkzugriffe
 10. Bot-Grundgerüst (`bot.py`) baut eine `Application` mit Dummy-Token ohne Fehler
     (Konstruktion prüft das Token-Format nicht, nur die eigentliche `run_polling()`
     würde einen echten Token brauchen — hier nicht aufgerufen).
+11. HITL-Callback ohne DB-Session liefert eine klare Fehlermeldung.
+12. HITL-Callback mit pending Decision persistiert das Ergebnis und aktualisiert die
+    Telegram-Nachricht.
 
 ## 4. Implementierung
 
-`src/telegram/config.py`, `security.py`, `hitl.py`, `digest.py`, `commands.py`, `bot.py`.
+`src/telegram/config.py`, `security.py`, `hitl.py`, `hitl_store.py`, `digest.py`,
+`commands.py`, `bot.py`.
 
 ## 5. Testdurchlauf
 
-`uv run pytest tests/telegram/ --cov=src/telegram --cov-branch` → 32/32 grün. Coverage:
-100% für `config.py`, `security.py`, `hitl.py`, `digest.py`, `commands.py` (alle reinen
-Funktionen); `bot.py` (reine PTB-Verdrahtung mit TODO-Stubs für DB-Anbindung) liegt bei 65% —
-bewusst niedriger, da dieses Modul nicht unter die 100%-Pflicht von `src/risk`/`src/broker`
-fällt. Gesamtprojekt weiterhin bei 97% Line-Coverage (136 Tests). `uv run ruff check`,
-`ruff format --check` und `uv run mypy src/telegram` → alle sauber.
+`uv run pytest tests/telegram/` → 41 passed, 6 skipped ohne `DATABASE_URL`
+(DB-Store-Tests benötigen echten Postgres/Migrationen). `uv run ruff check src/telegram
+tests/telegram` → sauber. Der Callback-Pfad ist unit-getestet; die DB-Store-Tests laufen,
+sobald `DATABASE_URL` auf eine Test-Postgres zeigt.
 
 **Nebenbei gefunden:** Testordner ohne `__init__.py` führten zu einer Modulnamens-Kollision
 (`tests/risk/test_config.py` vs. `tests/telegram/test_config.py`, beide `test_config`) —
 behoben durch `__init__.py` in allen `tests/`-Unterordnern.
 
-Nicht ausgeführt: ein echter Bot-Test (Testnachricht senden, Callback empfangen) — braucht
-Ralfs echten `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` (siehe `.env.example`).
+Echter Bot-Test wurde am 2026-07-05 mit Ralfs `@ralf_atlas_bot` durchgeführt:
+Testnachricht gesendet, Inline-Button-Callback empfangen und beantwortet. Die danach
+ergänzte DB-Persistenz wurde lokal über Tests abgesichert.
 
 ## 6. Rollback-Pfad
 

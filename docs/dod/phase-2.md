@@ -70,11 +70,13 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Update (2026-07-05):** Inline-Button-Callback-Roundtrip live durchgespielt —
       echte Nachricht mit ✅/❌-Buttons verschickt, Ralf hat ✅ getippt, der Callback
       (`data=approve`) kam bei einer echten `CallbackQueryHandler`-Instanz an, wurde
-      beantwortet (Spinner verschwindet) und eine Bestätigung zurückgeschickt. Die
-      eigentliche Verarbeitung (`decision.hitl` befüllen, `hitl.process_callback()`
-      aufrufen) ist noch ein TODO in `src/telegram/bot.py::_handle_hitl_callback` —
-      braucht den Handels-Agenten/eine HITL-Tabelle, die es in Phase 2 noch nicht
-      gibt; der Bot-Plumbing-Roundtrip selbst ist aber vollständig verifiziert.
+      beantwortet (Spinner verschwindet) und eine Bestätigung zurückgeschickt.
+      **Update (2026-07-05):** Der offene Review-Punkt ist umgesetzt:
+      `_handle_hitl_callback` lädt pending Decisions per UUID aus der DB, ruft
+      `hitl.process_callback()` auf, schreibt `decision.hitl` und `decision.status`
+      (`approved`/`hitl_rejected`) zurück und aktualisiert die Telegram-Nachricht.
+      Verifiziert mit `uv run pytest tests/telegram/` (41 passed, 6 skipped ohne
+      `DATABASE_URL`) und `uv run ruff check src/telegram tests/telegram`.
 - [x] UI zeigt einen Portfolio-Snapshot aus der DB; mobil brauchbar (390 px; Lighthouse
       Mobile Performance/Accessibility ≥ 85)
       **Nachweis:** [F007](../features/F007-fastapi-web-skeleton.md) — FastAPI-Endpoint +

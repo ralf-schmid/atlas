@@ -10,22 +10,40 @@ Ralf's real TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID.
 
 from __future__ import annotations
 
+import datetime
+import uuid
 from collections.abc import Callable, Coroutine
 from typing import Any
 
+from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
 from src.telegram.commands import parse_hitl_command, parse_persona_command
 from src.telegram.config import TelegramConfig
-from src.telegram.hitl import make_callback_data
+from src.telegram.hitl import (
+    format_outcome_message,
+    make_callback_data,
+    parse_callback_data,
+    process_callback,
+)
+from src.telegram.hitl_store import (
+    apply_hitl_outcome,
+    decision_to_hitl_request,
+    load_pending_decision,
+)
 from src.telegram.security import is_authorized_chat
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 _Handler = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]]
 
 
-def build_application(config: TelegramConfig) -> Application[Any, Any, Any, Any, Any, Any]:
+def build_application(
+    config: TelegramConfig,
+    session_factory: sessionmaker[Session] | None = None,
+) -> Application[Any, Any, Any, Any, Any, Any]:
     app = Application.builder().token(config.bot_token).build()
+    if session_factory is not None:
+        app.bot_data["session_factory"] = session_factory
 
     app.add_handler(CommandHandler("status", _make_handler(config, _handle_status)))
     app.add_handler(CommandHandler("pause", _make_handler(config, _handle_pause)))
@@ -36,7 +54,7 @@ def build_application(config: TelegramConfig) -> Application[Any, Any, Any, Any,
     return app
 
 
-def hitl_approval_keyboard(decision_id: int) -> InlineKeyboardMarkup:
+def hitl_approval_keyboard(decision_id: uuid.UUID) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [
@@ -122,7 +140,43 @@ async def _handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO(Folgearbeit): HitlRequest aus Persistenz laden (decision.hitl), hitl.process_callback()
-    # aufrufen, Ergebnis zurückschreiben. Braucht den Handels-Agenten/eine HITL-Tabelle.
-    if update.callback_query:
-        await update.callback_query.answer()
+    query = update.callback_query
+    if query is None or not query.data:
+        return
+
+    await query.answer()
+
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None:
+        await query.edit_message_text("HITL: Datenbank nicht konfiguriert.")
+        return
+
+    try:
+        _, decision_id = parse_callback_data(query.data)
+    except ValueError:
+        await query.edit_message_text("Ungültige Anfrage.")
+        return
+
+    now = datetime.datetime.now(datetime.UTC)
+    db_session: Session = session_factory()
+    try:
+        loaded = load_pending_decision(db_session, decision_id)
+        if loaded is None:
+            await query.edit_message_text("Unbekannte oder bereits bearbeitete Anfrage.")
+            return
+
+        decision, cycle = loaded
+        request = decision_to_hitl_request(decision, cycle)
+        try:
+            outcome = process_callback(request, query.data, now)
+        except ValueError:
+            await query.edit_message_text("Ungültige Anfrage.")
+            return
+
+        apply_hitl_outcome(db_session, decision, outcome, now)
+        db_session.commit()
+        instrument = decision.instrument
+    finally:
+        db_session.close()
+
+    await query.edit_message_text(format_outcome_message(instrument, outcome))
