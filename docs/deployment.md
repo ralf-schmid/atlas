@@ -95,6 +95,29 @@ Standardweg wäre ein `blackbox_exporter` als neuer Service im bestehenden
 kein Teil von ATLAS). Ralf hat entschieden, das selbst in der Grafana-UI
 einzurichten, statt dass ich in seinen bestehenden monitoring-Stack eingreife.
 
+### Dashboard "ATLAS — Overview"
+
+Per API angelegt (`POST /api/dashboards/db` mit dem Service-Account-Token), Datei
+zum manuellen (Re-)Import liegt unter
+[config/grafana/atlas-overview-dashboard.json](../config/grafana/atlas-overview-dashboard.json)
+(Grafana → Dashboards → New → Import → Datei hochladen; erwartet eine Postgres-
+Datasource — beim Import ggf. `atlas-postgres` auswählen, falls Grafana danach fragt).
+
+18 Panels über 5 Reihen, alle Queries gegen die (aktuell leere) DB verifiziert
+(keine SQL-Fehler, nur 0-Werte/leere Ergebnisse — normal, solange kein Orchestrator-
+Lauf stattgefunden hat):
+
+- **Overview:** aktive Personas, Runs (24h), fehlgeschlagene Runs (24h), Kosten heute
+- **Kosten je Persona:** Kosten pro Persona/Tag (Zeitreihe), Kosten diesen Monat vs.
+  Soft-Cap 120 USD (Gauge, Warnschwelle bei 80 % gemäß `config/llm.yaml`)
+- **Portfolio:** Kosten nach Provider, Portfolio-Wert je Persona (Zeitreihe),
+  Leaderboard-Tabelle (letzter Snapshot je Persona)
+- **Ingestion Freshness:** Minuten seit letztem Research-Item, Research-Items/Tag
+- **Decisions:** nach Status, letzte 20 Decisions (Tabelle)
+
+`agent_run` hat kein eigenes Zeitstempel-Feld — Zeitbezug kommt über den Join auf
+`cycle.started_at`.
+
 ## Sonstiges
 
 - Postgres-Credentials (`atlas`/`atlas`) sind in `docker-compose.yml` hartcodiert,
