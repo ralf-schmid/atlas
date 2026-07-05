@@ -57,8 +57,14 @@ class AlpacaPaperAdapter:
                 stop_loss=StopLossRequest(stop_price=stop_loss_price),
             )
         )
-        assert isinstance(entry, AlpacaOrder)
-        assert entry.legs and len(entry.legs) == 1
+        # Real exceptions, not asserts: this is the money path, and asserts are
+        # stripped under `python -O`. Invariant #4 depends on the stop leg existing.
+        if not isinstance(entry, AlpacaOrder):
+            raise TypeError(f"Unexpected submit_order response type: {type(entry)!r}")
+        if entry.legs is None or len(entry.legs) != 1:
+            raise RuntimeError(
+                f"OTO order {entry.id} came back without exactly one stop leg: {entry.legs!r}"
+            )
         stop_leg = entry.legs[0]
         return OrderResult(
             entry_order_id=str(entry.id),

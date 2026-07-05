@@ -17,9 +17,12 @@ roles:
     provider: anthropic
     shared: true
     prompt_caching: true
+  # Haiku fuer Recherche (CLAUDE.md); Groq bleibt Experiment-Slot fuer P7 (GUARDIAN-A/B).
+  # provider muss zum Proxy-Routing passen: claude-haiku-4-5 -> anthropic; der Groq-Slot
+  # heisst im Proxy claude-haiku-4-5-groq (config/litellm_proxy_config.yaml).
   news_research:
     model: claude-haiku-4-5
-    provider: groq
+    provider: anthropic
     shared: true
     prompt_caching: true
   persona_analysis:

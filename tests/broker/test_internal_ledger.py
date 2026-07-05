@@ -131,6 +131,89 @@ def test_check_stop_orders_triggers_buy_side_stop_when_closing_a_position(adapte
     assert position.qty == 10  # 5 remaining + 5 bought back by the triggered stop
 
 
+def test_check_stop_orders_clamps_stale_sell_stop_to_held_qty(adapter, market_data):
+    # The original qty-10 stop is stale after selling 6 of the shares it protected;
+    # the sweep must fill only what is held instead of raising "no shorting".
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    market_data.prices["AAPL"] = 160.0
+    adapter.place_order(
+        decision_id=2, symbol="AAPL", qty=6, side=OrderSide.SELL, stop_loss_price=200.0
+    )
+    market_data.prices["AAPL"] = 139.0
+
+    triggered = adapter.check_stop_orders()
+
+    assert len(triggered) == 1
+    assert adapter.get_positions() == []
+    balance = adapter.get_account_balance()
+    assert balance.cash == 5000.0 - 10 * 150.0 + 6 * 160.0 + 4 * 139.0
+
+
+def test_check_stop_orders_drops_stale_sell_stop_when_position_fully_closed(
+    adapter, market_data, store
+):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    adapter.place_order(
+        decision_id=2, symbol="AAPL", qty=10, side=OrderSide.SELL, stop_loss_price=200.0
+    )
+    market_data.prices["AAPL"] = 139.0
+
+    triggered = adapter.check_stop_orders()
+
+    assert triggered == []  # nothing held anymore — stop removed without a fill
+    state = store.load("HYPE", default_cash=5000.0)
+    remaining_sides = {stop.side for stop in state.pending_stops.values()}
+    assert remaining_sides == {OrderSide.BUY}  # only the close-out stop is left
+    assert adapter.get_account_balance().cash == 5000.0
+
+
+def test_check_stop_orders_clamps_buy_side_stop_to_available_cash(adapter, market_data):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    adapter.place_order(
+        decision_id=2, symbol="AAPL", qty=10, side=OrderSide.SELL, stop_loss_price=200.0
+    )
+    adapter.place_order(
+        decision_id=3, symbol="AAPL", qty=33, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    market_data.prices["AAPL"] = 200.0  # cash is 50.0 -> buy-back clamps to 0.25 shares
+
+    triggered = adapter.check_stop_orders()
+
+    assert len(triggered) == 1
+    (position,) = adapter.get_positions()
+    assert position.qty == 33 + 0.25
+    assert adapter.get_account_balance().cash == 0.0
+
+
+def test_check_stop_orders_drops_buy_side_stop_when_no_cash(adapter, market_data, store):
+    market_data.prices["AAPL"] = 100.0
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=90.0
+    )
+    adapter.place_order(
+        decision_id=2, symbol="AAPL", qty=10, side=OrderSide.SELL, stop_loss_price=150.0
+    )
+    adapter.place_order(
+        decision_id=3, symbol="AAPL", qty=50, side=OrderSide.BUY, stop_loss_price=90.0
+    )
+    market_data.prices["AAPL"] = 150.0  # cash is 0.0 -> buy-back stop is unexecutable
+
+    triggered = adapter.check_stop_orders()
+
+    assert triggered == []
+    state = store.load("HYPE", default_cash=5000.0)
+    remaining_sides = {stop.side for stop in state.pending_stops.values()}
+    assert remaining_sides == {OrderSide.SELL}  # only the protective stops remain
+    (position,) = adapter.get_positions()
+    assert position.qty == 50
+
+
 def test_check_stop_orders_does_not_trigger_when_price_above_stop(adapter, market_data):
     adapter.place_order(
         decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0

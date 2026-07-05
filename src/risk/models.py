@@ -27,6 +27,16 @@ class StopLossPolicy:
     atr_multiplier: float | None = None  # required for ATR
     min_loss_pct: float | None = None  # required for ATR
 
+    def __post_init__(self) -> None:
+        """Fail at config-load time, not at decision time (and never silently under
+        `python -O`, which would strip a plain assert in the gate)."""
+        if self.type == StopLossPolicyType.FIXED and self.max_loss_pct is None:
+            raise ValueError("stop_loss_policy 'fixed' requires max_loss_pct")
+        if self.type == StopLossPolicyType.ATR and self.atr_multiplier is None:
+            raise ValueError("stop_loss_policy 'atr' requires atr_multiplier")
+        if self.type == StopLossPolicyType.ATR and self.min_loss_pct is None:
+            raise ValueError("stop_loss_policy 'atr' requires min_loss_pct")
+
 
 @dataclass(frozen=True, slots=True)
 class SystemGuardrails:

@@ -1,7 +1,7 @@
 import pytest
 
 from src.risk.config import load_persona_guardrails, load_system_guardrails
-from src.risk.models import StopLossPolicyType
+from src.risk.models import StopLossPolicy, StopLossPolicyType
 
 
 def test_load_system_guardrails_matches_spec():
@@ -54,3 +54,21 @@ def test_vulture_uses_fixed_stop_loss_policy():
 def test_load_persona_guardrails_unknown_persona_raises():
     with pytest.raises(ValueError, match="No persona config"):
         load_persona_guardrails("NONEXISTENT")
+
+
+# --- StopLossPolicy invariants — enforced at construction (config-load) time ------
+
+
+def test_fixed_policy_without_max_loss_pct_raises():
+    with pytest.raises(ValueError, match="requires max_loss_pct"):
+        StopLossPolicy(type=StopLossPolicyType.FIXED)
+
+
+def test_atr_policy_without_atr_multiplier_raises():
+    with pytest.raises(ValueError, match="requires atr_multiplier"):
+        StopLossPolicy(type=StopLossPolicyType.ATR, min_loss_pct=0.08)
+
+
+def test_atr_policy_without_min_loss_pct_raises():
+    with pytest.raises(ValueError, match="requires min_loss_pct"):
+        StopLossPolicy(type=StopLossPolicyType.ATR, atr_multiplier=2.0)

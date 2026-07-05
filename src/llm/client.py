@@ -20,13 +20,19 @@ class LLMResponse:
     cost_usd: float
 
 
+# httpx defaults to a 5s read timeout — far too short for LLM completions, which
+# routinely take longer (Sonnet analysis calls especially). Generous read timeout,
+# tight connect timeout so a dead proxy still fails fast.
+_DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+
+
 class LiteLLMClient:
     def __init__(
         self, base_url: str, api_key: str, http_client: httpx.Client | None = None
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
-        self._http = http_client or httpx.Client()
+        self._http = http_client or httpx.Client(timeout=_DEFAULT_TIMEOUT)
 
     def complete(self, *, model: str, messages: list[dict[str, str]]) -> LLMResponse:
         response = self._http.post(
