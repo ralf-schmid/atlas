@@ -85,6 +85,14 @@ Wichtig für Port-/Namenskonflikte beim ATLAS-Deployment:
 - **Verifiziert 2026-07-05:** alle 4 Container `healthy`, `http://nas.fritz.box:3001/`
   liefert 200 mit echten DB-Daten, `:8000/health` und `:4000/health/liveliness` ok
   (jeweils von einem anderen Rechner im LAN aus geprüft, nicht nur lokal auf der Box).
+- **Re-Verifiziert 2026-07-05 (Deployment-Härtung):** LiteLLM-Healthcheck jetzt
+  wirklich `healthy` (vorher dauerhaft unhealthy — kein curl im Image), api läuft
+  als `ralf`, Postgres/LiteLLM binden an `192.168.178.116`, mode-Filter aktiv
+  (`?mode=demo` → 422). Hinweis: Die DB ist aktuell **leer** — der frühere
+  Demo-Seed wurde zwischenzeitlich weggeräumt (vermutlich durch einen Testlauf
+  gegen die Box-DB; genau das Szenario aus dem Docstring von
+  `scripts/seed_demo_snapshot.py`). Bei Bedarf neu seeden:
+  `sudo docker compose exec -T api uv run python - < scripts/seed_demo_snapshot.py`.
 
 ## Grafana-Integration (bestehende Instanz, Port 3000)
 
