@@ -1,3 +1,10 @@
+"""Shared Postgres fixtures for tests/db, tests/api (any suite needing a real DB).
+
+Session-scoped: the real Alembic migration is applied once per pytest session
+and downgraded once at the very end — see F003 §3 test 1. Per-test isolation
+is a connection + transaction that gets rolled back after each test.
+"""
+
 import os
 from pathlib import Path
 
@@ -9,14 +16,14 @@ from sqlalchemy.orm import Session
 from alembic import command
 from src.db.base import get_engine
 
-_ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
+_ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
 
 @pytest.fixture(scope="session")
 def database_url() -> str:
     url = os.environ.get("DATABASE_URL")
     if not url:
-        pytest.skip("DATABASE_URL not set — tests/db needs a real Postgres, see F003 §3")
+        pytest.skip("DATABASE_URL not set — this suite needs a real Postgres, see F003 §3")
     return url
 
 
