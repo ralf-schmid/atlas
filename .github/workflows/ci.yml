@@ -63,7 +63,7 @@ jobs:
         env:
           ALPACA_PAPER_VULTURE_KEY_ID: ${{ secrets.ALPACA_PAPER_VULTURE_KEY_ID }}
           ALPACA_PAPER_VULTURE_SECRET_KEY: ${{ secrets.ALPACA_PAPER_VULTURE_SECRET_KEY }}
-        run: uv run pytest tests/broker/test_alpaca_paper_integration.py -m integration -v -rs
+        run: uv run pytest tests/broker/test_alpaca_paper_integration.py -m integration -v
 
   web:
     runs-on: ubuntu-latest
