@@ -67,9 +67,14 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Update (2026-07-05):** echter `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` von Ralf
       besorgt (`@ralf_atlas_bot`). Echte Testnachricht über die Bot-API verschickt und
       in Ralfs Chat angekommen.
-      **Offen:** Inline-Button-Callback-Roundtrip (HITL-Approval) noch nicht live
-      durchgespielt — braucht Ralf in Echtzeit am Handy, um den Button zu klicken;
-      nachholen, sobald er Zeit hat.
+      **Update (2026-07-05):** Inline-Button-Callback-Roundtrip live durchgespielt —
+      echte Nachricht mit ✅/❌-Buttons verschickt, Ralf hat ✅ getippt, der Callback
+      (`data=approve`) kam bei einer echten `CallbackQueryHandler`-Instanz an, wurde
+      beantwortet (Spinner verschwindet) und eine Bestätigung zurückgeschickt. Die
+      eigentliche Verarbeitung (`decision.hitl` befüllen, `hitl.process_callback()`
+      aufrufen) ist noch ein TODO in `src/telegram/bot.py::_handle_hitl_callback` —
+      braucht den Handels-Agenten/eine HITL-Tabelle, die es in Phase 2 noch nicht
+      gibt; der Bot-Plumbing-Roundtrip selbst ist aber vollständig verifiziert.
 - [x] UI zeigt einen Portfolio-Snapshot aus der DB; mobil brauchbar (390 px; Lighthouse
       Mobile Performance/Accessibility ≥ 85)
       **Nachweis:** [F007](../features/F007-fastapi-web-skeleton.md) — FastAPI-Endpoint +
@@ -84,18 +89,19 @@ abarbeitet (`/goal`-Session ab 2026-07-05).
       **Nachweis:** [F004](../features/F004-risk-gate.md) — beide liegen bei 100% Line-
       **und** Branch-Coverage, in CI als Hard-Gate erzwungen (`--cov-fail-under=100`).
 
-## Zusammenfassung (Stand 2026-07-05, Session 4)
+## Zusammenfassung (Stand 2026-07-05, Session 5)
 
-9 von 9 Punkten inhaltlich erledigt. Branch Protection ist kein offener Punkt mehr —
-strukturell auf diesem Plan nicht möglich, Ralf verfolgt es nicht weiter. Der
-ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`, Details
-[docs/deployment.md](../deployment.md)) — SSH-Zugriff per Public-Key eingerichtet,
-alle 4 Container healthy, von einem anderen LAN-Rechner aus verifiziert.
+9 von 9 Punkten inhaltlich erledigt und live verifiziert. Branch Protection ist kein
+offener Punkt mehr — strukturell auf diesem Plan nicht möglich, Ralf verfolgt es
+nicht weiter. Der ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`,
+Details [docs/deployment.md](../deployment.md)), inkl. Grafana-Postgres-Datasource
+und Dashboard "ATLAS — Overview" (18 Panels,
+[config/grafana/atlas-overview-dashboard.json](../../config/grafana/atlas-overview-dashboard.json)).
+Telegram-HITL-Roundtrip (Inline-Button → Callback → Antwort) live mit Ralf
+durchgespielt.
 
 **Was noch offen ist:**
 1. Container-Health-Alert-Regel + Telegram-Contact-Point in der bestehenden
    Grafana-Instanz — Ralf richtet das selbst ein (bräuchte sonst einen
    `blackbox_exporter` im bestehenden `monitoring`-Stack, den ich nicht ungefragt
    anfasse)
-2. Einmal in Echtzeit den HITL-Inline-Button in Telegram klicken, wenn ich eine
-   Test-Approval-Nachricht schicke (Callback-Roundtrip-Nachweis)
