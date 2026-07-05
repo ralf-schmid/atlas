@@ -11,3 +11,11 @@ market_data:
     - AAPL
     - MSFT
     - SPY
+
+edgar:
+  # Kostenlos, offiziell (sec.gov), siehe ARCHITECTURE.md §3.5.3. SEC verlangt einen
+  # aussagekraeftigen User-Agent (Name + Kontakt) fuer automatisierte Zugriffe, siehe
+  # https://www.sec.gov/os/webmaster-faq#developers — echte Kontaktdaten kommen aus
+  # der Env-Var, nicht aus dieser Datei.
+  feed_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&count=100&output=atom"
+  user_agent_env: EDGAR_USER_AGENT

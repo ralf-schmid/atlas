@@ -289,3 +289,27 @@ class MarketBar(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class EdgarFiling(Base):
+    """Raw EDGAR filing metadata, see docs/features/F009-edgar-rss.md.
+
+    Staging table, not `research_item` — this is the raw ingested feed entry, not yet
+    an agent-produced research summary (agents read from here, not from EDGAR
+    directly, per "Agenten lesen ausschliesslich aus der DB" in CLAUDE.md).
+    """
+
+    __tablename__ = "edgar_filing"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    accession_number: Mapped[str] = mapped_column(String(30), unique=True)
+    cik: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    company_name: Mapped[str] = mapped_column(String(300))
+    form_type: Mapped[str] = mapped_column(String(20))
+    filed_at: Mapped[datetime]
+    title: Mapped[str] = mapped_column(Text)
+    link: Mapped[str] = mapped_column(String(500))
+    summary: Mapped[str] = mapped_column(Text)
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
