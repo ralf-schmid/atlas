@@ -59,6 +59,13 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-extras --dev
+      - name: DEBUG secret presence
+        env:
+          ALPACA_PAPER_VULTURE_KEY_ID: ${{ secrets.ALPACA_PAPER_VULTURE_KEY_ID }}
+          ALPACA_PAPER_VULTURE_SECRET_KEY: ${{ secrets.ALPACA_PAPER_VULTURE_SECRET_KEY }}
+        run: |
+          echo "key_id length: ${#ALPACA_PAPER_VULTURE_KEY_ID}"
+          echo "secret_key length: ${#ALPACA_PAPER_VULTURE_SECRET_KEY}"
       - name: Alpaca Paper integration test
         env:
           ALPACA_PAPER_VULTURE_KEY_ID: ${{ secrets.ALPACA_PAPER_VULTURE_KEY_ID }}
