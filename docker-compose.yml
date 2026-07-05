@@ -1,12 +1,18 @@
 services:
   postgres:
     image: pgvector/pgvector:pg17
+    restart: unless-stopped
     environment:
       POSTGRES_USER: atlas
-      POSTGRES_PASSWORD: atlas
+      # Default bleibt "atlas" (kompatibel mit bestehendem Volume auf der UGREEN);
+      # fuer einen Passwortwechsel POSTGRES_PASSWORD in .env setzen UND das
+      # DB-Passwort im laufenden Cluster per ALTER ROLE anpassen.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atlas}
       POSTGRES_DB: atlas
     ports:
-      - "5432:5432"
+      # Auf der UGREEN via ATLAS_BIND_IP=192.168.178.116 (.env) an das LAN-Interface
+      # gebunden — erreichbar im 192.168.178.0/24, aber nicht auf anderen Interfaces.
+      - "${ATLAS_BIND_IP:-0.0.0.0}:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -16,7 +22,10 @@ services:
       retries: 10
 
   litellm:
-    image: ghcr.io/berriai/litellm:main-latest
+    # LiteLLM v1.92.0 — per Digest gepinnt (2026-07-05), weil main-latest ein mutable
+    # Dev-Tag ist. Update: neuen Digest eintragen + Deployment verifizieren.
+    image: ghcr.io/berriai/litellm:main-latest@sha256:10264d97c2e80a664c02688b7015b3909dff024764c76aef676a6bd495ca136a
+    restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GROQ_API_KEY: ${GROQ_API_KEY}
@@ -25,9 +34,11 @@ services:
       - ./config/litellm_proxy_config.yaml:/app/config.yaml
     command: ["--config", "/app/config.yaml", "--port", "4000"]
     ports:
-      - "4000:4000"
+      - "${ATLAS_BIND_IP:-0.0.0.0}:4000:4000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/health/liveliness"]
+      # python statt curl: das Chainguard-basierte LiteLLM-Image enthaelt kein curl,
+      # der alte Check war dauerhaft "unhealthy" obwohl der Dienst antwortete.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -36,8 +47,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+psycopg://atlas:atlas@postgres:5432/atlas
+      DATABASE_URL: postgresql+psycopg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,6 +64,7 @@ services:
   web:
     build:
       context: ./web
+    restart: unless-stopped
     environment:
       API_URL: http://api:8000
     depends_on:
