@@ -313,3 +313,26 @@ class EdgarFiling(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class ScreenerResult(Base):
+    """VULTURE-Screener candidate, see docs/features/F010-vulture-screener.md.
+
+    Universum = komplettes tradable/active Alpaca-Asset-Verzeichnis (ARCHITECTURE.md
+    §3.5.3) — kein Persona bekommt eine gefilterte Vorauswahl, das Ergebnis ist einfach
+    für alle Personas in der DB sichtbar (Invariante #10).
+    """
+
+    __tablename__ = "screener_result"
+    __table_args__ = (
+        UniqueConstraint("symbol", "screened_at", name="uq_screener_result_symbol_screened_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    screened_at: Mapped[date]
+    symbol: Mapped[str] = mapped_column(String(20))
+    price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    volume: Mapped[Decimal] = mapped_column(Numeric(24, 6))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

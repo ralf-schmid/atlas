@@ -19,3 +19,11 @@ edgar:
   # der Env-Var, nicht aus dieser Datei.
   feed_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&count=100&output=atom"
   user_agent_env: EDGAR_USER_AGENT
+
+vulture_screener:
+  # Universum = komplettes Alpaca-Asset-Verzeichnis (kein Whitelisting), siehe
+  # ARCHITECTURE.md §3.5.3. min_volume ist ein Datenqualitaets-, kein Verbotsfilter.
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  max_price: 5.0
+  min_volume: 100000
