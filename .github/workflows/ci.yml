@@ -78,8 +78,10 @@ jobs:
           cache: "npm"
           cache-dependency-path: web/package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
       - run: npm run lint
+      # `next build` runs the TypeScript check itself; a standalone `tsc --noEmit`
+      # fails on a fresh checkout because next-env.d.ts references .next/types/routes.d.ts,
+      # which only exists after a build has run (found while verifying this CI job).
       - run: npm run build
 
   gitleaks:
