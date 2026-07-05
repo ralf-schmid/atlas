@@ -54,13 +54,28 @@ Wichtig für Port-/Namenskonflikte beim ATLAS-Deployment:
 
   | Service    | Container-Port | Host-Port | Hinweis                              |
   |------------|-----------------|-----------|---------------------------------------|
-  | postgres   | 5432            | 5432      | frei auf der Box                      |
-  | litellm    | 4000            | 4000      | frei auf der Box                      |
+  | postgres   | 5432            | 5432      | gebunden an `ATLAS_BIND_IP` (LAN-IP `192.168.178.116`, in der Box-`.env`) |
+  | litellm    | 4000            | 4000      | gebunden an `ATLAS_BIND_IP` (wie postgres) |
   | api        | 8000            | 8000      | frei auf der Box                      |
   | web        | 3000            | **3001**  | 3000 ist die bestehende Grafana-Instanz — reiner Port-Konflikt (zwei Services können keinen Host-Port teilen), keine Ausweichlösung für die Grafana-Integration selbst; die läuft separat über die bestehende Instanz auf 3000, siehe unten |
 
-- Deployment-/Update-Befehle:
+- **`ATLAS_BIND_IP=192.168.178.116`** steht in der `.env` auf der Box: Postgres und
+  LiteLLM sind damit an das LAN-Interface gebunden (erreichbar aus `192.168.178.0/24`,
+  z. B. für die Grafana-Datasource), aber nicht auf anderen/zukünftigen Interfaces.
+  Achtung: Die IP ist eine DHCP-Reservation der Fritzbox — ändert sie sich, muss die
+  `.env` nachziehen (siehe TRUENAS_HOMELAB.md §2, IP-Persistenz).
+- **LiteLLM ist per Image-Digest gepinnt** (v1.92.0, Stand 2026-07-05, in
+  `docker-compose.yml`). `main-latest` ist ein mutable Dev-Tag; Update = neuen Digest
+  eintragen und Deployment verifizieren.
+- **api-Container läuft als non-root** (`ralf`, UID 3001 / GID 3000 `familie` — wie
+  auf der Box, siehe Dockerfile.api).
+- Deployment-/Update-Befehle (Repo-Stand liegt per rsync auf der Box, kein Git-Clone):
   ```
+  # vom Mac aus, aus der lokalen Arbeitskopie:
+  rsync -a --delete --exclude='.git' --exclude='.venv' --exclude='node_modules' \
+    --exclude='.next' --exclude='.env' --exclude='data/' \
+    ./ atlas-ugreen:/mnt/apps/docker/atlas/
+
   ssh atlas-ugreen
   cd /mnt/apps/docker/atlas
   sudo docker compose build api web
@@ -120,6 +135,8 @@ Lauf stattgefunden hat):
 
 ## Sonstiges
 
-- Postgres-Credentials (`atlas`/`atlas`) sind in `docker-compose.yml` hartcodiert,
-  nicht aus einem Secret — für eine reine Paper-Trading-Research-DB im Heim-LAN
-  akzeptabel, aber erwähnenswert, falls das später mal auffällt.
+- Postgres-Credentials: User `atlas`, Passwort via `POSTGRES_PASSWORD` (Default
+  `atlas`, siehe `docker-compose.yml`) — für eine reine Paper-Trading-Research-DB
+  im Heim-LAN akzeptabel. Bei Passwortwechsel: `.env` setzen **und** `ALTER ROLE`
+  im bestehenden Cluster (das Volume behält das alte Passwort) **und** die
+  Grafana-Datasource `atlas-postgres` anpassen.

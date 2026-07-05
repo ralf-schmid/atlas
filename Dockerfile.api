@@ -14,6 +14,14 @@ COPY config ./config
 
 RUN uv sync --frozen --no-dev
 
+# Non-root: UID/GID matching user ralf / group familie on the UGREEN box, so any
+# future bind mounts get sane ownership. /app is chowned so `uv run` (venv checks,
+# bytecode) works for the runtime user too.
+RUN groupadd --gid 3000 familie \
+    && useradd --uid 3001 --gid 3000 --create-home ralf \
+    && chown -R ralf:familie /app
+USER ralf
+
 EXPOSE 8000
 
 CMD ["uv", "run", "uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
