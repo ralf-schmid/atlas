@@ -365,3 +365,31 @@ class PublicationArticle(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class AktienfinderSnapshot(Base):
+    """DOM-extracted aktienfinder.de view + screenshot evidence, see
+    docs/features/F012-aktienfinder-grabbing.md.
+
+    `fields` holds whatever was extracted per `config/ingestion.yaml`'s field->selector
+    mapping (Fair-Value, Qualitäts-Score, Dividenden-Historie, ...) — kept as JSONB
+    rather than fixed columns since the exact field set is expected to grow once the
+    real (currently unbuilt) login session lets us see the live page structure.
+    `screenshot_path` is the lineage evidence (§3.5.2), never the field values
+    themselves — CLAUDE.md forbids aktienfinder-Volltexte in UI/Repo, only the
+    structured fields + a screenshot reference.
+    """
+
+    __tablename__ = "aktienfinder_snapshot"
+    __table_args__ = (
+        UniqueConstraint("symbol", "snapshot_date", name="uq_aktienfinder_snapshot_symbol_date"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(20))
+    snapshot_date: Mapped[date]
+    fields: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    screenshot_path: Mapped[str] = mapped_column(String(500))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
