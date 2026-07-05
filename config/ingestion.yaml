@@ -27,3 +27,14 @@ vulture_screener:
   secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
   max_price: 5.0
   min_volume: 100000
+
+aktienfinder:
+  # DOM-Selektoren sind Platzhalter -- echte Selektoren erst bekannt, sobald eine
+  # eingeloggte Session gegen die echte Seite inspiziert werden kann (siehe F012 §5
+  # "Noch offen"). screenshot_dir_env zeigt auf ein lokales Verzeichnis fuer die
+  # Beleg-Screenshots (Lineage, ARCHITECTURE.md §3.5.2).
+  screenshot_dir_env: AKTIENFINDER_SCREENSHOT_DIR
+  field_selectors:
+    fair_value: "[data-field='fair-value']"
+    quality_score: "[data-field='quality-score']"
+    dividend_history: "[data-field='dividend-history']"
