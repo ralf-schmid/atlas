@@ -1,0 +1,667 @@
+{
+  "id": null,
+  "panels": [
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT count(*) FROM persona WHERE active",
+          "refId": "A"
+        }
+      ],
+      "title": "Aktive Personas",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT count(*) FROM agent_run ar JOIN cycle c ON c.id = ar.cycle_id WHERE c.started_at > now() - interval '24 hours'",
+          "refId": "A"
+        }
+      ],
+      "title": "Runs (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT count(*) FROM agent_run ar JOIN cycle c ON c.id = ar.cycle_id WHERE c.started_at > now() - interval '24 hours' AND ar.status = 'failed'",
+          "refId": "A"
+        }
+      ],
+      "title": "Fehlgeschlagene Runs (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(cost_usd), 0) FROM cost_ledger WHERE ts::date = now()::date",
+          "refId": "A"
+        }
+      ],
+      "title": "Kosten heute (System)",
+      "type": "stat"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 101,
+      "title": "Kosten je Persona",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 6
+      },
+      "id": 5,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', cl.ts) AS time, COALESCE(p.name, 'system') AS metric, sum(cl.cost_usd) AS value FROM cost_ledger cl LEFT JOIN persona p ON p.id = cl.persona_id WHERE $__timeFilter(cl.ts) GROUP BY 1, 2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Kosten pro Persona und Tag",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "max": 120,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 96
+              },
+              {
+                "color": "red",
+                "value": 120
+              }
+            ]
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 6
+      },
+      "id": 6,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(sum(cost_usd), 0) FROM cost_ledger WHERE date_trunc('month', ts) = date_trunc('month', now())",
+          "refId": "A"
+        }
+      ],
+      "title": "Kosten diesen Monat (Soft-Cap 120 USD)",
+      "type": "gauge"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 102,
+      "title": "Portfolio",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 15
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT provider AS metric, sum(cost_usd) AS value FROM cost_ledger GROUP BY provider",
+          "refId": "A"
+        }
+      ],
+      "title": "Kosten nach Provider",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 15
+      },
+      "id": 8,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawSql": "SELECT ps.ts AS time, p.name AS metric, ps.total_value AS value FROM portfolio_snapshot ps JOIN portfolio pf ON pf.id = ps.portfolio_id JOIN persona p ON p.id = pf.persona_id WHERE $__timeFilter(ps.ts) ORDER BY ps.ts",
+          "refId": "A"
+        }
+      ],
+      "title": "Portfolio-Wert je Persona",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 23
+      },
+      "id": 9,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT DISTINCT ON (p.name) p.name AS persona, ps.total_value, ps.cash, ps.pnl_realized, ps.pnl_unrealized, ps.max_drawdown, ps.ts FROM portfolio_snapshot ps JOIN portfolio pf ON pf.id = ps.portfolio_id JOIN persona p ON p.id = pf.persona_id ORDER BY p.name, ps.ts DESC",
+          "refId": "A"
+        }
+      ],
+      "title": "Leaderboard (letzter Snapshot je Persona)",
+      "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 103,
+      "title": "Ingestion Freshness",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 360
+              }
+            ]
+          },
+          "unit": "m"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 32
+      },
+      "id": 10,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT EXTRACT(EPOCH FROM (now() - max(c.started_at))) / 60 FROM research_item ri JOIN cycle c ON c.id = ri.cycle_id",
+          "refId": "A"
+        }
+      ],
+      "title": "Minuten seit letztem Research-Item",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 32
+      },
+      "id": 11,
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', c.started_at) AS time, count(*) AS value FROM research_item ri JOIN cycle c ON c.id = ri.cycle_id WHERE $__timeFilter(c.started_at) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Research-Items pro Tag",
+      "type": "timeseries"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 104,
+      "title": "Decisions",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT status AS metric, count(*) AS value FROM decision GROUP BY status",
+          "refId": "A"
+        }
+      ],
+      "title": "Decisions nach Status",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 41
+      },
+      "id": 13,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT c.started_at AS time, p.name AS persona, d.instrument, d.action, d.status, d.thesis_text FROM decision d JOIN portfolio pf ON pf.id = d.portfolio_id JOIN persona p ON p.id = pf.persona_id JOIN cycle c ON c.id = d.cycle_id ORDER BY c.started_at DESC LIMIT 20",
+          "refId": "A"
+        }
+      ],
+      "title": "Letzte Decisions",
+      "type": "table"
+    }
+  ],
+  "refresh": "5m",
+  "schemaVersion": 39,
+  "tags": [
+    "atlas"
+  ],
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timezone": "browser",
+  "title": "ATLAS — Overview",
+  "uid": "1947b915-e884-4d0d-a9ac-f4933f876f2c",
+  "version": 1
+}
