@@ -17,6 +17,7 @@ class PositionOut(BaseModel):
 
 class PortfolioSnapshotOut(BaseModel):
     persona: str
+    mode: str  # "paper" | "live"
     ts: datetime.datetime
     total_value: float
     cash: float

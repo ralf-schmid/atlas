@@ -8,6 +8,7 @@ export interface Position {
 
 export interface PortfolioSnapshot {
   persona: string;
+  mode: "paper" | "live";
   ts: string;
   total_value: number;
   cash: number;

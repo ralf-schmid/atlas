@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -9,11 +11,15 @@ from src.api.routes import router
 
 app = FastAPI(title="ATLAS API")
 
-# Dev-only CORS for the Next.js dev server. Single-user project, no auth layer
-# planned (see F007 §2) — tighten this before any non-localhost deployment.
+# CORS for the Next.js frontend. Single-user project, no auth layer planned
+# (see F007 §2). Port 3001 is the compose-published web port (3000 = Grafana on
+# the UGREEN); override via CORS_ALLOW_ORIGINS (comma-separated) for deployment.
+_default_origins = "http://localhost:3000,http://localhost:3001"
+_origins = [o.strip() for o in os.environ.get("CORS_ALLOW_ORIGINS", _default_origins).split(",")]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_origins,
     allow_methods=["GET"],
     allow_headers=["*"],
 )
