@@ -138,7 +138,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"subject\": $json.subject, \"message_id\": $json.messageId || $json.headers?.['message-id'] || $json['message-id'], \"body_text\": $json.textHtml || $json.html || $json.text } }}",
+        "jsonBody": "={{ { \"subject\": $json.subject, \"message_id\": $json.metadata['message-id'], \"body_text\": $json.textHtml || $json.textPlain } }}",
         "options": {}
       },
       "id": "http-notify-musterdepot",

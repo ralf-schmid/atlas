@@ -112,15 +112,16 @@ verifiziert (keine ENUM-Typen). Parser zusätzlich gegen die reale
 1. Aktualisierten `n8n/publications-mail-trigger.json` erneut in Ralfs n8n-Instanz
    importieren (überschreibt/ergänzt den bestehenden F013-Workflow um den zweiten
    Zweig).
-2. **Feldnamen im HTTP-Request-Body verifizieren:** die Musterdepot-Notify-Node nutzt
-   `$json.messageId || $json.headers?.['message-id'] || $json['message-id']` für die
-   Message-ID und `$json.textHtml || $json.html || $json.text` für den Mailtext —
-   das sind plausible Feldnamen von n8ns `emailReadImap`-Node, aber nicht gegen die
-   echte Node-Ausgabe in Ralfs n8n verifiziert (kein Zugriff auf sein n8n von hier
-   aus). Falls die erste Test-Ausführung mit einer echten Musterdepot-Mail einen
-   `422` liefert ("No 'Transaktion ...' line found"), zuerst den tatsächlichen
-   `$json`-Inhalt im n8n-Execution-Log der IMAP-Trigger-Node prüfen und die
-   Ausdrücke anpassen.
+2. **Feldnamen im HTTP-Request-Body — korrigiert (2026-07-06):** die erste Version
+   riet auf plausible, aber falsche Feldnamen für die Message-ID (`$json.messageId`
+   etc.); ein echter Testlauf lieferte `422 "message_id": "Field required"` — das
+   Feld fehlte komplett im Body. Ursache im Quellcode der `emailReadImap`-Node (v2,
+   Format "Simple", der Default) verifiziert: `topLevelProperties` sind nur
+   `cc, date, from, subject, to` — alle anderen Header (inkl. `message-id`) landen
+   unter `$json.metadata['message-id']`. Korrigierter Ausdruck:
+   `$json.metadata['message-id']` für die Message-ID,
+   `$json.textHtml || $json.textPlain` für den Mailtext (beide bereits in
+   `n8n/publications-mail-trigger.json` aktualisiert).
 3. Live-Verifikation mit einer echten (oder erneut zugestellten) Musterdepot-Mail —
    Telegram-Alert muss ankommen, DB-Zeile muss entstehen.
 4. Deployment auf die UGREEN: Code + Migration synchronisieren (kein
