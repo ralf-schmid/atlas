@@ -29,12 +29,20 @@ vulture_screener:
   min_volume: 100000
 
 aktienfinder:
-  # DOM-Selektoren sind Platzhalter -- echte Selektoren erst bekannt, sobald eine
-  # eingeloggte Session gegen die echte Seite inspiziert werden kann (siehe F012 §5
-  # "Noch offen"). screenshot_dir_env zeigt auf ein lokales Verzeichnis fuer die
-  # Beleg-Screenshots (Lineage, ARCHITECTURE.md §3.5.2).
+  # Login gegen aktienfinder.net (ARCHITECTURE.md nennt "aktienfinder.de", die
+  # tatsaechliche Domain ist aktienfinder.net). Selektoren live gegen die echte,
+  # eingeloggte Seite verifiziert (Apple + SAP, siehe F012 §5) — Playwrights
+  # erweitertes CSS (:has-text, :nth-match) statt fragiler DOM-Positions-Annahmen.
+  # Symbole werden hier als ISIN adressiert (aktienfinder.net-URL-Schema), nicht als
+  # Ticker. dividend_history kommt separat von der /dividenden-profil/<isin>-Tabelle
+  # (extract_dividend_history), nicht ueber field_selectors (keine Einzelwert-Zelle).
+  username_env: AKTIENFINDER_USERNAME
+  password_env: AKTIENFINDER_PASSWORD
   screenshot_dir_env: AKTIENFINDER_SCREENSHOT_DIR
   field_selectors:
-    fair_value: "[data-field='fair-value']"
-    quality_score: "[data-field='quality-score']"
-    dividend_history: "[data-field='dividend-history']"
+    price: "li.stockprofile-tiles__list-item:has-text('Aktienkurs') span:not(.stockprofile-tiles__fixed-width-span)"
+    isin: "li.stockprofile-tiles__list-item:has-text('ISIN') span:not(.stockprofile-tiles__fixed-width-span)"
+    dividend_yield: "li.stockprofile-tiles__list-item:has-text('Dividendenrendite') >> a"
+    quality_score_dividend_yield: ":nth-match(.scorecard-tile-layout__current-score, 1)"
+    quality_score_dividend_growth: ":nth-match(.scorecard-tile-layout__current-score, 2)"
+    quality_score_earnings_growth: ":nth-match(.scorecard-tile-layout__current-score, 3)"

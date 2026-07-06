@@ -70,11 +70,14 @@ sec.gov-Zugriff:
 upgrade→downgrade→upgrade-Zyklus verifiziert (keine ENUM-Typen in dieser Tabelle,
 Standard-Autogenerate reicht ohne Anpassung).
 
+**Update (2026-07-05):** Ralf hat `EDGAR_USER_AGENT` mit echten Kontaktdaten in `.env`
+eingetragen. Live-Verifikation gegen den echten sec.gov-Feed: `run_current_filings_sync`
+lieferte 42 echte, aktuelle Filings, korrekt geparst (Formtyp, Firma, Zeitstempel,
+Accession-Number) und persistiert.
+
 **Noch offen:**
 - `run_current_filings_sync` ist noch nirgends automatisch geplant (gleiche
   Ops-Folgearbeit wie F008 — P4/Orchestrator bzw. Cron-Übergangslösung).
-- `EDGAR_USER_AGENT` mit Ralfs echten Kontaktdaten fehlt noch für den Live-Betrieb
-  (Fallback-first: Code+Tests stehen, Live-Poll folgt sobald die Env-Var gesetzt ist).
 
 ## 6. Rollback-Pfad
 
