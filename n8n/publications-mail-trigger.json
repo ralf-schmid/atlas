@@ -1,0 +1,120 @@
+{
+  "name": "ATLAS - Publications Mail-Trigger",
+  "nodes": [
+    {
+      "parameters": {
+        "mailbox": "INBOX",
+        "postProcessAction": "read",
+        "options": {}
+      },
+      "id": "imap-trigger",
+      "name": "IMAP - Neue Mail",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [
+        260,
+        300
+      ],
+      "credentials": {
+        "imap": {
+          "id": "REPLACE_WITH_YOUR_IMAP_CREDENTIAL_ID",
+          "name": "Ralf Hauptmail (IMAP)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-sender",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "no-reply@e.boersenmedien.com",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "cond-subject",
+              "leftValue": "={{ $json.subject }}",
+              "rightValue": "Neuer Inhalt - ",
+              "operator": {
+                "type": "string",
+                "operation": "startsWith"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-boersenmedien",
+      "name": "Filter: Börsenmedien Neuer Inhalt",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.178.116:8000/api/ingestion/publications/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"subject\": $json.subject } }}",
+        "options": {}
+      },
+      "id": "http-notify-atlas",
+      "name": "ATLAS Webhook benachrichtigen",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "ATLAS Webhook Secret"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "IMAP - Neue Mail": {
+      "main": [
+        [
+          {
+            "node": "Filter: Börsenmedien Neuer Inhalt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Börsenmedien Neuer Inhalt": {
+      "main": [
+        [
+          {
+            "node": "ATLAS Webhook benachrichtigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

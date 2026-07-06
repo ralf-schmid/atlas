@@ -18,9 +18,15 @@ vorliegt — kein Punkt wird ohne echten Nachweis auf `[x]` gesetzt.
       ungeprüft); kein laufender Poller/Watcher, der "binnen 5 Min" tatsächlich
       erfüllt — `scan_ingest_directory` existiert, ist aber nirgends geplant.
 - [ ] n8n-IMAP-Trigger erkennt die Benachrichtigungs-Mail und stößt die Pipeline an
-      **Offen:** nicht begonnen. Braucht Ralfs Mail-Zugangsdaten/IMAP-Konfiguration
-      auf der UGREEN — wird nicht ohne Rückfrage angelegt (siehe Memory-Regel "keine
-      neuen Zugangsdaten ohne Rückfrage").
+      **Teilweise:** [F013](../features/F013-publications-mail-trigger.md) — Code-Seite
+      fertig und getestet (Zeitschriften-Erkennung, Telegram-Fallback-Text,
+      geschützter Webhook), importierbarer n8n-Workflow
+      (`n8n/publications-mail-trigger.json`) liegt bereit. **Offen:** Workflow muss
+      noch in Ralfs n8n-Instanz importiert werden, IMAP-Credential (Ralfs
+      Hauptmailaccount) + HTTP-Header-Auth-Credential (Webhook-Secret) müssen dort
+      angelegt werden — beides bewusst nicht von mir eingerichtet (n8n-eigener
+      Credential-Store, kein Zugriff/keine Zugangsdaten von hier aus). Noch kein
+      Live-Nachweis mit einer echten (erneut zugestellten) Benachrichtigungs-Mail.
 - [ ] aktienfinder-Grabbing liefert für 10 Testtitel strukturierte Snapshots +
       Beleg-Screenshot, täglich per Schedule
       **Teilweise:** [F012](../features/F012-aktienfinder-grabbing.md) — Login +
@@ -73,8 +79,10 @@ gegen 2 echte Symbole (Details in F009/F012). Verbleibt strukturell offen:
 1. **Scheduler/Orchestrator** für alle fünf `run_*`-Funktionen — kommt planmäßig mit
    P4 (LangGraph-Zyklen) oder einer Cron-Übergangslösung auf der UGREEN. Ohne
    Scheduler kein 5-Tage-Dauerlauf, kein täglicher aktienfinder-/Screener-Lauf.
-2. **n8n-IMAP-Zugang** für den Börsenmedien-Mail-Trigger — braucht Ralfs
-   Mail-Zugangsdaten, gehört in n8n's eigenen Credential-Store (nicht in dieses Repo).
+2. **n8n-Workflow-Import** (F013): Code + Workflow-Datei liegen bereit
+   (`n8n/publications-mail-trigger.json`), aber der Import selbst sowie das Anlegen
+   der IMAP- und Webhook-Secret-Credentials passieren in Ralfs n8n-Instanz — kann
+   nicht von hier aus erledigt werden.
 3. **8 weitere Testtitel** für den vollen aktienfinder-10-Titel-Nachweis (aktuell 2
    verifiziert) — reine Wiederholung, kein neues Risiko, aber noch nicht gemacht.
 4. **Grafana-Freshness-Panel** für den 5-Tage-Nachweis — braucht Punkt 1 zuerst.
