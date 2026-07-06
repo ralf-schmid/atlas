@@ -23,19 +23,23 @@ vorliegt — kein Punkt wird ohne echten Nachweis auf `[x]` gesetzt.
       neuen Zugangsdaten ohne Rückfrage").
 - [ ] aktienfinder-Grabbing liefert für 10 Testtitel strukturierte Snapshots +
       Beleg-Screenshot, täglich per Schedule
-      **Teilweise:** [F012](../features/F012-aktienfinder-grabbing.md) —
-      Extraktions-/Persistenz-Kernpfad fertig und gegen eine Fake-Page verifiziert (6
-      Tests grün). **Offen:** keine echte Playwright-Session/Login (braucht Ralfs
-      aktienfinder.de-Zugangsdaten), echte CSS-Selektoren unbekannt (Platzhalter in
-      `config/ingestion.yaml`), daher kein Nachweis mit 10 echten Testtiteln.
+      **Teilweise:** [F012](../features/F012-aktienfinder-grabbing.md) — Login +
+      Extraktion + Persistenz sind live gegen Ralfs echtes aktienfinder.net-Konto
+      verifiziert (2026-07-05): echter Login, echte Selektoren (Kurs, ISIN,
+      Dividendenrendite, drei Qualitäts-Scores, Dividenden-Historie-Tabelle),
+      2 echte Symbole (Apple, SAP), 2 echte Screenshots. **Offen:** nur 2 von 10
+      Testtiteln live verifiziert (Selektoren sind aber nachweislich
+      symbolübergreifend stabil); kein Scheduler, daher noch kein täglicher
+      Live-Lauf.
 - [ ] EDGAR-RSS + Marktdaten-Sync laufen 5 Tage unterbrechungsfrei
       (Grafana-Freshness-Panel als Nachweis)
       **Teilweise:** [F008](../features/F008-marktdaten-sync.md)/
       [F009](../features/F009-edgar-rss.md) — Sync-Logik fertig, idempotent,
-      unit-getestet (16 Tests grün). **Offen:** kein Scheduler deployt (P4/Ops-Task),
-      damit kein 5-Tage-Dauerlauf und kein Grafana-Freshness-Panel möglich. Zusätzlich
-      fehlt `EDGAR_USER_AGENT` mit Ralfs echten Kontaktdaten für den Live-Poll gegen
-      sec.gov.
+      unit-getestet (16 Tests grün). EDGAR-Live-Poll gegen den echten sec.gov-Feed
+      verifiziert (2026-07-05, echter `EDGAR_USER_AGENT`): 42 echte Filings korrekt
+      geparst und persistiert. **Offen:** kein Scheduler deployt (P4/Ops-Task), damit
+      kein 5-Tage-Dauerlauf und kein Grafana-Freshness-Panel möglich. Marktdaten-Sync
+      selbst noch nicht live gegen echte Alpaca-Bars verifiziert (nur unit-getestet).
 - [ ] VULTURE-Screener liefert täglich eine Kandidatenliste mit definierten Feldern
       **Teilweise:** [F010](../features/F010-vulture-screener.md) — Screener-Logik
       fertig, idempotent, unit-getestet (8 Tests grün). **Offen:** kein Scheduler,
@@ -61,17 +65,18 @@ Baustein folgt demselben Muster: Provider-Protocol (testbar ohne echten
 externen Aufruf), reine Sync-/Persistenz-Funktion, config-getriebener
 `run_*`-Einstiegspunkt.
 
-**Strukturell offen, nicht in dieser Session lösbar:**
-1. **Scheduler/Orchestrator** für alle fünf `run_*`-Funktionen — kommt planmäßig mit
-   P4 (LangGraph-Zyklen) oder einer Cron-Übergangslösung auf der UGREEN.
-2. **Drei fehlende Zugangsdaten-Sets** (Ralf): `EDGAR_USER_AGENT` (echte
-   Kontaktdaten für sec.gov), Mail/IMAP-Zugang für den n8n-Trigger,
-   aktienfinder.de-Login für Playwright. Keines davon wurde ohne Rückfrage angelegt.
-3. **Echte aktienfinder.de-Selektoren** — brauchen eine eingeloggte Session zum
-   Inspizieren, die es noch nicht gibt.
-4. **Live-Dauerläufe** (5 Handelstage, 10 Testtitel) sind per Definition erst nach
-   Punkt 1+2 möglich.
+**Update (2026-07-05):** Ralf hat `EDGAR_USER_AGENT` und
+`AKTIENFINDER_USERNAME`/`AKTIENFINDER_PASSWORD` eingetragen. Beide live verifiziert:
+EDGAR-Feed liefert echte Filings, aktienfinder.net-Login + Extraktion funktionieren
+gegen 2 echte Symbole (Details in F009/F012). Verbleibt strukturell offen:
 
-Phase 3 bleibt bis zu diesen vier Punkten offen. Die nächsten sinnvollen Schritte:
-Ralf entscheidet, ob/wann die drei Zugangsdaten-Sets kommen, und ob ein einfacher
-Cron auf der UGREEN als Zwischenlösung reicht, bis der P4-Orchestrator steht.
+1. **Scheduler/Orchestrator** für alle fünf `run_*`-Funktionen — kommt planmäßig mit
+   P4 (LangGraph-Zyklen) oder einer Cron-Übergangslösung auf der UGREEN. Ohne
+   Scheduler kein 5-Tage-Dauerlauf, kein täglicher aktienfinder-/Screener-Lauf.
+2. **n8n-IMAP-Zugang** für den Börsenmedien-Mail-Trigger — braucht Ralfs
+   Mail-Zugangsdaten, gehört in n8n's eigenen Credential-Store (nicht in dieses Repo).
+3. **8 weitere Testtitel** für den vollen aktienfinder-10-Titel-Nachweis (aktuell 2
+   verifiziert) — reine Wiederholung, kein neues Risiko, aber noch nicht gemacht.
+4. **Grafana-Freshness-Panel** für den 5-Tage-Nachweis — braucht Punkt 1 zuerst.
+
+Phase 3 bleibt bis zu diesen vier Punkten offen.
