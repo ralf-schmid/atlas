@@ -45,6 +45,7 @@ select = ["E", "F", "I", "UP", "B"]
 # FastAPI's Depends() is idiomatic in argument defaults (evaluated per-request by
 # FastAPI's DI system, not a mutable-default-arg bug) — see FastAPI's own docs.
 "src/api/routes.py" = ["B008"]
+"src/api/routes_ingestion.py" = ["B008"]
 
 [tool.ruff.format]
 exclude = ["alembic/versions/*.py"]
