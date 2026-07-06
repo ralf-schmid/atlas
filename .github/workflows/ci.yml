@@ -86,6 +86,11 @@ jobs:
 
   gitleaks:
     runs-on: ubuntu-latest
+    # gitleaks-action listet bei pull_request-Events die PR-Commits über die API —
+    # ohne pull-requests:read bricht der Job mit 403 ab (erstmals bei PR #1 gesehen).
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@v7
         with:
