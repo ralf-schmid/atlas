@@ -4,8 +4,11 @@ from pathlib import Path
 import pytest
 
 from src.ingestion.aktienfinder_grabbing import (
+    AktienfinderLoginError,
     Snapshot,
+    extract_dividend_history,
     extract_snapshot,
+    login,
     run_daily_grab,
     sync_aktienfinder_snapshots,
 )
@@ -112,3 +115,100 @@ def test_run_daily_grab_raises_when_env_var_missing(session, tmp_path, monkeypat
 
     with pytest.raises(ValueError, match="TEST_SCREENSHOT_DIR_MISSING"):
         run_daily_grab(session, {}, datetime.date(2026, 7, 5), config_path=config_path)
+
+
+class _FakeLocator:
+    def __init__(self, visible: bool = True) -> None:
+        self.clicked = False
+        self._visible = visible
+
+    @property
+    def first(self) -> "_FakeLocator":
+        return self
+
+    def click(self, timeout: int | None = None) -> None:
+        self.clicked = True
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+
+class _FakeRealPage:
+    """Minimal fake of the subset of Playwright's `Page` API used by
+    `login`/`extract_dividend_history` — no real browser involved."""
+
+    def __init__(self, rows: list[list[str]] | None = None, login_succeeds: bool = True) -> None:
+        self.filled: dict[str, str] = {}
+        self.goto_calls: list[str] = []
+        self._rows = rows or []
+        self._login_succeeds = login_succeeds
+
+    def goto(self, url: str, **kwargs: object) -> None:
+        self.goto_calls.append(url)
+
+    def wait_for_timeout(self, ms: int) -> None:
+        pass
+
+    def fill(self, selector: str, value: str) -> None:
+        self.filled[selector] = value
+
+    def get_by_text(self, text: str, exact: bool = False) -> _FakeLocator:
+        if text == "Abmelden":
+            return _FakeLocator(visible=self._login_succeeds)
+        return _FakeLocator()
+
+    def get_by_role(self, role: str, name: str | None = None) -> _FakeLocator:
+        return _FakeLocator()
+
+    def eval_on_selector_all(self, selector: str, js: str) -> list[list[str]]:
+        return self._rows
+
+
+def test_login_fills_credentials_and_submits():
+    page = _FakeRealPage(login_succeeds=True)
+    login(page, "user@example.com", "hunter2")
+
+    assert page.filled == {"#username": "user@example.com", "#password": "hunter2"}
+    assert page.goto_calls == ["https://aktienfinder.net/profil"]
+
+
+def test_login_raises_when_nav_bar_does_not_show_abmelden():
+    page = _FakeRealPage(login_succeeds=False)
+    with pytest.raises(AktienfinderLoginError, match="Abmelden"):
+        login(page, "user@example.com", "wrong-password")
+
+
+def test_extract_dividend_history_maps_table_rows():
+    page = _FakeRealPage(
+        rows=[
+            ["11.05.2026", "14.05.2026", "0,27 USD", "Regulär"],
+            ["09.02.2026", "12.02.2026", "0,26 USD", "Regulär"],
+        ]
+    )
+    history = extract_dividend_history(page)
+
+    assert history == [
+        {
+            "ex_date": "11.05.2026",
+            "pay_date": "14.05.2026",
+            "amount": "0,27 USD",
+            "type": "Regulär",
+        },
+        {
+            "ex_date": "09.02.2026",
+            "pay_date": "12.02.2026",
+            "amount": "0,26 USD",
+            "type": "Regulär",
+        },
+    ]
+
+
+def test_extract_dividend_history_skips_malformed_rows():
+    page = _FakeRealPage(
+        rows=[["only", "two"], ["11.05.2026", "14.05.2026", "0,27 USD", "Regulär"]]
+    )
+    history = extract_dividend_history(page)
+
+    assert history == [
+        {"ex_date": "11.05.2026", "pay_date": "14.05.2026", "amount": "0,27 USD", "type": "Regulär"}
+    ]
