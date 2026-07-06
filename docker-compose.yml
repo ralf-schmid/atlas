@@ -50,6 +50,14 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: postgresql+psycopg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+      # F013: publications mail-trigger webhook (src/api/routes_ingestion.py) needs
+      # the Telegram alert config + its own shared webhook secret + the fallback
+      # PDF ingest path (used only for the Telegram message text, not filesystem
+      # access from within this container).
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      N8N_PUBLICATIONS_WEBHOOK_SECRET: ${N8N_PUBLICATIONS_WEBHOOK_SECRET}
+      PUBLICATIONS_INGEST_DIR: ${PUBLICATIONS_INGEST_DIR}
     depends_on:
       postgres:
         condition: service_healthy
