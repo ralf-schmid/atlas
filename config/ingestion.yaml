@@ -46,3 +46,22 @@ aktienfinder:
     quality_score_dividend_yield: ":nth-match(.scorecard-tile-layout__current-score, 1)"
     quality_score_dividend_growth: ":nth-match(.scorecard-tile-layout__current-score, 2)"
     quality_score_earnings_growth: ":nth-match(.scorecard-tile-layout__current-score, 3)"
+
+publications:
+  # Fallback-first (ARCHITECTURE.md §3.5.1): n8n erkennt die Benachrichtigungs-Mail
+  # (Absender/Betreff, siehe F013), ruft den ATLAS-Webhook auf, der Ralf per Telegram
+  # zum manuellen Ablegen der PDF auffordert. Auto-Download via Playwright reift
+  # spaeter nach. base_dir_env muss mit F011s Verzeichnis-Konvention
+  # (<base_dir>/<slug>/<YYYY-MM-DD>.pdf) uebereinstimmen.
+  base_dir_env: PUBLICATIONS_INGEST_DIR
+  webhook_secret_env: N8N_PUBLICATIONS_WEBHOOK_SECRET
+  magazines:
+    - slug: euro_am_sonntag
+      subject_keyword: "Euro am Sonntag"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778324/A-10529198/ausgaben"
+    - slug: boerse_online
+      subject_keyword: "BÖRSE ONLINE"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778326/A-10510298/ausgaben"
+    - slug: der_aktionaer
+      subject_keyword: "DER AKTIONÄR"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778322/A-10510232/ausgaben"
