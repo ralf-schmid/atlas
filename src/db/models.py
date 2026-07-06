@@ -393,3 +393,36 @@ class AktienfinderSnapshot(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class MusterdepotTransaction(Base):
+    """A buy/sell posted from DER AKTIONÄR's own real-money model portfolio
+    ("Musterdepot"), see docs/features/F014-musterdepot-transactions.md.
+
+    Purely informational research data about a *different, external* portfolio —
+    never auto-executed. No code path in this repo turns a row here into an order;
+    that would violate Invariant #2 (privilege separation) and #3 (no order without
+    a persisted Decision). Once P4's agents exist, this becomes one more
+    research_item input, exactly like any other magazine content — read here by
+    every persona equally (Invariant #10), never fed to one exclusively.
+    """
+
+    __tablename__ = "musterdepot_transaction"
+    __table_args__ = (
+        UniqueConstraint("message_id", "seq", name="uq_musterdepot_transaction_message_seq"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[str] = mapped_column(String(300))
+    seq: Mapped[int]
+    action: Mapped[str] = mapped_column(String(30))
+    instrument_name: Mapped[str] = mapped_column(String(200))
+    wkn: Mapped[str] = mapped_column(String(20))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    price: Mapped[Decimal] = mapped_column(Numeric(18, 6))
+    currency: Mapped[str] = mapped_column(String(10))
+    raw_text: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[datetime]
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

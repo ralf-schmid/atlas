@@ -60,7 +60,7 @@
       "typeVersion": 2,
       "position": [
         480,
-        300
+        180
       ]
     },
     {
@@ -80,7 +80,74 @@
       "typeVersion": 4.2,
       "position": [
         700,
-        300
+        180
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "ATLAS Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-sender-musterdepot",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "noreply@boersenmedien.de",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            },
+            {
+              "id": "cond-subject-musterdepot",
+              "leftValue": "={{ $json.subject }}",
+              "rightValue": "Neue Transaktion",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-musterdepot",
+      "name": "Filter: Musterdepot Neue Transaktion",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.178.116:8000/api/ingestion/publications/musterdepot-notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"subject\": $json.subject, \"message_id\": $json.messageId || $json.headers?.['message-id'] || $json['message-id'], \"body_text\": $json.textHtml || $json.html || $json.text } }}",
+        "options": {}
+      },
+      "id": "http-notify-musterdepot",
+      "name": "ATLAS Webhook benachrichtigen (Musterdepot)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        420
       ],
       "credentials": {
         "httpHeaderAuth": {
@@ -98,6 +165,11 @@
             "node": "Filter: Börsenmedien Neuer Inhalt",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Filter: Musterdepot Neue Transaktion",
+            "type": "main",
+            "index": 0
           }
         ]
       ]
@@ -107,6 +179,17 @@
         [
           {
             "node": "ATLAS Webhook benachrichtigen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Musterdepot Neue Transaktion": {
+      "main": [
+        [
+          {
+            "node": "ATLAS Webhook benachrichtigen (Musterdepot)",
             "type": "main",
             "index": 0
           }
