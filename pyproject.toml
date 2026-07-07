@@ -21,6 +21,7 @@ dependencies = [
     "playwright>=1.61.0",
     "langgraph>=1.2.8",
     "langgraph-checkpoint-postgres>=3.1.0",
+    "apscheduler>=3.11.3",
 ]
 
 [dependency-groups]
@@ -72,6 +73,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = "src.ingestion.publications_pipeline"
 disallow_untyped_calls = false
+
+[[tool.mypy.overrides]]
+module = "apscheduler.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
