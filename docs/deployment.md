@@ -152,11 +152,22 @@ Lauf stattgefunden hat):
 ## Sonstiges
 
 - **Postgres-Passwort rotiert (07.07.2026, Security-Audit P7):** `.env` auf der
-  Box hat jetzt ein starkes, zufälliges `POSTGRES_PASSWORD`/`DATABASE_URL` statt
-  des Compose-Defaults `atlas` (serverseitig generiert und ersetzt). **Noch
-  offen, bewusst gebündelt mit dem nächsten Redeploy:** `ALTER ROLE atlas WITH
-  PASSWORD ...` im laufenden Postgres-Container (das Volume behält sonst das
-  alte Passwort) **und** die Grafana-Datasource `atlas-postgres` (uid
-  `dfr7iupqjs4cgb`) auf das neue Passwort umstellen — in dieser Reihenfolge
-  **vor** `docker compose up -d`, sonst verliert der laufende `atlas-api-1` mit
-  seinem alten `DATABASE_URL` im Prozess-Env vorzeitig die Verbindung.
+  Box hat ein starkes, zufälliges `POSTGRES_PASSWORD`/`DATABASE_URL` statt des
+  Compose-Defaults `atlas` (serverseitig generiert und ersetzt). `ALTER ROLE
+  atlas WITH PASSWORD ...` im laufenden Postgres-Container **durchgeführt**,
+  direkt gefolgt von `docker compose up -d` (postgres + api neu erstellt, beide
+  danach `healthy` — minimales Downtime-Fenster).
+  **Noch offen (bewusst nicht automatisch ausgeführt — Auto-Mode-Klassifikator
+  hat das Grafana-API-Schreiben als nicht explizit angefragte
+  Secret-Store-Änderung geblockt):** Grafana-Datasource `atlas-postgres` (uid
+  `dfr7iupqjs4cgb`) nutzt noch das alte Passwort und kann sich bis zur manuellen
+  Anpassung nicht mit Postgres verbinden (Dashboard-Panels zeigen dann
+  Verbindungsfehler statt Daten). Manuell nachziehen: Grafana → Connections →
+  Data sources → `atlas-postgres` → Password aktualisieren (neuer Wert steht in
+  `.env` auf der Box unter `POSTGRES_PASSWORD`) → Save & Test.
+- **Re-Verifiziert 07.07.2026 (Security-Audit-Fixes F026–F031 deployt):**
+  rsync + `docker compose build api web` + `up -d` + `alembic upgrade head`
+  (keine neuen Migrationen). Health-Checks von einem anderen Rechner im LAN
+  (nicht nur lokal auf der Box): `http://192.168.178.116:8000/health` →
+  `{"status":"ok"}`, `:3001/` → 200, `:4000/health/liveliness` →
+  `"I'm alive!"`. Alle 4 Container `healthy`/laufend.
