@@ -6,7 +6,7 @@ import pytest
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.market_data import AlpacaCryptoMarketDataProvider, AlpacaStockMarketDataProvider
-from src.broker.registry import get_adapter
+from src.broker.registry import get_adapter, get_adapter_type
 
 
 @pytest.fixture(autouse=True)
@@ -66,6 +66,16 @@ def test_get_adapter_virtual_persona_missing_market_data_env_raises(monkeypatch)
 
     with pytest.raises(ValueError, match="ALPACA_MARKET_DATA_KEY_ID"):
         get_adapter("HYPE")
+
+
+def test_get_adapter_type_resolves_native_and_virtual_personas():
+    assert get_adapter_type("VULTURE") == "alpaca_paper"
+    assert get_adapter_type("HYPE") == "internal_ledger"
+
+
+def test_get_adapter_type_unknown_persona_raises():
+    with pytest.raises(ValueError, match="Unknown persona"):
+        get_adapter_type("NONEXISTENT")
 
 
 def test_get_adapter_unknown_adapter_type_raises(tmp_path: Path):
