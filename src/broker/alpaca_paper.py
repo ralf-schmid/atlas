@@ -7,6 +7,7 @@ endpoint (Invariant #5) — there is no live code path here.
 
 from __future__ import annotations
 
+from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, TimeInForce
 from alpaca.trading.enums import OrderSide as AlpacaOrderSide
@@ -21,6 +22,15 @@ _TO_ALPACA_SIDE = {
     OrderSide.BUY: AlpacaOrderSide.BUY,
     OrderSide.SELL: AlpacaOrderSide.SELL,
 }
+
+
+def _is_duplicate_client_order_id(exc: APIError) -> bool:
+    """Narrow match on purpose: other 422s (e.g. insufficient buying power) must
+    still propagate as real errors, not be mistaken for a crash-replay recovery."""
+    try:
+        return exc.status_code == 422 and "client order id" in exc.message.lower()
+    except Exception:
+        return False
 
 
 class AlpacaPaperAdapter:
@@ -38,7 +48,11 @@ class AlpacaPaperAdapter:
         side: OrderSide,
         stop_loss_price: float,
     ) -> OrderResult:
-        del decision_id  # not persisted here yet — order_record is a later feature (F001 §1)
+        # client_order_id = decision_id (F027, security-audit P2): a LangGraph replay
+        # after a crash between this call and the DB commit resubmits with the same
+        # id, which Alpaca rejects as a duplicate — recovered below instead of placing
+        # a second real order.
+        client_order_id = str(decision_id)
 
         # Bracket order, not two separate submit_order calls: submitting the GTC stop
         # as its own order immediately after the entry gets rejected by Alpaca as a
@@ -47,16 +61,22 @@ class AlpacaPaperAdapter:
         # order attaches the stop as a child leg that Alpaca itself only activates once
         # the entry fills, which is also a closer match to Invariant #4 (a stop only
         # makes sense once the position exists).
-        entry = self._client.submit_order(
-            order_data=MarketOrderRequest(
-                symbol=symbol,
-                qty=qty,
-                side=_TO_ALPACA_SIDE[side],
-                time_in_force=TimeInForce.GTC,
-                order_class=OrderClass.OTO,  # one-triggers-other: stop_loss only, no take_profit
-                stop_loss=StopLossRequest(stop_price=stop_loss_price),
+        try:
+            entry = self._client.submit_order(
+                order_data=MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=_TO_ALPACA_SIDE[side],
+                    time_in_force=TimeInForce.GTC,
+                    order_class=OrderClass.OTO,  # one-triggers-other: stop only, no take_profit
+                    stop_loss=StopLossRequest(stop_price=stop_loss_price),
+                    client_order_id=client_order_id,
+                )
             )
-        )
+        except APIError as exc:
+            if not _is_duplicate_client_order_id(exc):
+                raise
+            entry = self._client.get_order_by_client_id(client_order_id)
         # Real exceptions, not asserts: this is the money path, and asserts are
         # stripped under `python -O`. Invariant #4 depends on the stop leg existing.
         if not isinstance(entry, AlpacaOrder):
