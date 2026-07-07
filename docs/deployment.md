@@ -151,8 +151,12 @@ Lauf stattgefunden hat):
 
 ## Sonstiges
 
-- Postgres-Credentials: User `atlas`, Passwort via `POSTGRES_PASSWORD` (Default
-  `atlas`, siehe `docker-compose.yml`) — für eine reine Paper-Trading-Research-DB
-  im Heim-LAN akzeptabel. Bei Passwortwechsel: `.env` setzen **und** `ALTER ROLE`
-  im bestehenden Cluster (das Volume behält das alte Passwort) **und** die
-  Grafana-Datasource `atlas-postgres` anpassen.
+- **Postgres-Passwort rotiert (07.07.2026, Security-Audit P7):** `.env` auf der
+  Box hat jetzt ein starkes, zufälliges `POSTGRES_PASSWORD`/`DATABASE_URL` statt
+  des Compose-Defaults `atlas` (serverseitig generiert und ersetzt). **Noch
+  offen, bewusst gebündelt mit dem nächsten Redeploy:** `ALTER ROLE atlas WITH
+  PASSWORD ...` im laufenden Postgres-Container (das Volume behält sonst das
+  alte Passwort) **und** die Grafana-Datasource `atlas-postgres` (uid
+  `dfr7iupqjs4cgb`) auf das neue Passwort umstellen — in dieser Reihenfolge
+  **vor** `docker compose up -d`, sonst verliert der laufende `atlas-api-1` mit
+  seinem alten `DATABASE_URL` im Prozess-Env vorzeitig die Verbindung.
