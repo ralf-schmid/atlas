@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import datetime
 import json
+import uuid
 from decimal import Decimal
+from typing import TypedDict
 
 import httpx
+import pytest
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -211,7 +217,137 @@ def _seed_market_bars(session: Session, symbol: str) -> None:
     session.flush()
 
 
-def test_buy_response_approved_by_risk_gate(session: Session) -> None:
+class _AnalysisState(TypedDict):
+    cycle_id: str
+    portfolio_id: str
+    persona_id: str
+    persona_name: str
+
+
+def _build_single_persona_graph(
+    session: Session, client: LiteLLMClient, llm_config: LlmConfig, adapter: object
+):
+    def node(state: _AnalysisState) -> dict[str, object]:
+        analyze_persona_cycle(
+            session,
+            client,
+            llm_config,
+            uuid.UUID(state["cycle_id"]),
+            uuid.UUID(state["portfolio_id"]),
+            uuid.UUID(state["persona_id"]),
+            state["persona_name"],
+            adapter,  # type: ignore[arg-type]
+        )
+        return {}
+
+    builder = StateGraph(_AnalysisState)
+    builder.add_node("analyze", node)
+    builder.add_edge(START, "analyze")
+    builder.add_edge("analyze", END)
+    return builder.compile(checkpointer=InMemorySaver())
+
+
+def test_buy_risk_approved_with_hitl_required_persists_pending_and_interrupts(
+    session: Session,
+) -> None:
+    """See docs/features/F022-hitl-flow.md §3, test 2. `config/hitl.yaml` defaults
+    `paper: true`, so a risk-approved buy for a PAPER portfolio must pause via
+    interrupt(), not go straight to APPROVED."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike + insider buy filing",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    graph = _build_single_persona_graph(session, _fake_client(content), _llm_config(), adapter)
+    state = _AnalysisState(
+        cycle_id=str(cycle.id),
+        portfolio_id=str(portfolio.id),
+        persona_id=str(persona.id),
+        persona_name="VULTURE",
+    )
+
+    result = graph.invoke(state, config={"configurable": {"thread_id": "test-thread"}})
+
+    assert result.get("__interrupt__")
+    decision = session.scalar(select(Decision).where(Decision.cycle_id == cycle.id))
+    assert decision is not None
+    assert decision.status == DecisionStatus.HITL_PENDING
+    assert decision.risk_check is not None
+    assert decision.risk_check["approved"] is True
+
+
+def test_hitl_resume_approves_decision_without_second_llm_call(session: Session) -> None:
+    """See docs/features/F022-hitl-flow.md §3, test 3."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise AssertionError("LLM must not be called again on interrupt replay")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+            },
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    graph = _build_single_persona_graph(session, client, _llm_config(), adapter)
+    state = _AnalysisState(
+        cycle_id=str(cycle.id),
+        portfolio_id=str(portfolio.id),
+        persona_id=str(persona.id),
+        persona_name="VULTURE",
+    )
+    thread_config = {"configurable": {"thread_id": "test-thread-resume"}}
+
+    first = graph.invoke(state, config=thread_config)
+    interrupt_id = first["__interrupt__"][0].id
+
+    second = graph.invoke(Command(resume={interrupt_id: "approved"}), config=thread_config)
+
+    assert not second.get("__interrupt__")
+    assert call_count == 1
+    decision = session.scalar(select(Decision).where(Decision.cycle_id == cycle.id))
+    assert decision is not None
+    assert decision.status == DecisionStatus.APPROVED
+    assert decision.hitl is not None
+    assert decision.hitl["decided_by"] == "user"
+
+
+def test_buy_response_approved_directly_when_hitl_disabled(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard for F021's original behaviour when HITL is switched off."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     _seed_market_bars(session, "AAPL")

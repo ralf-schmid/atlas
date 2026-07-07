@@ -1,0 +1,7 @@
+# HITL-Schaltung je mode, ARCHITECTURE.md §5.3. Aktueller Stand: Einschwingphase vor
+# Wettbewerbsstart (Phase 5) -> HITL an fuer Paper. Aenderung ausschliesslich hier
+# oder per /hitl-Telegram-Kommando (das diese Datei aktualisiert) -- nie eine hart
+# codierte Umgehung im Code.
+
+paper: true
+live: true
