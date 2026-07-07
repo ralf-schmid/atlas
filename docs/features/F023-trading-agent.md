@@ -94,9 +94,15 @@ Behoben, indem `build_and_compile_graph` einen `adapter_factory`-Parameter bekom
 Integrationstests injizieren jetzt einen Fake und brauchen dadurch auch keine echten
 Alpaca-Credentials mehr.
 
-**Kein Live-Test mit echter Order-Platzierung in dieser Session** — anders als die
-bisherigen Live-Tests (Lesen von Daten, Senden von Nachrichten) würde das eine echte,
-sichtbare Aktion auf Ralfs Alpaca-Paper-Konto auslösen. Auf Rückfrage zurückgestellt.
+**Live-Verifikation (2026-07-07, mit Ralfs ausdrücklicher Zustimmung):** 57 echte
+Tagesbars (AAPL/MSFT/SPY) über F008 synchronisiert, eine manuell konstruierte, echte
+`APPROVED`-Decision (VULTURE, 1× AAPL @ 312,66 USD, Stop 281,39 USD) über
+`execute_decision` mit dem echten `AlpacaPaperAdapter` ausgeführt:
+`order_record` persistiert (`broker_order_id`, `raw.stop_order_id` beide echte
+Alpaca-Order-IDs), `decision.status → EXECUTED`. Gegenprobe direkt gegen den echten
+Account: `buying_power` sank von 5.000 auf 4.685,54 USD — die Order wurde real bei
+Alpaca angenommen (reserviert für die offene Order, Markt zum Testzeitpunkt
+geschlossen, daher noch kein Fill/keine Position sichtbar).
 
 ## 6. Rollback-Pfad
 

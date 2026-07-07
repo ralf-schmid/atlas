@@ -43,9 +43,10 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       behoben: `graph.py` konstruierte Broker-Adapter fest über die echte Registry —
       ein Test, der einen `buy`-Interrupt auf "approved" resumt, hätte sonst eine
       echte Alpaca-Paper-Order ausgelöst. Jetzt injizierbar
-      (`adapter_factory`-Parameter). **Offen:** `sell`/`close` (siehe F021 §1), kein
-      echter Live-Test mit tatsächlicher Order-Platzierung (auf Rückfrage
-      zurückgestellt).
+      (`adapter_factory`-Parameter). Live verifiziert (mit Ralfs Zustimmung): echte
+      1×-AAPL-Order + GTC-Stop über den echten `AlpacaPaperAdapter` platziert,
+      `buying_power` sank real um den reservierten Betrag. **Offen:** `sell`/`close`
+      (siehe F021 §1).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
