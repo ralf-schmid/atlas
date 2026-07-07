@@ -20,6 +20,7 @@ from langgraph.types import Send
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.broker.protocol import BrokerAdapter
 from src.broker.registry import get_adapter
 from src.db.models import Cycle, MarketSession, Persona, Portfolio
 from src.llm.client import LiteLLMClient
@@ -74,7 +75,12 @@ def build_and_compile_graph(
     llm_client: LiteLLMClient,
     llm_config: LlmConfig,
     checkpointer: BaseCheckpointSaver[str] | None = None,
+    adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
 ) -> CompiledStateGraph[CycleState, None, CycleState, CycleState]:
+    """`adapter_factory` defaults to the real broker registry — tests that resume a
+    `buy` interrupt to "approved" must inject a fake here (see F023 §2), otherwise
+    F023's trading module will place a real Alpaca Paper order."""
+
     def _start_cycle_node(state: CycleState) -> dict[str, object]:
         with session_factory() as session:
             cycle = create_cycle(
@@ -113,7 +119,7 @@ def build_and_compile_graph(
 
     def _persona_analysis_node(state: PersonaTaskState) -> dict[str, object]:
         with session_factory() as session:
-            broker_adapter = get_adapter(state["persona_name"])
+            broker_adapter = adapter_factory(state["persona_name"])
             analyze_persona_cycle(
                 session,
                 llm_client,

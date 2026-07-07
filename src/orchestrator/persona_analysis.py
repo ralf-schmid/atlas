@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter, Position
+from src.broker.registry import get_adapter_type
 from src.db.models import (
     AgentRun,
     AgentRunStatus,
@@ -32,6 +33,7 @@ from src.orchestrator.hitl_config import is_hitl_required
 from src.orchestrator.llm_decision_schema import PersonaDecisionOutput, parse_llm_decision
 from src.orchestrator.market_pricing import compute_atr14, get_latest_price
 from src.orchestrator.risk_inputs import read_portfolio_risk_state
+from src.orchestrator.trading import execute_decision
 from src.personas.charters import render_charter
 from src.risk.config import load_persona_guardrails, load_system_guardrails
 from src.risk.gate import evaluate_decision
@@ -73,7 +75,9 @@ def analyze_persona_cycle(
     # LLM call, no repeat research/risk-gate work.
     pending = _find_pending_hitl_decision(session, cycle_id, portfolio_id)
     if pending is not None:
-        return _await_hitl_outcome(session, pending)
+        resumed = _await_hitl_outcome(session, pending)
+        _maybe_execute_decision(session, resumed, persona_name, broker_adapter)
+        return resumed
 
     research_items = list(
         session.scalars(select(ResearchItem).where(ResearchItem.cycle_id == cycle_id)).all()
@@ -129,7 +133,33 @@ def analyze_persona_cycle(
         )
     )
     session.flush()
+
+    _maybe_execute_decision(session, decision, persona_name, broker_adapter)
     return decision
+
+
+def _maybe_execute_decision(
+    session: Session, decision: Decision, persona_name: str, broker_adapter: BrokerAdapter
+) -> None:
+    """The only call site that hands an APPROVED decision to the trading module (see
+    F023 §2, Invariant #2) — reached whether approval happened directly (HITL off)
+    or via a Telegram-resumed interrupt (F022)."""
+    if decision.status != DecisionStatus.APPROVED:
+        return
+
+    try:
+        execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
+    except Exception as exc:  # must not crash the cycle for other personas; recorded, not swallowed
+        session.add(
+            AgentRun(
+                cycle_id=decision.cycle_id,
+                portfolio_id=decision.portfolio_id,
+                agent="trading",
+                status=AgentRunStatus.FAILED,
+                error=str(exc),
+            )
+        )
+        session.flush()
 
 
 def _resolve_decision(
