@@ -50,11 +50,16 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
 3. ~~F017 — Shared-Research-Synthese~~ ✅ erledigt: `research_item`-Zeilen aus den
    bestehenden Ingestion-Tabellen (F009–F012, F014) statt dem F016-Platzhalter;
    `market_bar` bewusst ausgeschlossen (siehe F017 §1 Non-Scope).
-4. Persona-Analyse-Agent (echte LLM-Calls über LiteLLM, Charter-Prompts aus
-   `src/personas/`), Risk-Gate-Anbindung an echte Trade-Decisions.
-5. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
-6. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
-7. Reporting-Agent, Kosten-Tracking-Anbindung an `cost_ledger`.
-8. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
+4. ~~F018 — Persona-Charter-Prompts~~ ✅ erledigt: `src/personas/charters.py`,
+   Philosophie/Universum/Signale wörtlich aus ARCHITECTURE.md §4.1–4.6, Guardrail-
+   Zahlen live aus `config/personas/<name>.yaml`. Noch kein LLM-Call.
+5. Persona-Analyse-Agent (echte LLM-Calls über LiteLLM, nutzt F018s Charter +
+   F017s Research-Pool), Risk-Gate-Anbindung an echte Trade-Decisions — braucht
+   zusätzlich echten Broker-Kontostand (Equity/Cash/offene Positionen) als
+   Risk-Gate-Eingabe, siehe F001/F002 BrokerAdapter.
+6. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
+7. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
+8. Reporting-Agent, Kosten-Tracking-Anbindung an `cost_ledger`.
+9. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
    drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
    5-Tage-Dauerlauf, PDF-Fallback-Poller).
