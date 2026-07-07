@@ -84,6 +84,22 @@ jobs:
       # which only exists after a build has run (found while verifying this CI job).
       - run: npm run build
 
+  pip-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v8.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --dev
+      # Report-only (security-audit P6): findings are visible in the job log but
+      # don't block merges — unlike gitleaks, a dependency CVE isn't something we
+      # can always fix same-day (upstream fix may not exist yet), so this is a
+      # heads-up, not a gate.
+      - name: pip-audit (report-only)
+        continue-on-error: true
+        run: uv run pip-audit --desc
+
   gitleaks:
     runs-on: ubuntu-latest
     # gitleaks-action listet bei pull_request-Events die PR-Commits über die API —
