@@ -449,6 +449,85 @@ def test_hitl_resume_approval_also_executes_the_order(session: Session) -> None:
     assert adapter.placed_orders
 
 
+def test_hitl_resume_after_bot_applied_outcome_does_not_rerun_llm(session: Session) -> None:
+    """Regression for the real Telegram flow: bot.py `_handle_hitl_callback` sets the
+    decision to APPROVED via `apply_hitl_outcome` and commits *before* resuming the
+    graph. The node replay must recognise that already-resolved decision — no second
+    LLM call, no duplicate decision row, exactly one executed order."""
+    from src.telegram.hitl import HitlDecision, HitlOutcome
+    from src.telegram.hitl_store import apply_hitl_outcome
+
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        if call_count > 1:
+            raise AssertionError("LLM must not be called again on bot-resumed replay")
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+            },
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    graph = _build_single_persona_graph(session, client, _llm_config(), adapter)
+    state = _AnalysisState(
+        cycle_id=str(cycle.id),
+        portfolio_id=str(portfolio.id),
+        persona_id=str(persona.id),
+        persona_name="VULTURE",
+    )
+    thread_config = {"configurable": {"thread_id": "test-thread-bot-resume"}}
+
+    first = graph.invoke(state, config=thread_config)
+    interrupt_id = first["__interrupt__"][0].id
+
+    # What bot.py does before graph.invoke(Command(resume=...)): outcome applied
+    # to the DB first (status HITL_PENDING -> APPROVED), then the graph resumes.
+    pending = session.scalar(select(Decision).where(Decision.cycle_id == cycle.id))
+    assert pending is not None and pending.status == DecisionStatus.HITL_PENDING
+    apply_hitl_outcome(
+        session,
+        pending,
+        HitlOutcome(decision=HitlDecision.APPROVED, decided_by="user"),
+        datetime.datetime.now(datetime.UTC),
+    )
+    session.commit()
+
+    graph.invoke(Command(resume={interrupt_id: "approved"}), config=thread_config)
+
+    assert call_count == 1
+    decisions = session.scalars(select(Decision).where(Decision.cycle_id == cycle.id)).all()
+    assert len(decisions) == 1
+    decision = decisions[0]
+    assert decision.status == DecisionStatus.EXECUTED
+    assert decision.hitl is not None and decision.hitl["decided_by"] == "user"
+    assert len(adapter.placed_orders) == 1
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+
+
 def test_buy_response_rejected_by_risk_gate_when_trades_today_exceeded(
     session: Session,
 ) -> None:
