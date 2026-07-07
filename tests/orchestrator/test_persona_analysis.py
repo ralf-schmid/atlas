@@ -16,9 +16,12 @@ from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.broker.internal_ledger import InternalLedgerAdapter
+from src.broker.ledger_store import JSONLedgerStore
 from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 from src.db.models import (
     AgentRun,
+    AgentRunStatus,
     Decision,
     DecisionAction,
     DecisionStatus,
@@ -111,6 +114,47 @@ def _seed_vulture(session: Session) -> tuple[Persona, Portfolio]:
     portfolio = session.scalar(select(Portfolio).filter_by(persona_id=persona.id))
     assert portfolio is not None
     return persona, portfolio
+
+
+def _seed_hype(session: Session) -> tuple[Persona, Portfolio]:
+    seed_personas_and_portfolios(session)
+    persona = session.scalar(select(Persona).filter_by(name="HYPE"))
+    assert persona is not None
+    portfolio = session.scalar(select(Portfolio).filter_by(persona_id=persona.id))
+    assert portfolio is not None
+    return persona, portfolio
+
+
+class FakeMarketData:
+    def __init__(self, prices: dict[str, float]) -> None:
+        self.prices = prices
+
+    def get_last_price(self, symbol: str) -> float:
+        return self.prices[symbol]
+
+
+class _SpyInternalLedgerAdapter(InternalLedgerAdapter):
+    """Wraps check_stop_orders/get_positions to observe call count/order without
+    re-testing check_stop_orders' own trigger logic (see tests/broker/test_internal_ledger.py)."""
+
+    def __init__(self, *args: object, fail: bool = False, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.check_stop_orders_calls = 0
+        self.swept_before_first_get_positions = False
+        self._fail = fail
+        self._get_positions_called = False
+
+    def check_stop_orders(self) -> list[str]:
+        self.check_stop_orders_calls += 1
+        if self._fail:
+            raise RuntimeError("market data unavailable")
+        return super().check_stop_orders()
+
+    def get_positions(self) -> list[Position]:
+        if not self._get_positions_called:
+            self._get_positions_called = True
+            self.swept_before_first_get_positions = self.check_stop_orders_calls > 0
+        return super().get_positions()
 
 
 def _make_cycle_with_research_item(session: Session) -> tuple[object, ResearchItem]:
@@ -694,3 +738,126 @@ def test_every_call_writes_exactly_one_agent_run(session: Session) -> None:
     runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
     assert len(runs) == 1
     assert runs[0].agent == "persona_analysis"
+
+
+def test_native_adapter_never_gets_stop_sweep_called(session: Session) -> None:
+    """VULTURE (alpaca_paper) has a broker-side GTC stop — the internal sweep must
+    not be attempted against it (it has no check_stop_orders method at all)."""
+    persona, portfolio = _seed_vulture(session)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    assert not hasattr(adapter, "check_stop_orders")
+
+    analyze_persona_cycle(
+        session,
+        _fake_client("{}"),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    # No exception means the isinstance-gate correctly skipped the sweep.
+
+
+def test_internal_ledger_adapter_gets_stop_sweep_called_before_positions_fetch(
+    session: Session, tmp_path: object
+) -> None:
+    persona, portfolio = _seed_hype(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    store = JSONLedgerStore(base_dir=tmp_path)  # type: ignore[arg-type]
+    adapter = _SpyInternalLedgerAdapter(
+        persona="HYPE", market_data=FakeMarketData({"AAPL": 150.0}), store=store
+    )
+    content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "nothing new",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+
+    analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "HYPE",
+        adapter,
+    )
+
+    assert adapter.check_stop_orders_calls == 1
+    assert adapter.swept_before_first_get_positions is True
+
+
+def test_internal_ledger_stop_sweep_triggers_and_reduces_position(
+    session: Session, tmp_path: object
+) -> None:
+    persona, portfolio = _seed_hype(session)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    store = JSONLedgerStore(base_dir=tmp_path)  # type: ignore[arg-type]
+    market_data = FakeMarketData({"AAPL": 150.0})
+    adapter = InternalLedgerAdapter(persona="HYPE", market_data=market_data, store=store)
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    market_data.prices["AAPL"] = 130.0  # crosses the stop
+
+    analyze_persona_cycle(
+        session,
+        _fake_client("{}"),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "HYPE",
+        adapter,
+    )
+
+    assert adapter.get_positions() == []
+    assert adapter.get_account_balance().cash == pytest.approx(5000.0 - 10 * 150.0 + 10 * 130.0)
+
+
+def test_stop_sweep_failure_is_recorded_and_does_not_crash_cycle(
+    session: Session, tmp_path: object
+) -> None:
+    persona, portfolio = _seed_hype(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    store = JSONLedgerStore(base_dir=tmp_path)  # type: ignore[arg-type]
+    adapter = _SpyInternalLedgerAdapter(
+        persona="HYPE", market_data=FakeMarketData({"AAPL": 150.0}), store=store, fail=True
+    )
+    content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "nothing new",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "HYPE",
+        adapter,
+    )
+
+    assert decision is not None  # cycle continued despite the sweep failure
+    assert adapter.check_stop_orders_calls == 1
+    runs = session.scalars(
+        select(AgentRun).where(AgentRun.cycle_id == cycle.id, AgentRun.agent == "stop_sweep")
+    ).all()
+    assert len(runs) == 1
+    assert runs[0].status == AgentRunStatus.FAILED
+    assert "market data unavailable" in (runs[0].error or "")
