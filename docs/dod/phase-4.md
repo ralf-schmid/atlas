@@ -53,13 +53,18 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
 4. ~~F018 — Persona-Charter-Prompts~~ ✅ erledigt: `src/personas/charters.py`,
    Philosophie/Universum/Signale wörtlich aus ARCHITECTURE.md §4.1–4.6, Guardrail-
    Zahlen live aus `config/personas/<name>.yaml`. Noch kein LLM-Call.
-5. Persona-Analyse-Agent (echte LLM-Calls über LiteLLM, nutzt F018s Charter +
-   F017s Research-Pool), Risk-Gate-Anbindung an echte Trade-Decisions — braucht
-   zusätzlich echten Broker-Kontostand (Equity/Cash/offene Positionen) als
+5. ~~F019 — Cost-Ledger-Enforcement~~ ✅ erledigt: `guarded_complete` prüft
+   System-/Persona-Tagesbudget aus echten `cost_ledger`-Summen **vor** jedem
+   LiteLLM-Call, schreibt danach den Ledger-Eintrag; `BLOCKED` verhindert den Call
+   komplett. Musste vor dem ersten echten LLM-Call stehen (Invariante #7) — daher
+   vorgezogen vor den Persona-Analyse-Agenten selbst.
+6. Persona-Analyse-Agent (echte LLM-Calls über `guarded_complete`, nutzt F018s
+   Charter + F017s Research-Pool), Risk-Gate-Anbindung an echte Trade-Decisions —
+   braucht zusätzlich echten Broker-Kontostand (Equity/Cash/offene Positionen) als
    Risk-Gate-Eingabe, siehe F001/F002 BrokerAdapter.
-6. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
-7. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
-8. Reporting-Agent, Kosten-Tracking-Anbindung an `cost_ledger`.
-9. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
-   drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
-   5-Tage-Dauerlauf, PDF-Fallback-Poller).
+7. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
+8. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
+9. Reporting-Agent.
+10. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
+    drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
+    5-Tage-Dauerlauf, PDF-Fallback-Poller).
