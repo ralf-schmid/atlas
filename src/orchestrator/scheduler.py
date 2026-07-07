@@ -10,19 +10,34 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import uuid
 import zoneinfo
 from collections.abc import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Interrupt
+from langgraph.types import Command, Interrupt
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import Decision, MarketSession
+from src.db.models import Cycle, Decision, DecisionStatus, MarketSession
 from src.orchestrator.cycles_config import CyclesConfig
 from src.orchestrator.graph import CycleState
 from src.telegram.config import load_config as load_telegram_config
+from src.telegram.hitl import HitlDecision, HitlOutcome
+from src.telegram.hitl_store import apply_hitl_outcome, decision_to_hitl_request
+
+_HITL_SWEEP_INTERVAL_MINUTES = 5
+
+logger = logging.getLogger(__name__)
+
+# In-memory, per (market_session, seq) job — resets on process restart, which is
+# an acceptable trade-off (see docs/features/F029-scheduler-logging-alert.md §2):
+# this scheduler process is a long-lived singleton, restarts are rare, and losing
+# a streak on restart only delays the next alert by up to one extra failure.
+_CONSECUTIVE_FAILURE_ALERT_THRESHOLD = 2
+_consecutive_failures: dict[str, int] = {}
 
 
 def run_one_cycle(
@@ -141,6 +156,18 @@ def build_scheduler(
             replace_existing=True,
         )
 
+    # Security-audit P5 / F022 §1 non-scope: a HITL_PENDING decision nobody ever
+    # answers stays pending forever without this — the 30-minute timeout logic
+    # (src/telegram/hitl.py) only fires on an actual button press.
+    scheduler.add_job(
+        _sweep_expired_hitl_job,
+        trigger="interval",
+        minutes=_HITL_SWEEP_INTERVAL_MINUTES,
+        args=[graph, session_factory],
+        id="hitl-timeout-sweep",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -157,10 +184,104 @@ def _run_cycle_job(
     # Europe/Berlin, where a 00:00-UTC crypto cycle would otherwise get tomorrow's
     # date and a US C4 cycle could get the wrong day around midnight.
     trading_day = datetime.datetime.now(zoneinfo.ZoneInfo(timezone)).date()
+    job_key = f"{market_session.value}-{seq}"
     try:
         run_one_cycle(graph, session_factory, trading_day, seq, market_session)
-    except Exception as exc:
-        print(f"[scheduler] cycle failed (seq={seq}, market_session={market_session}): {exc}")
+        _consecutive_failures[job_key] = 0
+    except Exception:
+        logger.error(
+            "cycle failed",
+            exc_info=True,
+            extra={
+                "seq": seq,
+                "market_session": market_session.value,
+                "trading_day": trading_day.isoformat(),
+            },
+        )
+        failure_count = _consecutive_failures.get(job_key, 0) + 1
+        _consecutive_failures[job_key] = failure_count
+        if failure_count >= _CONSECUTIVE_FAILURE_ALERT_THRESHOLD:
+            _consecutive_failures[job_key] = 0  # re-arm: alert again after 2 more fails
+            _send_cycle_failure_alert(job_key, failure_count)
+
+
+def _send_cycle_failure_alert(job_key: str, failure_count: int) -> None:
+    """Best-effort — a Telegram outage must not take down the scheduler thread
+    either (same non-fatal contract as the cycle failure itself)."""
+    from src.telegram.alerts import send_alert
+
+    try:
+        telegram_config = load_telegram_config()
+        text = f"⚠️ ATLAS-Zyklus {job_key} ist {failure_count}x in Folge fehlgeschlagen."
+        asyncio.run(send_alert(telegram_config, text))
+    except Exception:
+        logger.error("failed to send cycle-failure Telegram alert", exc_info=True)
+
+
+def _sweep_expired_hitl_job(
+    graph: CompiledStateGraph[CycleState, None, CycleState, CycleState],
+    session_factory: Callable[[], Session],
+) -> None:
+    """A failed sweep must not take down the scheduler thread either — same
+    non-fatal contract as `_run_cycle_job`."""
+    try:
+        count = sweep_expired_hitl_decisions(graph, session_factory)
+        if count:
+            logger.info("hitl timeout sweep rejected %d expired decision(s)", count)
+    except Exception:
+        logger.error("hitl timeout sweep failed", exc_info=True)
+
+
+def sweep_expired_hitl_decisions(
+    graph: CompiledStateGraph[CycleState, None, CycleState, CycleState],
+    session_factory: Callable[[], Session],
+    now: datetime.datetime | None = None,
+) -> int:
+    """Rejects HITL_PENDING decisions nobody answered within the 30-minute window
+    (F022 §1 non-scope, security-audit P5) and resumes their paused graph run with
+    "rejected" — the same `Command(resume=...)` mechanism a real Telegram button
+    press uses (see `src/telegram/bot.py::_handle_hitl_callback`).
+
+    One decision's resume failing must not block the rest of the sweep — each is
+    applied and resumed independently, same non-fatal contract as elsewhere in
+    this module.
+    """
+    now = now or datetime.datetime.now(datetime.UTC)
+    expired: list[tuple[uuid.UUID, str | None, str | None]] = []
+
+    with session_factory() as session:
+        rows = session.execute(
+            select(Decision, Cycle)
+            .join(Cycle, Decision.cycle_id == Cycle.id)
+            .where(Decision.status == DecisionStatus.HITL_PENDING)
+        ).all()
+
+        for decision, cycle in rows:
+            request = decision_to_hitl_request(decision, cycle)
+            if not request.is_expired(now):
+                continue
+            outcome = HitlOutcome(decision=HitlDecision.REJECTED, decided_by="timeout")
+            apply_hitl_outcome(session, decision, outcome, now)
+            hitl = decision.hitl or {}
+            expired.append((decision.id, hitl.get("thread_id"), hitl.get("interrupt_id")))
+        session.commit()
+
+    for decision_id, thread_id, interrupt_id in expired:
+        if not (thread_id and interrupt_id):
+            continue
+        try:
+            graph.invoke(
+                Command(resume={interrupt_id: HitlDecision.REJECTED.value}),
+                config={"configurable": {"thread_id": thread_id}},
+            )
+        except Exception:
+            logger.error(
+                "failed to resume graph for timed-out HITL decision",
+                exc_info=True,
+                extra={"decision_id": str(decision_id)},
+            )
+
+    return len(expired)
 
 
 def _parse_time(value: str) -> tuple[int, int]:
