@@ -32,9 +32,13 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       Equity), `hold`/`reject_idea` ohne Risk-Gate. Live verifiziert
       (voller lokaler Stack inkl. echtem LiteLLM-Proxy): alle 6 Personas mit echtem
       Sonnet-Call, plausible charaktertypische `hold`-Decisions, 0,13 USD
-      Gesamtkosten, korrekte `cost_ledger`-Zeilen. **Offen:** `sell`/`close`
-      (brauchen echte, vom Handels-Agenten eröffnete Positionen — noch nicht
-      vorhanden), HITL, Handels-Agent (Order-Pfad) selbst.
+      Gesamtkosten, korrekte `cost_ledger`-Zeilen.
+      [F022](../features/F022-hitl-flow.md) — risk-approved `buy` pausiert jetzt
+      korrekt per echtem LangGraph-`interrupt()`, statt direkt `APPROVED` zu setzen
+      (schließt eine Sicherheitslücke aus F021 — HITL ist laut ARCHITECTURE.md §5.3
+      aktuell für Paper Pflicht). **Offen:** `sell`/`close` (brauchen echte, vom
+      Handels-Agenten eröffnete Positionen — noch nicht vorhanden), Handels-Agent
+      (Order-Pfad) selbst.
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -43,6 +47,15 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       braucht den laufenden Orchestrator-Zyklus, nicht nur Unit-Tests.
 - [ ] HITL: Approve, Reject und Timeout alle drei end-to-end nachgewiesen;
       `/hitl off` wirkt ohne Neustart
+      **Teilweise:** [F022](../features/F022-hitl-flow.md) — Approve/Reject
+      end-to-end über echte `interrupt()`/`Command(resume=...)`-Mechanik verifiziert
+      (inkl. mehrerer gleichzeitiger Interrupts, gezieltes Resume per Interrupt-ID).
+      `/hitl off` wirkt sofort (`config/hitl.yaml`, kein Deploy nötig). **Offen:**
+      kein automatischer 30-Minuten-Timeout-Sweep — die Prüf-Logik existiert
+      (F005), aber es gibt noch keinen Scheduler, der sie proaktiv auf nie
+      beantwortete Anfragen anwendet (kommt mit dem letzten P4-Feature,
+      Zyklen-Scheduling). Fail-closed in der Zwischenzeit: eine unbeantwortete
+      Anfrage bleibt `HITL_PENDING`, nie `APPROVED`.
 - [ ] 5 Handelstage in Folge: alle geplanten Zyklen (4/Tag Aktien +
       CRYPTOR-Plan) gelaufen, 0 unbehandelte Exceptions; Crash-Recovery getestet
       (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer)
@@ -77,7 +90,11 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    Risk-Inputs; `hold`/`reject_idea` direkt, `buy` durchs Risk-Gate (Sizing-Formel
    mit Ralf abgestimmt: `conviction × max_position_pct × equity`). `sell`/`close`
    bewusst zurückgestellt bis der Handels-Agent echte Positionen erzeugt.
-8. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
+8. ~~F022 — HITL-Flow~~ ✅ erledigt: risk-approved `buy` pausiert per echtem
+   LangGraph-`interrupt()` (statt F021s direktem `APPROVED`), Telegram-Callback
+   resumed gezielt per Interrupt-ID (`Command(resume={id: outcome})`); mehrere
+   gleichzeitige Interrupts verifiziert unabhängig voneinander. Offen: kein
+   automatischer Timeout-Sweep ohne Scheduler (siehe oben, DoD-Punkt 2).
 9. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
 10. Reporting-Agent.
 11. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die

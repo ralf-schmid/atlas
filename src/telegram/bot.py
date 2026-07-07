@@ -10,11 +10,13 @@ Ralf's real TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import uuid
 from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from langgraph.types import Command
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
@@ -34,16 +36,26 @@ from src.telegram.hitl_store import (
 from src.telegram.security import is_authorized_chat
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
+if TYPE_CHECKING:
+    from langgraph.graph.state import CompiledStateGraph
+
 _Handler = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]]
 
 
 def build_application(
     config: TelegramConfig,
     session_factory: sessionmaker[Session] | None = None,
+    graph: CompiledStateGraph[Any, Any, Any, Any] | None = None,
 ) -> Application[Any, Any, Any, Any, Any, Any]:
+    """`graph` is the compiled orchestrator graph (F016+), needed to resume a
+    LangGraph interrupt() when a HITL approval/rejection button is pressed — see
+    docs/features/F022-hitl-flow.md. Optional so bot.py stays importable/testable
+    without an orchestrator (e.g. before the graph is wired up)."""
     app = Application.builder().token(config.bot_token).build()
     if session_factory is not None:
         app.bot_data["session_factory"] = session_factory
+    if graph is not None:
+        app.bot_data["graph"] = graph
 
     app.add_handler(CommandHandler("status", _make_handler(config, _handle_status)))
     app.add_handler(CommandHandler("pause", _make_handler(config, _handle_pause)))
@@ -176,7 +188,18 @@ async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TY
         apply_hitl_outcome(db_session, decision, outcome, now)
         db_session.commit()
         instrument = decision.instrument
+        hitl = decision.hitl or {}
+        thread_id = hitl.get("thread_id")
+        interrupt_id = hitl.get("interrupt_id")
     finally:
         db_session.close()
+
+    graph = context.application.bot_data.get("graph")
+    if graph is not None and thread_id and interrupt_id:
+        await asyncio.to_thread(
+            graph.invoke,
+            Command(resume={interrupt_id: outcome.decision.value}),
+            config={"configurable": {"thread_id": thread_id}},
+        )
 
     await query.edit_message_text(format_outcome_message(instrument, outcome))

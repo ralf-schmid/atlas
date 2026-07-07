@@ -23,10 +23,22 @@ import uuid
 
 import httpx
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 from sqlalchemy import select
 
 from src.db.base import get_session_factory
-from src.db.models import AgentRun, Cycle, Decision, EdgarFiling, MarketSession, ResearchItem
+from src.db.models import (
+    AgentRun,
+    Cycle,
+    Decision,
+    DecisionStatus,
+    EdgarFiling,
+    MarketBar,
+    MarketBarTimeframe,
+    MarketSession,
+    ResearchItem,
+)
 from src.llm.client import LiteLLMClient
 from src.llm.config import CostCaps, LlmConfig, RoleConfig
 from src.orchestrator.graph import CycleState, build_and_compile_graph, list_active_portfolios
@@ -142,3 +154,159 @@ def test_full_cycle_run_fans_out_to_all_six_portfolios_and_synthesizes_research(
         decisions = session.scalars(select(Decision).where(Decision.cycle_id == cycle_id)).all()
         assert len(decisions) == 6
         assert {str(d.portfolio_id) for d in decisions} == expected_portfolio_ids
+
+
+def _mixed_hold_and_buy_client() -> LiteLLMClient:
+    """VULTURE and HYPE respond "buy" (AAPL); everyone else "hold" — see F022 §3
+    test 5. Persona identity is read from the charter text in the system message
+    (F018's render_charter always starts "Du bist <NAME> — ...")."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        system_content = body["messages"][0]["content"]
+        user_content = body["messages"][1]["content"]
+        cited_ids = _ID_RE.findall(user_content)
+
+        if "Du bist VULTURE" in system_content or "Du bist HYPE" in system_content:
+            content = json.dumps(
+                {
+                    "action": "buy",
+                    "instrument": "AAPL",
+                    "conviction": 0.3,
+                    "thesis_text": "integration test — buy path",
+                    "input_research_ids": cited_ids,
+                }
+            )
+        else:
+            content = json.dumps(
+                {
+                    "action": "hold",
+                    "instrument": "PORTFOLIO",
+                    "thesis_text": "integration test — no real analysis",
+                    "input_research_ids": cited_ids,
+                }
+            )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 200, "completion_tokens": 50},
+            },
+            headers={"x-litellm-response-cost": "0.001"},
+        )
+
+    return LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+
+def test_multiple_simultaneous_hitl_interrupts_resume_independently() -> None:
+    """See docs/features/F022-hitl-flow.md §3, test 5."""
+    if not os.environ.get("DATABASE_URL"):
+        pytest.skip("DATABASE_URL not set — needs a real local Postgres, see F016 §5")
+
+    session_factory = get_session_factory()
+    with session_factory() as seed_session:
+        seed_personas_and_portfolios(seed_session)
+        seed_session.add(
+            EdgarFiling(
+                accession_number=f"TEST-{uuid.uuid4().hex[:12]}",
+                company_name="Test Corp",
+                form_type="8-K",
+                filed_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+                title="Test filing for F022 HITL integration test",
+                link="https://example.invalid/test-filing",
+                summary="irrelevant raw feed summary",
+            )
+        )
+        base = datetime.datetime(2026, 6, 1)
+        for i in range(5):
+            seed_session.add(
+                MarketBar(
+                    symbol="AAPL",
+                    timeframe=MarketBarTimeframe.DAY,
+                    ts=base + datetime.timedelta(days=i),
+                    open=180,
+                    high=182,
+                    low=178,
+                    close=181,
+                    volume=1000000,
+                )
+            )
+        seed_session.commit()
+
+    checkpointer = InMemorySaver()
+    graph = build_and_compile_graph(
+        session_factory, _mixed_hold_and_buy_client(), _test_llm_config(), checkpointer=checkpointer
+    )
+    trading_day = datetime.date.today()
+    initial_state = CycleState(
+        trading_day=trading_day.isoformat(),
+        seq=2,
+        market_session=MarketSession.US_EQUITY.value,
+        cycle_id=None,
+        research_item_ids=[],
+    )
+    thread_id = "test-multi-hitl-thread"
+
+    result = graph.invoke(
+        initial_state, config={"max_concurrency": 1, "configurable": {"thread_id": thread_id}}
+    )
+
+    interrupts = result.get("__interrupt__")
+    assert interrupts is not None
+    assert len(interrupts) == 2  # VULTURE + HYPE
+
+    with session_factory() as session:
+        cycle_id = result["cycle_id"]
+        pending = session.scalars(
+            select(Decision).where(
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.HITL_PENDING
+            )
+        ).all()
+        assert len(pending) == 2
+
+        recorded = session.scalars(
+            select(Decision).where(
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.RECORDED
+            )
+        ).all()
+        assert len(recorded) == 4  # the 4 "hold" personas completed normally
+
+    # Resume only the first interrupt — the second must remain pending.
+    resumed = graph.invoke(
+        Command(resume={interrupts[0].id: "approved"}),
+        config={"configurable": {"thread_id": thread_id}},
+    )
+    assert resumed.get("__interrupt__")
+    assert len(resumed["__interrupt__"]) == 1
+
+    with session_factory() as session:
+        approved = session.scalars(
+            select(Decision).where(
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.APPROVED
+            )
+        ).all()
+        still_pending = session.scalars(
+            select(Decision).where(
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.HITL_PENDING
+            )
+        ).all()
+        assert len(approved) == 1
+        assert len(still_pending) == 1
+
+    # Resume the second, no interrupts should remain.
+    final = graph.invoke(
+        Command(resume={resumed["__interrupt__"][0].id: "rejected"}),
+        config={"configurable": {"thread_id": thread_id}},
+    )
+    assert not final.get("__interrupt__")
+    with session_factory() as session:
+        rejected = session.scalars(
+            select(Decision).where(
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.HITL_REJECTED
+            )
+        ).all()
+        assert len(rejected) == 1

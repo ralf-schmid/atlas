@@ -10,6 +10,7 @@ import uuid
 from dataclasses import asdict
 from decimal import Decimal
 
+from langgraph.types import interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,12 +21,14 @@ from src.db.models import (
     Decision,
     DecisionAction,
     DecisionStatus,
+    Portfolio,
     ResearchItem,
 )
 from src.llm.client import LiteLLMClient
 from src.llm.config import LlmConfig
 from src.llm.ledger import BudgetExceededError, guarded_complete
 from src.orchestrator.decision_sizing import compute_position_value_usd, compute_stop_loss_price
+from src.orchestrator.hitl_config import is_hitl_required
 from src.orchestrator.llm_decision_schema import PersonaDecisionOutput, parse_llm_decision
 from src.orchestrator.market_pricing import compute_atr14, get_latest_price
 from src.orchestrator.risk_inputs import read_portfolio_risk_state
@@ -33,6 +36,7 @@ from src.personas.charters import render_charter
 from src.risk.config import load_persona_guardrails, load_system_guardrails
 from src.risk.gate import evaluate_decision
 from src.risk.models import RiskCheckResult, TradeAction
+from src.telegram.hitl_store import mark_hitl_pending
 
 _INSTRUMENT_HOLD_SENTINEL = "PORTFOLIO"
 
@@ -63,6 +67,14 @@ def analyze_persona_cycle(
     persona_name: str,
     broker_adapter: BrokerAdapter,
 ) -> Decision | None:
+    # Idempotency for LangGraph's interrupt() replay (see F022 §2): if this exact
+    # node already created a HITL_PENDING decision in a prior (interrupted) attempt
+    # for this cycle/portfolio, skip straight to awaiting the outcome — no repeat
+    # LLM call, no repeat research/risk-gate work.
+    pending = _find_pending_hitl_decision(session, cycle_id, portfolio_id)
+    if pending is not None:
+        return _await_hitl_outcome(session, pending)
+
     research_items = list(
         session.scalars(select(ResearchItem).where(ResearchItem.cycle_id == cycle_id)).all()
     )
@@ -282,7 +294,7 @@ def _resolve_buy_decision(
     )
 
     status = DecisionStatus.APPROVED if risk_check.approved else DecisionStatus.RISK_REJECTED
-    return _persist_decision(
+    decision = _persist_decision(
         session,
         cycle_id=cycle_id,
         portfolio_id=portfolio_id,
@@ -300,6 +312,54 @@ def _resolve_buy_decision(
         risk_check=_serialize_risk_check(risk_check),
         status=status,
     )
+
+    if risk_check.approved:
+        portfolio = session.get_one(Portfolio, portfolio_id)
+        if is_hitl_required(portfolio.mode):
+            mark_hitl_pending(session, decision, amount_usd=position_value_usd)
+            session.commit()
+            return _await_hitl_outcome(session, decision)
+
+    return decision
+
+
+def _find_pending_hitl_decision(
+    session: Session, cycle_id: uuid.UUID, portfolio_id: uuid.UUID
+) -> Decision | None:
+    stmt = select(Decision).where(
+        Decision.cycle_id == cycle_id,
+        Decision.portfolio_id == portfolio_id,
+        Decision.status == DecisionStatus.HITL_PENDING,
+    )
+    return session.scalar(stmt)
+
+
+def _await_hitl_outcome(session: Session, decision: Decision) -> Decision:
+    """Pauses this Send-task via LangGraph's interrupt() (see F022 §2) until a
+    Telegram callback resumes it with Command(resume={interrupt_id: "approved" |
+    "rejected"}). On the first call this raises GraphInterrupt and never returns;
+    `outcome` below is only reached on a resumed replay."""
+    hitl = decision.hitl or {}
+    outcome = interrupt(
+        {
+            "decision_id": str(decision.id),
+            "instrument": decision.instrument,
+            "thesis_text": decision.thesis_text,
+            "amount_usd": hitl.get("amount_usd"),
+            "stop_loss_price": decision.expected_outcome.get("stop_loss_price"),
+        }
+    )
+
+    decision.status = (
+        DecisionStatus.APPROVED if outcome == "approved" else DecisionStatus.HITL_REJECTED
+    )
+    updated_hitl = dict(hitl)
+    updated_hitl["decided_by"] = "user"
+    updated_hitl["resumed_at"] = datetime.datetime.now(datetime.UTC).isoformat()
+    decision.hitl = updated_hitl
+    session.add(decision)
+    session.commit()
+    return decision
 
 
 def _persist_decision(
