@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import secrets
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -58,7 +59,8 @@ def _require_env(var_name: str) -> str:
 
 def _check_webhook_secret(x_webhook_secret: str | None) -> None:
     expected_secret = _require_env("N8N_PUBLICATIONS_WEBHOOK_SECRET")
-    if x_webhook_secret != expected_secret:
+    # compare_digest: constant-time comparison, no timing side channel on the secret.
+    if x_webhook_secret is None or not secrets.compare_digest(x_webhook_secret, expected_secret):
         raise HTTPException(status_code=401, detail="Invalid or missing webhook secret")
 
 
