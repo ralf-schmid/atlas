@@ -1,6 +1,6 @@
 # F014 — Musterdepot-Transaktions-Ingestion
 
-Status: umgesetzt (Code + Workflow-Erweiterung), n8n-Import und Live-Verifikation stehen bei Ralf aus
+Status: umgesetzt und live verifiziert
 Datum: 2026-07-06
 Phase: 3
 
@@ -108,25 +108,15 @@ verifiziert (keine ENUM-Typen). Parser zusätzlich gegen die reale
 `Neue Transaktion.eml`-Beispielmail verifiziert (nicht nur synthetische Test-Fixtures)
 — extrahiert korrekt "TEILVERKAUF Moderna, WKN A2N9D9, 75 Stück @ 68,31 Euro".
 
-**Noch offen (braucht Ralfs Mitwirkung in n8n, nicht in diesem Repo lösbar):**
-1. Aktualisierten `n8n/publications-mail-trigger.json` erneut in Ralfs n8n-Instanz
-   importieren (überschreibt/ergänzt den bestehenden F013-Workflow um den zweiten
-   Zweig).
-2. **Feldnamen im HTTP-Request-Body — korrigiert (2026-07-06):** die erste Version
-   riet auf plausible, aber falsche Feldnamen für die Message-ID (`$json.messageId`
-   etc.); ein echter Testlauf lieferte `422 "message_id": "Field required"` — das
-   Feld fehlte komplett im Body. Ursache im Quellcode der `emailReadImap`-Node (v2,
-   Format "Simple", der Default) verifiziert: `topLevelProperties` sind nur
-   `cc, date, from, subject, to` — alle anderen Header (inkl. `message-id`) landen
-   unter `$json.metadata['message-id']`. Korrigierter Ausdruck:
-   `$json.metadata['message-id']` für die Message-ID,
-   `$json.textHtml || $json.textPlain` für den Mailtext (beide bereits in
-   `n8n/publications-mail-trigger.json` aktualisiert).
-3. Live-Verifikation mit einer echten (oder erneut zugestellten) Musterdepot-Mail —
-   Telegram-Alert muss ankommen, DB-Zeile muss entstehen.
-4. Deployment auf die UGREEN: Code + Migration synchronisieren (kein
-   `docker-compose.yml`-Update nötig, da F014 dieselben Env-Vars wie F013
-   wiederverwendet).
+**Update (2026-07-06): vollständig live verifiziert.** Workflow in Ralfs n8n-Instanz
+importiert, Feldnamen-Fehler in der ersten Version (`$json.messageId` etc. statt
+`$json.metadata['message-id']`) durch Lesen des `emailReadImap`-Node-Quellcodes im
+laufenden n8n-Container gefunden und behoben (Commit `8aed520`). Nach der Korrektur
+läuft der Workflow durch — Ralf hat den fehlerfreien Durchlauf bestätigt.
+
+**Rein technischer Rest (kein Blocker):**
+- Scheduler/Orchestrator-Anbindung an P4-Agenten (research_item-Synthese) — wie bei
+  F008–F013, planmäßig erst mit dem P4-Orchestrator.
 
 ## 6. Rollback-Pfad
 
