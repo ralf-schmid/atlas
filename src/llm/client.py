@@ -7,9 +7,12 @@ header rather than maintaining a duplicate per-model price table in this repo
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,7 +46,7 @@ class LiteLLMClient:
         response.raise_for_status()
         data = response.json()
         usage = data["usage"]
-        cost_usd = float(response.headers.get("x-litellm-response-cost", "0.0"))
+        cost_usd = _parse_cost_header(response.headers.get("x-litellm-response-cost"))
         content = str(data["choices"][0]["message"]["content"])
         return LLMResponse(
             content=content,
@@ -51,3 +54,19 @@ class LiteLLMClient:
             tokens_out=int(usage["completion_tokens"]),
             cost_usd=cost_usd,
         )
+
+
+def _parse_cost_header(raw: str | None) -> float:
+    """The LLM call is already billed by the time this header is read — a missing
+    or unparseable value must not lose the response (and with it, the caller's
+    ability to still write *some* cost_ledger row); see security-audit P7. Default
+    to 0.0 and log an incident instead of raising.
+    """
+    if raw is None:
+        logger.error("x-litellm-response-cost header missing from LiteLLM response")
+        return 0.0
+    try:
+        return float(raw)
+    except ValueError:
+        logger.error("x-litellm-response-cost header unparseable: %r", raw)
+        return 0.0

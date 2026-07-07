@@ -7,13 +7,15 @@ from __future__ import annotations
 
 import datetime
 import uuid
+import zoneinfo
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter
-from src.db.models import Decision, OrderRecord, PortfolioSnapshot
+from src.db.models import Cycle, Decision, MarketSession, OrderRecord, PortfolioSnapshot
+from src.orchestrator.cycles_config import load_cycles_config
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +31,7 @@ def read_portfolio_risk_state(
     session: Session,
     adapter: BrokerAdapter,
     portfolio_id: uuid.UUID,
-    now: datetime.datetime,
+    cycle_id: uuid.UUID,
 ) -> PortfolioRiskState:
     balance = adapter.get_account_balance()
     positions = adapter.get_positions()
@@ -41,7 +43,7 @@ def read_portfolio_risk_state(
     )
     peak_equity_usd = max(balance.equity, float(historical_peak or 0.0))
 
-    trades_today_count = _count_trades_today(session, portfolio_id, now)
+    trades_today_count = _count_trades_today(session, portfolio_id, cycle_id)
 
     return PortfolioRiskState(
         equity_usd=balance.equity,
@@ -52,9 +54,20 @@ def read_portfolio_risk_state(
     )
 
 
-def _count_trades_today(session: Session, portfolio_id: uuid.UUID, now: datetime.datetime) -> int:
-    start = datetime.datetime(now.year, now.month, now.day)
-    end = start + datetime.timedelta(days=1)
+def _count_trades_today(session: Session, portfolio_id: uuid.UUID, cycle_id: uuid.UUID) -> int:
+    # security-audit P7: "today" must be the market's trading day, not the UTC (or
+    # host-local) calendar day — a stock cycle just before/after midnight UTC would
+    # otherwise count trades from the wrong day. `Cycle.trading_day` is already
+    # computed in the market timezone by the scheduler (F025); reuse it instead of
+    # re-deriving a day boundary from a raw timestamp.
+    cycle = session.get_one(Cycle, cycle_id)
+    tz = zoneinfo.ZoneInfo(_market_timezone(cycle.market_session))
+    local_midnight = datetime.datetime.combine(cycle.trading_day, datetime.time.min, tzinfo=tz)
+    start = local_midnight.astimezone(datetime.UTC).replace(tzinfo=None)
+    end = (
+        (local_midnight + datetime.timedelta(days=1)).astimezone(datetime.UTC).replace(tzinfo=None)
+    )
+
     stmt = (
         select(func.count())
         .select_from(OrderRecord)
@@ -66,3 +79,10 @@ def _count_trades_today(session: Session, portfolio_id: uuid.UUID, now: datetime
         )
     )
     return int(session.scalar(stmt) or 0)
+
+
+def _market_timezone(market_session: MarketSession) -> str:
+    cycles_config = load_cycles_config()
+    if market_session == MarketSession.CRYPTO:
+        return cycles_config.crypto_timezone
+    return cycles_config.stock_timezone

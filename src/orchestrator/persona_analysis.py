@@ -14,6 +14,7 @@ from langgraph.types import interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.protocol import BrokerAdapter, Position
 from src.broker.registry import get_adapter_type
 from src.db.models import (
@@ -70,6 +71,13 @@ def analyze_persona_cycle(
     persona_name: str,
     broker_adapter: BrokerAdapter,
 ) -> Decision | None:
+    # F002 §2 / security-audit F026: virtual personas (internal_ledger) have no
+    # broker-side GTC stop — this is the only place that checks pending stops
+    # against the market. Must run before any get_positions() call below (both in
+    # the HITL-replay branch via generate_portfolio_snapshot and in the fresh-cycle
+    # branch) so the persona and its snapshot see post-stop state.
+    _sweep_stop_orders(session, cycle_id, portfolio_id, broker_adapter)
+
     # Idempotency for LangGraph's interrupt() replay (see F022 §2): if this exact
     # node already created a HITL decision in a prior (interrupted) attempt for this
     # cycle/portfolio, skip straight to awaiting/applying the outcome — no repeat
@@ -147,6 +155,30 @@ def analyze_persona_cycle(
         session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
     )
     return decision
+
+
+def _sweep_stop_orders(
+    session: Session, cycle_id: uuid.UUID, portfolio_id: uuid.UUID, broker_adapter: BrokerAdapter
+) -> None:
+    """No-op for native (Alpaca) adapters — their stop-loss is a broker-side GTC
+    order and needs no sweep. Non-fatal on error: a persona's stops retry next
+    cycle rather than blocking that persona's whole analysis (see
+    `_maybe_execute_decision` below for the same non-fatal contract)."""
+    if not isinstance(broker_adapter, InternalLedgerAdapter):
+        return
+    try:
+        broker_adapter.check_stop_orders()
+    except Exception as exc:
+        session.add(
+            AgentRun(
+                cycle_id=cycle_id,
+                portfolio_id=portfolio_id,
+                agent="stop_sweep",
+                status=AgentRunStatus.FAILED,
+                error=str(exc),
+            )
+        )
+        session.flush()
 
 
 def _maybe_execute_decision(
@@ -309,9 +341,8 @@ def _resolve_buy_decision(
         )
 
     conviction = parsed.conviction if parsed.conviction is not None else 0.0
-    now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
-    risk_state = read_portfolio_risk_state(session, broker_adapter, portfolio_id, now)
+    risk_state = read_portfolio_risk_state(session, broker_adapter, portfolio_id, cycle_id)
     system_guardrails = load_system_guardrails()
 
     position_value_usd = compute_position_value_usd(

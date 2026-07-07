@@ -51,3 +51,22 @@ def test_complete_defaults_cost_to_zero_when_header_missing():
     result = client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
 
     assert result.cost_usd == 0.0
+
+
+def test_complete_defaults_cost_to_zero_when_header_unparseable():
+    """security-audit P7: a malformed header must not raise and lose the whole
+    response — the call is already billed by this point."""
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=_mock_client(response_json, cost_header="not-a-number"),
+    )
+
+    result = client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+
+    assert result.cost_usd == 0.0
+    assert result.content == "hello"
