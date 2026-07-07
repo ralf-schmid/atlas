@@ -16,7 +16,7 @@ from langgraph.types import Command
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.broker.protocol import AccountBalance, OrderResult, Position
+from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 from src.db.models import (
     AgentRun,
     Decision,
@@ -25,6 +25,7 @@ from src.db.models import (
     MarketBar,
     MarketBarTimeframe,
     MarketSession,
+    OrderRecord,
     Persona,
     Portfolio,
     ResearchItem,
@@ -40,9 +41,18 @@ class _FakeAdapter:
     def __init__(self, balance: AccountBalance, positions: list[Position] | None = None) -> None:
         self._balance = balance
         self._positions = positions or []
+        self.placed_orders: list[dict[str, object]] = []
 
     def place_order(self, **kwargs: object) -> OrderResult:
-        raise NotImplementedError
+        self.placed_orders.append(kwargs)
+        return OrderResult(
+            entry_order_id="entry-test-1",
+            stop_order_id="stop-test-1",
+            symbol=str(kwargs["symbol"]),
+            qty=float(kwargs["qty"]),  # type: ignore[arg-type]
+            side=OrderSide.BUY,
+            stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+        )
 
     def cancel_order(self, order_id: str) -> None:
         raise NotImplementedError
@@ -338,7 +348,9 @@ def test_hitl_resume_approves_decision_without_second_llm_call(session: Session)
     assert call_count == 1
     decision = session.scalar(select(Decision).where(Decision.cycle_id == cycle.id))
     assert decision is not None
-    assert decision.status == DecisionStatus.APPROVED
+    # F023: approval now flows straight into execution (see
+    # test_hitl_resume_approval_also_executes_the_order for the order_record checks).
+    assert decision.status == DecisionStatus.EXECUTED
     assert decision.hitl is not None
     assert decision.hitl["decided_by"] == "user"
 
@@ -375,10 +387,53 @@ def test_buy_response_approved_directly_when_hitl_disabled(
 
     assert decision is not None
     assert decision.action == DecisionAction.BUY
-    assert decision.status == DecisionStatus.APPROVED
     assert decision.risk_check is not None
     assert decision.risk_check["approved"] is True
     assert decision.quantity is not None and decision.quantity > 0
+    # F023: risk-gate-approved + HITL off -> the trading module executes it too.
+    assert decision.status == DecisionStatus.EXECUTED
+    assert adapter.placed_orders
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+    assert order_record.broker == "alpaca_paper"
+    assert order_record.broker_order_id == "entry-test-1"
+
+
+def test_hitl_resume_approval_also_executes_the_order(session: Session) -> None:
+    """F023 end-to-end: a decision approved via a Telegram-resumed interrupt gets
+    executed by the trading module too, not just directly-approved ones."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    graph = _build_single_persona_graph(session, _fake_client(content), _llm_config(), adapter)
+    state = _AnalysisState(
+        cycle_id=str(cycle.id),
+        portfolio_id=str(portfolio.id),
+        persona_id=str(persona.id),
+        persona_name="VULTURE",
+    )
+    thread_config = {"configurable": {"thread_id": "test-thread-execute"}}
+
+    first = graph.invoke(state, config=thread_config)
+    interrupt_id = first["__interrupt__"][0].id
+    graph.invoke(Command(resume={interrupt_id: "approved"}), config=thread_config)
+
+    decision = session.scalar(select(Decision).where(Decision.cycle_id == cycle.id))
+    assert decision is not None
+    assert decision.status == DecisionStatus.EXECUTED
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+    assert adapter.placed_orders
 
 
 def test_buy_response_rejected_by_risk_gate_when_trades_today_exceeded(

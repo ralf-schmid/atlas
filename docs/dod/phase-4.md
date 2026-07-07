@@ -36,9 +36,16 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       [F022](../features/F022-hitl-flow.md) — risk-approved `buy` pausiert jetzt
       korrekt per echtem LangGraph-`interrupt()`, statt direkt `APPROVED` zu setzen
       (schließt eine Sicherheitslücke aus F021 — HITL ist laut ARCHITECTURE.md §5.3
-      aktuell für Paper Pflicht). **Offen:** `sell`/`close` (brauchen echte, vom
-      Handels-Agenten eröffnete Positionen — noch nicht vorhanden), Handels-Agent
-      (Order-Pfad) selbst.
+      aktuell für Paper Pflicht). [F023](../features/F023-trading-agent.md) —
+      Handels-Agent: `APPROVED`-Decisions (direkt oder nach HITL-Resume) werden über
+      `BrokerAdapter.place_order()` ausgeführt, `order_record` persistiert,
+      `decision.status → EXECUTED`. Dabei eine echte Sicherheitslücke gefunden und
+      behoben: `graph.py` konstruierte Broker-Adapter fest über die echte Registry —
+      ein Test, der einen `buy`-Interrupt auf "approved" resumt, hätte sonst eine
+      echte Alpaca-Paper-Order ausgelöst. Jetzt injizierbar
+      (`adapter_factory`-Parameter). **Offen:** `sell`/`close` (siehe F021 §1), kein
+      echter Live-Test mit tatsächlicher Order-Platzierung (auf Rückfrage
+      zurückgestellt).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -95,7 +102,12 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    resumed gezielt per Interrupt-ID (`Command(resume={id: outcome})`); mehrere
    gleichzeitige Interrupts verifiziert unabhängig voneinander. Offen: kein
    automatischer Timeout-Sweep ohne Scheduler (siehe oben, DoD-Punkt 2).
-9. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
+9. ~~F023 — Handels-Agent~~ ✅ erledigt: `execute_decision` nimmt ausschließlich
+   bereits `APPROVED`-Decisions (nie Freitext) entgegen, ruft `place_order()`
+   (OTO-Bracket mit Pflicht-Stop, F001), persistiert `order_record`. Aufgerufen aus
+   `persona_analysis.py` direkt nach jeder Stelle, an der eine Decision `APPROVED`
+   wird — kein separater Graph-Knoten (State-Channel-Kollisionsgefahr bei
+   parallelem `Send`, siehe F023 §2).
 10. Reporting-Agent.
 11. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
     drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,

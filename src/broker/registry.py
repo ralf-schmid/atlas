@@ -51,6 +51,16 @@ def get_adapter(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> Broke
     raise ValueError(f"Unknown adapter type {adapter_type!r} for persona {persona!r}")
 
 
+def get_adapter_type(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> str:
+    """Just the adapter type string (e.g. "alpaca_paper") — used for `order_record.broker`,
+    which shouldn't need to construct a real adapter to know this."""
+    config = yaml.safe_load(config_path.read_text())
+    personas = config["personas"]
+    if persona not in personas:
+        raise ValueError(f"Unknown persona: {persona!r}. Known personas: {sorted(personas)}")
+    return str(personas[persona]["adapter"])
+
+
 def _build_market_data_provider(
     market: str, market_data_config: dict[str, str]
 ) -> MarketDataProvider:

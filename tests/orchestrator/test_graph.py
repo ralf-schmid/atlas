@@ -27,6 +27,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command
 from sqlalchemy import select
 
+from src.broker.protocol import AccountBalance, OrderResult, OrderSide
 from src.db.base import get_session_factory
 from src.db.models import (
     AgentRun,
@@ -47,6 +48,35 @@ from src.orchestrator.seed import seed_personas_and_portfolios
 pytestmark = pytest.mark.integration
 
 _ID_RE = re.compile(r'"id":\s*"([0-9a-f-]{36})"')
+
+
+class _FakeBrokerAdapter:
+    """Never touches the real Alpaca API — see F023 §2: without this, resuming a
+    `buy` interrupt to "approved" in a test would place a real Alpaca Paper order
+    via the real `get_adapter()` registry."""
+
+    def place_order(self, **kwargs: object) -> OrderResult:
+        return OrderResult(
+            entry_order_id="test-entry",
+            stop_order_id="test-stop",
+            symbol=str(kwargs["symbol"]),
+            qty=float(kwargs["qty"]),  # type: ignore[arg-type]
+            side=OrderSide.BUY,
+            stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+        )
+
+    def cancel_order(self, order_id: str) -> None:
+        raise NotImplementedError
+
+    def get_positions(self) -> list[object]:
+        return []
+
+    def get_account_balance(self) -> AccountBalance:
+        return AccountBalance(cash=5000.0, equity=5000.0, buying_power=5000.0)
+
+
+def _fake_adapter_factory(persona_name: str) -> _FakeBrokerAdapter:
+    return _FakeBrokerAdapter()
 
 
 def _hold_response_client() -> LiteLLMClient:
@@ -119,7 +149,12 @@ def test_full_cycle_run_fans_out_to_all_six_portfolios_and_synthesizes_research(
         )
         seed_session.commit()
 
-    graph = build_and_compile_graph(session_factory, _hold_response_client(), _test_llm_config())
+    graph = build_and_compile_graph(
+        session_factory,
+        _hold_response_client(),
+        _test_llm_config(),
+        adapter_factory=_fake_adapter_factory,
+    )
     trading_day = datetime.date.today()
     initial_state = CycleState(
         trading_day=trading_day.isoformat(),
@@ -239,7 +274,11 @@ def test_multiple_simultaneous_hitl_interrupts_resume_independently() -> None:
 
     checkpointer = InMemorySaver()
     graph = build_and_compile_graph(
-        session_factory, _mixed_hold_and_buy_client(), _test_llm_config(), checkpointer=checkpointer
+        session_factory,
+        _mixed_hold_and_buy_client(),
+        _test_llm_config(),
+        checkpointer=checkpointer,
+        adapter_factory=_fake_adapter_factory,
     )
     trading_day = datetime.date.today()
     initial_state = CycleState(
@@ -284,9 +323,10 @@ def test_multiple_simultaneous_hitl_interrupts_resume_independently() -> None:
     assert len(resumed["__interrupt__"]) == 1
 
     with session_factory() as session:
-        approved = session.scalars(
+        # F023: approval flows straight into execution via the (fake) trading path.
+        executed = session.scalars(
             select(Decision).where(
-                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.APPROVED
+                Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.EXECUTED
             )
         ).all()
         still_pending = session.scalars(
@@ -294,7 +334,7 @@ def test_multiple_simultaneous_hitl_interrupts_resume_independently() -> None:
                 Decision.cycle_id == cycle_id, Decision.status == DecisionStatus.HITL_PENDING
             )
         ).all()
-        assert len(approved) == 1
+        assert len(executed) == 1
         assert len(still_pending) == 1
 
     # Resume the second, no interrupts should remain.
