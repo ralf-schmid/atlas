@@ -28,6 +28,7 @@ from src.db.models import (
     OrderRecord,
     Persona,
     Portfolio,
+    PortfolioSnapshot,
     ResearchItem,
 )
 from src.llm.client import LiteLLMClient
@@ -146,6 +147,12 @@ def test_empty_research_pool_produces_no_decision_and_no_agent_run(session: Sess
 
     assert decision is None
     assert session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all() == []
+    assert (
+        session.scalars(
+            select(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == portfolio.id)
+        ).all()
+        == []
+    )
 
 
 def test_hold_response_persists_recorded_decision(session: Session) -> None:
@@ -176,6 +183,12 @@ def test_hold_response_persists_recorded_decision(session: Session) -> None:
     assert decision.status == DecisionStatus.RECORDED
     assert decision.action == DecisionAction.HOLD
     assert decision.input_research_ids == [item.id]
+    # F024: a portfolio_snapshot is generated for every real analysis, not just buys.
+    snapshot = session.scalar(
+        select(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == portfolio.id)
+    )
+    assert snapshot is not None
+    assert snapshot.total_value == Decimal("5000")
 
 
 def test_reject_idea_response_persists_with_rejection_reason(session: Session) -> None:
