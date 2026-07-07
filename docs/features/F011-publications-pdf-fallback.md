@@ -89,17 +89,6 @@ Modul, da PyMuPDFs `Document`-Konstruktor keine vollständigen Typannotationen h
 → sauber. `uv run mypy src/ingestion` → sauber. Migration im
 upgrade→downgrade→upgrade-Zyklus verifiziert (keine ENUM-Typen in dieser Tabelle).
 
-**Noch offen (bewusst nicht Teil dieses Commits):**
-- **Playwright-Auto-Download** (Login bei konto.boersenmedien.com, PDF-Abruf) — reift
-  nach dem Fallback, sobald Ralf grünes Licht + Zugangsdaten gibt.
-- **Automatischer Poller** (n8n File-Watcher oder Cron) für `scan_ingest_directory`,
-  der das "binnen 5 Min erkannt" aus dem P3-DoD tatsächlich erfüllt — bis dahin manueller
-  Trigger, siehe Update 2026-07-07 unten.
-- Ein echter Praxistest mit einer realen (nicht synthetischen) Zeitschriften-PDF steht
-  noch aus — die Segmentierungs-Heuristik ist nur gegen synthetische Test-Fixtures
-  verifiziert, nicht gegen das tatsächliche Layout von Euro am Sonntag/Börse
-  Online/Der Aktionär.
-
 **Update 2026-07-07 — Host-Verzeichnis + manueller Trigger nachgezogen:** n8n-IMAP-Trigger
 und der API-Webhook (F013) waren bereits live, aber `PUBLICATIONS_INGEST_DIR` war nur ein
 Env-Wert für den Telegram-Nachrichtentext — kein Docker-Volume band ihn an einen
@@ -112,8 +101,28 @@ Benachrichtigung bekam und die PDF ablegen wollte). Behoben:
   scannt das Verzeichnis und verarbeitet alle gefundenen PDFs, idempotent.
 - Lokal Ende-zu-Ende gegen echte (migrierte) Test-Postgres verifiziert: synthetische PDF
   abgelegt, Skript zweimal gelaufen (1 Artikel, keine Duplikate).
-- **Weiterhin offen:** der automatische Poller (siehe oben) — bis dahin muss der manuelle
-  Trigger nach jedem Ablegen einer PDF von Hand aufgerufen werden.
+- **Mit einer echten (nicht synthetischen) "Der Aktionär"-Ausgabe von Ralf verifiziert:**
+  Download → `scp` ins Verzeichnis → `scripts/ingest_publications.py` → Artikel korrekt
+  in `publication_article` gelandet. Der zuvor offene Praxistest-Punkt ist damit erledigt.
+
+**Noch offen — vollautomatischer Ablauf (Ralf möchte künftig keinen manuellen Schritt
+mehr):** aktuell macht Ralf nach der Telegram-Benachrichtigung drei Dinge von Hand
+(PDF herunterladen, per `scp` ins Verzeichnis legen, `scripts/ingest_publications.py`
+manuell ausführen). Ziel: alle drei Schritte automatisch, ausgelöst durch dieselbe
+n8n-Benachrichtigung, die heute nur die Telegram-Fallback-Nachricht schickt.
+- **Playwright-Auto-Download + Ablage** (Login bei konto.boersenmedien.com, PDF
+  herunterladen, direkt unter `<base_dir>/<slug>/<issue_date>.pdf` ablegen — F011s
+  Verzeichniskonvention bleibt gültig, nur die Quelle wechselt von "Ralf" zu
+  "Playwright"). Braucht Zugangsdaten-Freigabe von Ralf (keine Credentials ohne
+  Absprache anlegen).
+- **Automatischer Trigger für die Verarbeitung** nach erfolgtem Download/Ablage —
+  entweder direkt am Ende des Auto-Download-Skripts (`process_pdf_fallback_file`
+  aufrufen) oder als separater Poller (n8n File-Watcher/Cron auf
+  `scan_ingest_directory`, deckt auch den Fall ab, dass doch mal jemand manuell eine
+  PDF ablegt). Erfüllt nebenbei den offenen P3-DoD-Punkt "binnen 5 Min erkannt".
+- Der heutige manuelle Fallback (Verzeichniskonvention, `scripts/ingest_publications.py`,
+  Idempotenz) bleibt unverändert bestehen und dient danach nur noch als Rückfalloption,
+  falls der Auto-Download fehlschlägt (Login-Änderung, Layout-Wechsel etc.).
 
 ## 6. Rollback-Pfad
 
