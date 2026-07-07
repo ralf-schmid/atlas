@@ -13,9 +13,15 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       echten `persona`/`portfolio`-Zeilen existieren jetzt (idempotenter Seed, live
       gegen die lokale DB verifiziert: native Personas mit den echten
       Alpaca-Paper-Account-IDs aus ADR-0001, virtuelle Personas mit
-      `internal_ledger`). **Offen:** der eigentliche LangGraph-Graph (Shared
-      Research → Send-Fanout → Persona-Analyse → Risk-Gate → HITL → Handels-Agent →
-      Reporting) existiert noch nicht — kommt als nächstes Feature.
+      `internal_ledger`). [F016](../features/F016-orchestrator-graph-skeleton.md) —
+      echter LangGraph-`StateGraph` mit Postgres-Checkpointer: legt einen `cycle` an,
+      erzeugt ein (noch platzhalterhaftes) `research_item`, fanoutet per `Send`
+      parallel über alle 6 aktiven Portfolios (je ein `agent_run`). Live verifiziert
+      (2026-07-07): 1 `cycle`, 1 `research_item`, 6 `agent_run`, 7 echte
+      Checkpoint-Zeilen. **Offen:** echte Recherche-Synthese aus den
+      Ingestion-Tabellen, echte Persona-Analyse (LLM), Risk-Gate-Anbindung an echte
+      Trade-Decisions, HITL, Handels-Agent — noch keine einzige echte `decision`-Zeile
+      (bewusst, siehe F016 §1 Non-Scope).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -34,13 +40,12 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
 ## Geplante Feature-Reihenfolge (Stand 2026-07-07, kann sich ändern)
 
 1. ~~F015 — Persona/Portfolio-Seed~~ ✅ erledigt.
-2. F016 — LangGraph-Graph-Grundgerüst: Dependency-Entscheidung (`langgraph` +
-   Postgres-Checkpointer-Paket), Zyklus-Lebenszyklus (`cycle`-Zeile anlegen),
-   Send-Fanout über die 6 echten Portfolios, Platzhalter-Persona-Knoten (erzeugt
-   echte `reject_idea`-Decisions mit validierten `input_research_ids`, noch ohne
-   LLM-Analyse) — bewusst ohne Order-Pfad, ohne HITL, ohne echte Persona-Logik.
+2. ~~F016 — LangGraph-Graph-Grundgerüst~~ ✅ erledigt: echter `StateGraph` +
+   Postgres-Checkpointer, `cycle`-Lebenszyklus, Send-Fanout über die 6 echten
+   Portfolios, Platzhalter-`agent_run` je Persona — bewusst noch ohne
+   `decision`-Zeilen (siehe F016 §1 Non-Scope), ohne Order-Pfad, ohne HITL.
 3. Shared-Research-Synthese: `research_item`-Zeilen aus den bestehenden
-   Ingestion-Tabellen (F008–F014) ableiten statt Platzhaltern.
+   Ingestion-Tabellen (F008–F014) ableiten statt dem F016-Platzhalter.
 4. Persona-Analyse-Agent (echte LLM-Calls über LiteLLM, Charter-Prompts aus
    `src/personas/`), Risk-Gate-Anbindung an echte Trade-Decisions.
 5. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
