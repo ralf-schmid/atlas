@@ -20,7 +20,11 @@ from langgraph.types import Send
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import AgentRun, AgentRunStatus, Cycle, MarketSession, Persona, Portfolio
+from src.broker.registry import get_adapter
+from src.db.models import Cycle, MarketSession, Persona, Portfolio
+from src.llm.client import LiteLLMClient
+from src.llm.config import LlmConfig
+from src.orchestrator.persona_analysis import analyze_persona_cycle
 from src.orchestrator.research_synthesis import synthesize_research_items
 
 
@@ -35,6 +39,7 @@ class CycleState(TypedDict):
 class PersonaTaskState(TypedDict):
     cycle_id: str
     portfolio_id: str
+    persona_id: str
     persona_name: str
 
 
@@ -52,20 +57,6 @@ def create_cycle(
     return cycle
 
 
-def create_persona_agent_run_placeholder(
-    session: Session, cycle_id: uuid.UUID, portfolio_id: uuid.UUID
-) -> AgentRun:
-    run = AgentRun(
-        cycle_id=cycle_id,
-        portfolio_id=portfolio_id,
-        agent="persona_analysis_placeholder",
-        status=AgentRunStatus.SUCCEEDED,
-    )
-    session.add(run)
-    session.flush()
-    return run
-
-
 def list_active_portfolios(session: Session) -> list[tuple[Portfolio, str]]:
     """Returns (portfolio, persona_name) pairs — models.py uses plain FK columns, no
     ORM relationships, so the persona name comes from an explicit join, not attribute
@@ -80,6 +71,8 @@ def list_active_portfolios(session: Session) -> list[tuple[Portfolio, str]]:
 
 def build_and_compile_graph(
     session_factory: Callable[[], Session],
+    llm_client: LiteLLMClient,
+    llm_config: LlmConfig,
     checkpointer: BaseCheckpointSaver[str] | None = None,
 ) -> CompiledStateGraph[CycleState, None, CycleState, CycleState]:
     def _start_cycle_node(state: CycleState) -> dict[str, object]:
@@ -107,20 +100,29 @@ def build_and_compile_graph(
             portfolios = list_active_portfolios(session)
             return [
                 Send(
-                    "persona_placeholder",
+                    "persona_analysis",
                     PersonaTaskState(
                         cycle_id=state["cycle_id"],
                         portfolio_id=str(portfolio.id),
+                        persona_id=str(portfolio.persona_id),
                         persona_name=persona_name,
                     ),
                 )
                 for portfolio, persona_name in portfolios
             ]
 
-    def _persona_placeholder_node(state: PersonaTaskState) -> dict[str, object]:
+    def _persona_analysis_node(state: PersonaTaskState) -> dict[str, object]:
         with session_factory() as session:
-            create_persona_agent_run_placeholder(
-                session, uuid.UUID(state["cycle_id"]), uuid.UUID(state["portfolio_id"])
+            broker_adapter = get_adapter(state["persona_name"])
+            analyze_persona_cycle(
+                session,
+                llm_client,
+                llm_config,
+                uuid.UUID(state["cycle_id"]),
+                uuid.UUID(state["portfolio_id"]),
+                uuid.UUID(state["persona_id"]),
+                state["persona_name"],
+                broker_adapter,
             )
             session.commit()
             return {}
@@ -128,11 +130,11 @@ def build_and_compile_graph(
     builder = StateGraph(CycleState)
     builder.add_node("start_cycle", _start_cycle_node)
     builder.add_node("shared_research", _shared_research_node)
-    builder.add_node("persona_placeholder", _persona_placeholder_node)
+    builder.add_node("persona_analysis", _persona_analysis_node)
 
     builder.add_edge(START, "start_cycle")
     builder.add_edge("start_cycle", "shared_research")
-    builder.add_conditional_edges("shared_research", _fanout_to_personas, ["persona_placeholder"])
-    builder.add_edge("persona_placeholder", END)
+    builder.add_conditional_edges("shared_research", _fanout_to_personas, ["persona_analysis"])
+    builder.add_edge("persona_analysis", END)
 
     return builder.compile(checkpointer=checkpointer)

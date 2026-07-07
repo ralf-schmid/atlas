@@ -14,6 +14,8 @@ from langgraph.checkpoint.postgres import PostgresSaver
 
 from src.db.base import get_session_factory
 from src.db.models import MarketSession
+from src.llm.client import LiteLLMClient
+from src.llm.config import load_llm_config
 from src.orchestrator.graph import CycleState, build_and_compile_graph
 
 
@@ -22,12 +24,19 @@ def main() -> None:
     session_factory = get_session_factory()
     trading_day = datetime.date.today()
 
+    llm_config = load_llm_config()
+    llm_client = LiteLLMClient(
+        base_url=llm_config.base_url, api_key=os.environ["LITELLM_MASTER_KEY"]
+    )
+
     # psycopg's raw Connection (used by PostgresSaver) doesn't understand the
     # SQLAlchemy "+psycopg" dialect marker in DATABASE_URL.
     checkpointer_conninfo = database_url.replace("postgresql+psycopg://", "postgresql://")
     with PostgresSaver.from_conn_string(checkpointer_conninfo) as checkpointer:
         checkpointer.setup()
-        graph = build_and_compile_graph(session_factory, checkpointer=checkpointer)
+        graph = build_and_compile_graph(
+            session_factory, llm_client, llm_config, checkpointer=checkpointer
+        )
 
         initial_state = CycleState(
             trading_day=trading_day.isoformat(),
