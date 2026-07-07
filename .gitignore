@@ -151,6 +151,10 @@ activemq-data/
 # ATLAS: local InternalLedgerAdapter state (runtime data, not source)
 /data/ledger/
 
+# ATLAS: publications PDF-fallback ingest directory (real, potentially
+# copyrighted magazine PDFs — never in the repo, see F011 §2)
+/data/ingest/
+
 # Environments
 .env
 .envrc

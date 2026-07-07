@@ -52,12 +52,18 @@ services:
       DATABASE_URL: postgresql+psycopg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
       # F013: publications mail-trigger webhook (src/api/routes_ingestion.py) needs
       # the Telegram alert config + its own shared webhook secret + the fallback
-      # PDF ingest path (used only for the Telegram message text, not filesystem
-      # access from within this container).
+      # PDF ingest path (the volume below makes this path real — see F011).
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       N8N_PUBLICATIONS_WEBHOOK_SECRET: ${N8N_PUBLICATIONS_WEBHOOK_SECRET}
       PUBLICATIONS_INGEST_DIR: ${PUBLICATIONS_INGEST_DIR}
+    volumes:
+      # F011: <base_dir>/<publication>/<YYYY-MM-DD>.pdf, host-persistent across
+      # deploys (not in the git repo — matches the existing data/ledger/ convention,
+      # excluded from rsync via --exclude='data/'). Host-side path is fixed here,
+      # not driven by PUBLICATIONS_INGEST_DIR, so it doesn't silently change if that
+      # env var ever does.
+      - ./data/ingest/publications:/data/ingest/publications
     depends_on:
       postgres:
         condition: service_healthy

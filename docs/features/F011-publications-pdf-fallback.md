@@ -90,17 +90,30 @@ Modul, da PyMuPDFs `Document`-Konstruktor keine vollständigen Typannotationen h
 upgrade→downgrade→upgrade-Zyklus verifiziert (keine ENUM-Typen in dieser Tabelle).
 
 **Noch offen (bewusst nicht Teil dieses Commits):**
-- **n8n-IMAP-Trigger** auf die Benachrichtigungs-Mail von konto.boersenmedien.com
-  (P3-DoD-Punkt "n8n-IMAP-Trigger erkennt die Benachrichtigungs-Mail") — braucht Ralfs
-  Mail-Zugangsdaten/IMAP-Konfiguration auf der UGREEN. Wird nicht ohne Rückfrage
-  eingerichtet (keine Zugangsdaten ohne Absprache anlegen).
 - **Playwright-Auto-Download** (Login bei konto.boersenmedien.com, PDF-Abruf) — reift
   nach dem Fallback, sobald Ralf grünes Licht + Zugangsdaten gibt.
-- **Scheduler/Poller** für `scan_ingest_directory` (analog F008–F010: P4/Ops-Folgearbeit).
+- **Automatischer Poller** (n8n File-Watcher oder Cron) für `scan_ingest_directory`,
+  der das "binnen 5 Min erkannt" aus dem P3-DoD tatsächlich erfüllt — bis dahin manueller
+  Trigger, siehe Update 2026-07-07 unten.
 - Ein echter Praxistest mit einer realen (nicht synthetischen) Zeitschriften-PDF steht
   noch aus — die Segmentierungs-Heuristik ist nur gegen synthetische Test-Fixtures
   verifiziert, nicht gegen das tatsächliche Layout von Euro am Sonntag/Börse
   Online/Der Aktionär.
+
+**Update 2026-07-07 — Host-Verzeichnis + manueller Trigger nachgezogen:** n8n-IMAP-Trigger
+und der API-Webhook (F013) waren bereits live, aber `PUBLICATIONS_INGEST_DIR` war nur ein
+Env-Wert für den Telegram-Nachrichtentext — kein Docker-Volume band ihn an einen
+tatsächlich erreichbaren Ort auf der Box, und nichts rief `scan_ingest_directory`/
+`process_pdf_fallback_file` je auf (echte Lücke, aufgefallen als Ralf die erste reale
+Benachrichtigung bekam und die PDF ablegen wollte). Behoben:
+- `docker-compose.yml`: `api`-Service bindet `./data/ingest/publications` (host-persistent,
+  `.gitignore`d, übersteht Redeploys) an `/data/ingest/publications` im Container.
+- `scripts/ingest_publications.py`: manueller Trigger (analog `scripts/run_cycle.py`),
+  scannt das Verzeichnis und verarbeitet alle gefundenen PDFs, idempotent.
+- Lokal Ende-zu-Ende gegen echte (migrierte) Test-Postgres verifiziert: synthetische PDF
+  abgelegt, Skript zweimal gelaufen (1 Artikel, keine Duplikate).
+- **Weiterhin offen:** der automatische Poller (siehe oben) — bis dahin muss der manuelle
+  Trigger nach jedem Ablegen einer PDF von Hand aufgerufen werden.
 
 ## 6. Rollback-Pfad
 
