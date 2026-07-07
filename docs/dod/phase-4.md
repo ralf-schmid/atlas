@@ -22,9 +22,13 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       EDGAR/Screener/Publikationen/aktienfinder/Musterdepot, inkrementell seit dem
       letzten Cycle derselben `market_session`. Live verifiziert: 49 echte
       EDGAR-Filings → 49 `research_item`-Zeilen mit echten Titeln/Zeitstempeln.
-      **Offen:** echte Persona-Analyse (LLM), Risk-Gate-Anbindung an echte
-      Trade-Decisions, HITL, Handels-Agent — noch keine einzige echte `decision`-Zeile
-      (bewusst, siehe F016 §1 Non-Scope).
+      [F018](../features/F018-persona-charters.md) — Charter-Prompts für alle 6
+      Personas. [F019](../features/F019-cost-ledger-enforcement.md) —
+      Kosten-Bremse (Invariante 7) vor dem ersten echten LLM-Call.
+      [F020](../features/F020-portfolio-risk-inputs.md) — echter Broker-Kontostand
+      als Risk-Gate-Eingabe. **Offen:** echte Persona-Analyse (LLM), Risk-Gate-
+      Anbindung an echte Trade-Decisions, HITL, Handels-Agent — noch keine einzige
+      echte `decision`-Zeile (bewusst, siehe F016 §1 Non-Scope).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -58,13 +62,16 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    LiteLLM-Call, schreibt danach den Ledger-Eintrag; `BLOCKED` verhindert den Call
    komplett. Musste vor dem ersten echten LLM-Call stehen (Invariante #7) — daher
    vorgezogen vor den Persona-Analyse-Agenten selbst.
-6. Persona-Analyse-Agent (echte LLM-Calls über `guarded_complete`, nutzt F018s
-   Charter + F017s Research-Pool), Risk-Gate-Anbindung an echte Trade-Decisions —
-   braucht zusätzlich echten Broker-Kontostand (Equity/Cash/offene Positionen) als
-   Risk-Gate-Eingabe, siehe F001/F002 BrokerAdapter.
-7. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
-8. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
-9. Reporting-Agent.
-10. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
+6. ~~F020 — Portfolio-Risk-Gate-Eingaben~~ ✅ erledigt: `read_portfolio_risk_state`
+   liest Equity/Cash/offene Positionen live über den echten `BrokerAdapter`
+   (F001/F002), Peak-Equity aus der `portfolio_snapshot`-Historie (Kaltstart-Fallback:
+   aktuelle Equity), Trades heute aus `order_record`/`decision`.
+7. Persona-Analyse-Agent (echte LLM-Calls über `guarded_complete`, nutzt F018s
+   Charter + F017s Research-Pool + F020s Risk-Inputs), Risk-Gate-Anbindung an echte
+   Trade-Decisions.
+8. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
+9. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
+10. Reporting-Agent.
+11. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
     drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
     5-Tage-Dauerlauf, PDF-Fallback-Poller).
