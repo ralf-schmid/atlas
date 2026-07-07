@@ -69,7 +69,9 @@ def decision_to_hitl_request(decision: Decision, cycle: Cycle) -> HitlRequest:
     if created_at.tzinfo is None:
         created_at = created_at.replace(tzinfo=datetime.UTC)
 
-    stop_loss = _json_float(decision.expected_outcome.get("stop_loss"), 0.0)
+    # "stop_loss_price" is the key persona_analysis._resolve_buy_decision persists
+    # in expected_outcome (and trading.execute_decision reads).
+    stop_loss = _json_float(decision.expected_outcome.get("stop_loss_price"), 0.0)
     amount_usd = _json_float(
         hitl.get("amount_usd"),
         float(decision.quantity or 0) * stop_loss,

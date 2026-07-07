@@ -98,7 +98,7 @@ def make_decision(
         quantity=overrides.get("quantity", Decimal("10")),
         thesis_text="Test thesis",
         rejection_reason=overrides.get("rejection_reason"),
-        expected_outcome={"target_price": 160.0, "horizon_days": 10, "stop_loss": 140.0},
+        expected_outcome={"target_price": 160.0, "horizon_days": 10, "stop_loss_price": 140.0},
         input_research_ids=overrides.get("input_research_ids", [research_item.id]),
     )
     session.add(decision)
