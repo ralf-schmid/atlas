@@ -6,6 +6,13 @@ Checkliste aus ARCHITECTURE.md §8.
 zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, siehe
 `docs/dod/phase-3.md` Update 2026-07-07.
 
+**Update (2026-07-07):** alle 11 geplanten Features (F015–F025) umgesetzt und live
+verifiziert (Ausnahme: F025s Scheduler-Code steht, läuft aber nicht — siehe unten).
+Der komplette Pfad Research → Persona-Analyse → Risk-Gate → HITL → Order →
+Reporting ist einmal durchgängig mit echten Daten/Calls/Order bewiesen. Was fehlt,
+ist ausschließlich der **mehrtägige, unbeaufsichtigte Betrieb** — der beginnt erst,
+wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
+
 - [ ] Vollständiger Zyklus läuft automatisch für alle 6 Portfolios; jede Persona
       erzeugt decisions inkl. `reject_idea`; `input_research_ids`-Pflicht wird
       DB-seitig validiert
@@ -73,6 +80,13 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
 - [ ] 5 Handelstage in Folge: alle geplanten Zyklen (4/Tag Aktien +
       CRYPTOR-Plan) gelaufen, 0 unbehandelte Exceptions; Crash-Recovery getestet
       (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer)
+      **Teilweise:** [F025](../features/F025-cycle-scheduling.md) —
+      `config/cycles.yaml` + `build_scheduler` (APScheduler, alle 4 Aktien-Zyklen +
+      CRYPTOR Werktags-/Wochenend-Zeiten) fertig und getestet (Job-Registrierung,
+      Zeitzonen, abschaltbare Zyklen). **Bewusst nicht gestartet** — ein laufender
+      Scheduler löst automatisiert, unbeaufsichtigt echte Zyklen aus (Kosten, ggf.
+      echte Orders); Aktivierung erfordert Ralfs ausdrückliches Go (siehe F025 §6).
+      Ohne laufenden Scheduler kein 5-Tage-Dauerlauf, kein Crash-Recovery-Test.
 - [ ] Tageskosten ≤ Cap; `cost_ledger` stimmt stichprobenhaft mit
       LiteLLM-Abrechnung überein
 - [ ] Telegram-Tagesdigest kommt täglich; Zahlen gegen DB-Query verifiziert
@@ -120,6 +134,16 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
     `analyze_persona_cycle` ohnehin schon hat — kein zusätzlicher Credential-Zugriff.
     `pnl_realized=0`/`benchmark_value=None` bewusst dokumentierte Non-Scope-Werte
     (siehe F024 §1).
-11. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
-    drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
-    5-Tage-Dauerlauf, PDF-Fallback-Poller).
+11. ~~F025 — Zyklen-Scheduling~~ ✅ Code fertig, **nicht als laufender Prozess
+    gestartet** (bewusst, siehe F025 §1/§6 — Aktivierung ist Ralfs Entscheidung).
+    `scripts/run_scheduler.py` existiert als Einstiegspunkt für den Tag, an dem
+    das gewünscht ist. Schließt formal noch nicht die drei offenen
+    Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf, 5-Tage-Dauerlauf,
+    PDF-Fallback-Poller) — die brauchen den tatsächlich laufenden Scheduler, nicht
+    nur den Code dafür.
+
+Damit ist Phase 4 inhaltlich vollständig — die Aktivierung des Schedulers ist der
+einzige verbleibende, bewusst zurückgestellte Schritt (siehe F025 §6). Alle
+übrigen offenen DoD-Punkte (5-Tage-Dauerlauf, Crash-Recovery, Kosten-Cap-
+Stichprobe, täglicher Digest, HITL-Timeout-Sweep) hängen an dieser einen
+Aktivierung.

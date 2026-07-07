@@ -1,0 +1,23 @@
+# Zyklus-Zeiten, ARCHITECTURE.md §5.2. Aenderung hier wirkt ohne Deploy (einzelne
+# Zyklen abschaltbar -- Betriebs-Fallback, kein Plan).
+
+stock:
+  timezone: America/New_York
+  cycles:
+    - seq: 1
+      time: "09:00"
+      active: true
+    - seq: 2
+      time: "10:30"
+      active: true
+    - seq: 3
+      time: "13:00"
+      active: true
+    - seq: 4
+      time: "15:15"
+      active: true
+
+crypto:
+  timezone: UTC
+  weekday_times: ["00:00", "06:00", "12:00", "18:00"]
+  weekend_times: ["06:00", "18:00"]
