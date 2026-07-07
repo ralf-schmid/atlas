@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import uuid
+import zoneinfo
 from collections.abc import Callable
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -101,7 +102,13 @@ def build_scheduler(
             hour=hour,
             minute=minute,
             timezone=cycles_config.stock_timezone,
-            args=[graph, session_factory, cycle.seq, MarketSession.US_EQUITY],
+            args=[
+                graph,
+                session_factory,
+                cycle.seq,
+                MarketSession.US_EQUITY,
+                cycles_config.stock_timezone,
+            ],
             id=f"stock-c{cycle.seq}",
             replace_existing=True,
         )
@@ -115,7 +122,7 @@ def build_scheduler(
             hour=hour,
             minute=minute,
             timezone=cycles_config.crypto_timezone,
-            args=[graph, session_factory, 0, MarketSession.CRYPTO],
+            args=[graph, session_factory, 0, MarketSession.CRYPTO, cycles_config.crypto_timezone],
             id=f"crypto-weekday-{time_str}",
             replace_existing=True,
         )
@@ -129,7 +136,7 @@ def build_scheduler(
             hour=hour,
             minute=minute,
             timezone=cycles_config.crypto_timezone,
-            args=[graph, session_factory, 0, MarketSession.CRYPTO],
+            args=[graph, session_factory, 0, MarketSession.CRYPTO, cycles_config.crypto_timezone],
             id=f"crypto-weekend-{time_str}",
             replace_existing=True,
         )
@@ -142,11 +149,16 @@ def _run_cycle_job(
     session_factory: Callable[[], Session],
     seq: int,
     market_session: MarketSession,
+    timezone: str,
 ) -> None:
     """A single failed cycle (e.g. a broker network error) must not take down the
     scheduler thread and silently cancel every future cycle — see F025 §2."""
+    # trading_day in the market's timezone, not the host's: the UGREEN runs on
+    # Europe/Berlin, where a 00:00-UTC crypto cycle would otherwise get tomorrow's
+    # date and a US C4 cycle could get the wrong day around midnight.
+    trading_day = datetime.datetime.now(zoneinfo.ZoneInfo(timezone)).date()
     try:
-        run_one_cycle(graph, session_factory, datetime.date.today(), seq, market_session)
+        run_one_cycle(graph, session_factory, trading_day, seq, market_session)
     except Exception as exc:
         print(f"[scheduler] cycle failed (seq={seq}, market_session={market_session}): {exc}")
 
