@@ -1,7 +1,7 @@
 # F013 — Publications Mail-Trigger (n8n-Wiring)
 
-Status: umgesetzt (Code + Workflow-Datei), n8n-Import und Live-Verifikation stehen bei Ralf aus
-Datum: 2026-07-06
+Status: umgesetzt, live verifiziert
+Datum: 2026-07-06 (n8n-Import + Musterdepot-Zweig), 2026-07-07 (Magazin-Zweig direkt verifiziert)
 Phase: 3
 
 ## 1. Zieldefinition
@@ -96,18 +96,23 @@ Unit-Tests, kein echtes n8n/keine echte Mailbox nötig:
 (Integrationstests). `uv run ruff check`/`ruff format --check` → sauber.
 `uv run mypy src/ingestion src/api src/telegram` → sauber.
 
-**Noch offen (braucht Ralfs Mitwirkung in n8n selbst, nicht in diesem Repo lösbar):**
-1. `n8n/publications-mail-trigger.json` in Ralfs n8n-Instanz importieren
-   (`ix-n8n-*`-Stack auf der UGREEN, siehe `docs/deployment.md`).
-2. Im importierten Workflow eine **IMAP-Credential** für Ralfs Hauptmailaccount
-   anlegen und dem IMAP-Trigger-Node zuweisen.
-3. Eine **HTTP-Header-Auth-Credential** ("ATLAS Webhook Secret", Header-Name
-   `X-Webhook-Secret`, Wert = `N8N_PUBLICATIONS_WEBHOOK_SECRET` aus `.env`) anlegen
-   und dem HTTP-Request-Node zuweisen.
-4. Workflow aktivieren, mit einer echten (oder erneut zugestellten) Benachrichtigungs-
-   Mail live verifizieren — Telegram-Alert muss ankommen.
-5. **Playwright-Autodownload** (Login bei konto.boersenmedien.com) bleibt bewusst
-   spätere Arbeit (Fallback-first, siehe Abschnitt 2).
+**Update (2026-07-06):** `n8n/publications-mail-trigger.json` in Ralfs n8n-Instanz
+importiert, IMAP-Credential (Hauptmailaccount) und HTTP-Header-Auth-Credential
+("ATLAS Webhook Secret") angelegt, Workflow aktiviert; der Musterdepot-Zweig (F014)
+direkt mit einer echten Mail live verifiziert.
+
+**Update (2026-07-07): Magazin-Zweig (dieses Features ursprünglicher Scope) direkt
+verifiziert.** `POST /api/ingestion/publications/notify` auf `atlas-api-1`
+(UGREEN-Deployment) mit Betreff `"Neuer Inhalt - DER AKTIONÄR E-Paper"` und dem echten
+`N8N_PUBLICATIONS_WEBHOOK_SECRET` aufgerufen (Secret blieb serverseitig, nie im
+Transkript sichtbar) → `202 {"publication":"der_aktionaer","status":"alert_sent"}`;
+Ralf hat den Erhalt der Telegram-Nachricht bestätigt. Damit ist sowohl der
+Musterdepot- als auch der ursprüngliche Magazin-Alert-Pfad end-to-end gegen die echte
+Produktionsumgebung nachgewiesen (nicht nur der Musterdepot-Zweig wie zuvor).
+
+**Rein technischer Rest:**
+- **Playwright-Autodownload** (Login bei konto.boersenmedien.com) bleibt bewusst
+  spätere Arbeit (Fallback-first, siehe Abschnitt 2).
 
 ## 6. Rollback-Pfad
 
