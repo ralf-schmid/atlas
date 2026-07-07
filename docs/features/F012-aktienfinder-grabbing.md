@@ -132,12 +132,20 @@ im upgrade→downgrade→upgrade-Zyklus verifiziert.
    genau diesen Ablauf und lief lokal grün (`AKTIENFINDER_USERNAME`/`_PASSWORD` aus
    `.env`).
 
+**Update (2026-07-07): 10-Testtitel-Nachweis komplett.** `run_daily_grab_live` gegen 8
+weitere reale ISINs ausgeführt (Microsoft `US5949181045`, Coca-Cola `US1912161007`,
+Johnson & Johnson `US4781601046`, Nestlé `CH0038863350`, Siemens `DE0007236101`,
+Allianz `DE0008404005`, Procter & Gamble `US7427181091`, BASF `DE000BASF111` — bewusst
+über drei Länder/Währungen (US/CH/DE) und mehrere Branchen gestreut) — zusammen mit
+Apple/SAP aus der ursprünglichen Verifikation ergibt das die vollen 10 Testtitel aus
+dem P3-DoD-Wortlaut. Alle 8 lieferten plausible Kurse, Dividendenrenditen, drei
+Qualitäts-Scores und je 8 Dividenden-Historie-Zeilen; alle 8 Screenshots real und
+nicht-leer (256 KB–883 KB PNG). Bestätigt: Selektoren sind tatsächlich
+symbolübergreifend stabil, keine Anpassung nötig.
+
 **Noch offen:**
-- **10-Testtitel-Nachweis** aus dem P3-DoD-Wortlaut: bisher 2 Symbole live verifiziert
-  (Apple, SAP), nicht 10 — die Selektoren sind aber nachweislich symbolübergreifend
-  stabil (unterschiedliche Branche/Land/Währung), ein Hochskalieren auf 10 ist reine
-  Wiederholung, kein neues Risiko.
-- **Scheduler/Poller** für `run_daily_grab_live` (analog F008–F011: P4/Ops-Folgearbeit).
+- **Scheduler/Poller** für `run_daily_grab_live` (analog F008–F011: P4/Ops-Folgearbeit) —
+  einziger verbleibender Teil des P3-DoD-Punkts ("täglich per Schedule").
 - **CI-Integration bewusst nicht vorgenommen:** der Live-Integrationstest braucht
   `AKTIENFINDER_USERNAME`/`_PASSWORD` als GitHub Encrypted Secrets — analog zum
   Alpaca-Paper-Integrationstest wird das nur nach Ralfs explizitem Go gemacht, nicht

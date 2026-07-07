@@ -34,12 +34,11 @@ vorliegt — kein Punkt wird ohne echten Nachweis auf `[x]` gesetzt.
       Beleg-Screenshot, täglich per Schedule
       **Teilweise:** [F012](../features/F012-aktienfinder-grabbing.md) — Login +
       Extraktion + Persistenz sind live gegen Ralfs echtes aktienfinder.net-Konto
-      verifiziert (2026-07-05): echter Login, echte Selektoren (Kurs, ISIN,
-      Dividendenrendite, drei Qualitäts-Scores, Dividenden-Historie-Tabelle),
-      2 echte Symbole (Apple, SAP), 2 echte Screenshots. **Offen:** nur 2 von 10
-      Testtiteln live verifiziert (Selektoren sind aber nachweislich
-      symbolübergreifend stabil); kein Scheduler, daher noch kein täglicher
-      Live-Lauf.
+      verifiziert: 10 echte Symbole (Apple, SAP am 2026-07-05; Microsoft,
+      Coca-Cola, Johnson & Johnson, Nestlé, Siemens, Allianz, Procter & Gamble,
+      BASF am 2026-07-07, über US/CH/DE gestreut), je ein echter Screenshot.
+      **10-Testtitel-Nachweis damit vollständig.** **Offen:** kein Scheduler,
+      daher noch kein täglicher Live-Lauf — kommt planmäßig mit P4.
 - [ ] EDGAR-RSS + Marktdaten-Sync laufen 5 Tage unterbrechungsfrei
       (Grafana-Freshness-Panel als Nachweis)
       **Teilweise:** [F008](../features/F008-marktdaten-sync.md)/
@@ -90,3 +89,18 @@ gegen 2 echte Symbole (Details in F009/F012). Verbleibt strukturell offen:
 (F014) sind beide live verifiziert — beide Punkte aus der DoD-Liste oben abgehakt.
 Phase 3 bleibt bis zu den drei verbleibenden Punkten offen (alle drei brauchen einen
 Scheduler, der planmäßig erst mit P4 kommt).
+
+**Update (2026-07-07):** Zwei der drei offenen Punkte final geklärt, bevor P4 startet:
+1. **aktienfinder 10-Testtitel-Nachweis komplett** — 8 weitere reale ISINs live gegen
+   Ralfs Konto verifiziert (siehe F012). Verbleibt nur noch der Scheduler.
+2. **Telegram-Fallback-Pfad direkt verifiziert** — der ursprüngliche Magazin-Zweig
+   (nicht nur der Musterdepot-Zweig) wurde per echtem Webhook-Call gegen
+   `atlas-api-1` auf der UGREEN ausgelöst, Ralf hat den Erhalt der Telegram-Nachricht
+   bestätigt (siehe F013).
+
+**Alle drei verbleibenden P3-DoD-Punkte hängen jetzt ausschließlich am Scheduler**
+(täglicher aktienfinder-/Screener-Lauf, 5-Tage-Dauerlauf EDGAR/Marktdaten,
+PDF-Fallback-Poller binnen 5 Min). Der Scheduler ist planmäßig Teil von P4
+(LangGraph-Zyklen); Phase 3 wird formal mit P4 zusammen abgeschlossen, sobald der
+Scheduler steht und die drei Punkte damit nachweisbar sind — kein separater
+P3-Abschluss davor.
