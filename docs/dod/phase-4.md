@@ -45,8 +45,14 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       echte Alpaca-Paper-Order ausgelöst. Jetzt injizierbar
       (`adapter_factory`-Parameter). Live verifiziert (mit Ralfs Zustimmung): echte
       1×-AAPL-Order + GTC-Stop über den echten `AlpacaPaperAdapter` platziert,
-      `buying_power` sank real um den reservierten Betrag. **Offen:** `sell`/`close`
-      (siehe F021 §1).
+      `buying_power` sank real um den reservierten Betrag.
+      [F024](../features/F024-reporting-agent.md) — Reporting-Agent:
+      `generate_portfolio_snapshot` schreibt `portfolio_snapshot` +
+      `position_snapshot` aus dem echten Broker-Kontostand, für jede Persona am Ende
+      jedes Analyse-Laufs (auch bei `hold`). Live verifiziert gegen VULTUREs echten
+      Alpaca-Paper-Account. **Offen:** `sell`/`close` (siehe F021 §1); `pnl_realized`
+      bleibt `0` und `benchmark_value` `NULL`, bis es einen Order-Abschluss- bzw.
+      SPY-Benchmark-Pfad gibt (P5).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -109,7 +115,11 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    `persona_analysis.py` direkt nach jeder Stelle, an der eine Decision `APPROVED`
    wird — kein separater Graph-Knoten (State-Channel-Kollisionsgefahr bei
    parallelem `Send`, siehe F023 §2).
-10. Reporting-Agent.
+10. ~~F024 — Reporting-Agent~~ ✅ erledigt: `generate_portfolio_snapshot` liest
+    Equity/Cash/Positionen live über denselben `BrokerAdapter`, den
+    `analyze_persona_cycle` ohnehin schon hat — kein zusätzlicher Credential-Zugriff.
+    `pnl_realized=0`/`benchmark_value=None` bewusst dokumentierte Non-Scope-Werte
+    (siehe F024 §1).
 11. Zyklen-Scheduling (APScheduler, `config/cycles.yaml`) — schließt auch die
     drei noch offenen Phase-3-Punkte (täglicher aktienfinder-/Screener-Lauf,
     5-Tage-Dauerlauf, PDF-Fallback-Poller).

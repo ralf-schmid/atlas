@@ -32,6 +32,7 @@ from src.orchestrator.decision_sizing import compute_position_value_usd, compute
 from src.orchestrator.hitl_config import is_hitl_required
 from src.orchestrator.llm_decision_schema import PersonaDecisionOutput, parse_llm_decision
 from src.orchestrator.market_pricing import compute_atr14, get_latest_price
+from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.risk_inputs import read_portfolio_risk_state
 from src.orchestrator.trading import execute_decision
 from src.personas.charters import render_charter
@@ -77,6 +78,9 @@ def analyze_persona_cycle(
     if pending is not None:
         resumed = _await_hitl_outcome(session, pending)
         _maybe_execute_decision(session, resumed, persona_name, broker_adapter)
+        generate_portfolio_snapshot(
+            session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
+        )
         return resumed
 
     research_items = list(
@@ -135,6 +139,9 @@ def analyze_persona_cycle(
     session.flush()
 
     _maybe_execute_decision(session, decision, persona_name, broker_adapter)
+    generate_portfolio_snapshot(
+        session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
+    )
     return decision
 
 
