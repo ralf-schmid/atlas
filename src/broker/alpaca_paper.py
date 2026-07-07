@@ -26,9 +26,14 @@ _TO_ALPACA_SIDE = {
 
 def _is_duplicate_client_order_id(exc: APIError) -> bool:
     """Narrow match on purpose: other 422s (e.g. insufficient buying power) must
-    still propagate as real errors, not be mistaken for a crash-replay recovery."""
+    still propagate as real errors, not be mistaken for a crash-replay recovery.
+
+    Real Alpaca Paper response (confirmed via the CI integration test, F027):
+    `{"code":40010001,"message":"client_order_id must be unique"}` — underscore,
+    not the "client order id" wording originally guessed here.
+    """
     try:
-        return exc.status_code == 422 and "client order id" in exc.message.lower()
+        return exc.status_code == 422 and "client_order_id" in exc.message.lower()
     except Exception:
         return False
 

@@ -29,6 +29,13 @@ import pytest
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.protocol import OrderSide
 
+# A unique decision_id per test run: client_order_id = str(decision_id) (F027),
+# and Alpaca remembers client_order_id per account indefinitely — a hardcoded
+# value would collide with whatever a *previous* CI run against this same paper
+# account already submitted, permanently exercising only the duplicate-recovery
+# path instead of the fresh-submission path this test is meant to verify.
+_DECISION_ID = int(time.time())
+
 pytestmark = pytest.mark.integration
 
 _SYMBOL = "AAPL"
@@ -50,7 +57,7 @@ def test_place_order_is_accepted_by_real_alpaca_paper_with_gtc_stop(
     adapter: AlpacaPaperAdapter,
 ):
     result = adapter.place_order(
-        decision_id=1,
+        decision_id=_DECISION_ID,
         symbol=_SYMBOL,
         qty=_QTY,
         side=OrderSide.BUY,

@@ -12,9 +12,11 @@ from src.broker.protocol import OrderSide
 
 
 def _duplicate_client_order_id_error() -> APIError:
+    # Real Alpaca Paper response, confirmed via the CI integration test — the
+    # message uses an underscore ("client_order_id"), not a space.
     http_error = MagicMock()
     http_error.response.status_code = 422
-    return APIError('{"code": 40010001, "message": "client order id must be unique"}', http_error)
+    return APIError('{"code":40010001,"message":"client_order_id must be unique"}', http_error)
 
 
 def test_is_duplicate_client_order_id_false_on_malformed_error_body():
