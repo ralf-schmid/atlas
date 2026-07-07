@@ -8,6 +8,22 @@ def test_load_llm_config_contains_all_agent_roles():
     assert expected_roles.issubset(config.roles.keys())
 
 
+def test_load_llm_config_base_url_defaults_to_yaml_value():
+    config = load_llm_config()
+
+    assert config.base_url == "http://localhost:4000"
+
+
+def test_load_llm_config_base_url_overridden_by_env(monkeypatch):
+    """The scheduler container sets this — its own "localhost" isn't the litellm
+    service's, unlike host-run scripts (scripts/run_cycle.py)."""
+    monkeypatch.setenv("LITELLM_BASE_URL", "http://litellm:4000")
+
+    config = load_llm_config()
+
+    assert config.base_url == "http://litellm:4000"
+
+
 def test_load_llm_config_caps_match_spec():
     config = load_llm_config()
 

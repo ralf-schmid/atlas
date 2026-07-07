@@ -8,6 +8,17 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
 
 **Update (2026-07-07):** alle 11 geplanten Features (F015–F025) umgesetzt und live
 verifiziert (Ausnahme: F025s Scheduler-Code steht, läuft aber nicht — siehe unten).
+
+**Update (2026-07-07, Scheduler-Aktivierung):** Ralf hat das ausdrückliche Go
+gegeben. [F032](../features/F032-scheduler-activation.md) verdrahtet den
+Scheduler als eigenen Docker-Compose-Service auf der UGREEN — läuft ab jetzt
+dauerhaft automatisiert. Die unten verbleibenden DoD-Punkte (5-Tage-Dauerlauf,
+Crash-Recovery, Kosten-Cap-Stichprobe, täglicher Digest, HITL-Timeout-Sweep)
+brauchen jetzt nur noch die Zeit, um sich live zu erhärten — kein
+Coding-Aufwand mehr offen. Sicherheitsnetze vor der Aktivierung geprüft: HITL
+an (`config/hitl.yaml`), HITL-Timeout-Sweep (F030) und Scheduler-Fehler-Alert
+(F029) beide am selben Tag gebaut, Kosten-Caps doppelt durchgesetzt (F028
+schließt die Budget-Race).
 Der komplette Pfad Research → Persona-Analyse → Risk-Gate → HITL → Order →
 Reporting ist einmal durchgängig mit echten Daten/Calls/Order bewiesen. Was fehlt,
 ist ausschließlich der **mehrtägige, unbeaufsichtigte Betrieb** — der beginnt erst,

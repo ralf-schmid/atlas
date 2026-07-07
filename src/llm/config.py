@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -53,4 +54,9 @@ def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
         )
         for name, role_raw in raw["roles"].items()
     }
-    return LlmConfig(base_url=raw["base_url"], caps=caps, roles=roles)
+    # config/llm.yaml's base_url is "http://localhost:4000", correct for scripts run
+    # on the host (port-forwarded LiteLLM) but unreachable from inside a container's
+    # own network namespace — the scheduler container overrides it via this env var
+    # to reach the litellm service by its Compose DNS name.
+    base_url = os.environ.get("LITELLM_BASE_URL", raw["base_url"])
+    return LlmConfig(base_url=base_url, caps=caps, roles=roles)

@@ -85,5 +85,37 @@ services:
       # on the UGREEN (ARCHITECTURE.md "Grafana: bestehende Instanz").
       - "${ATLAS_BIND_IP:-0.0.0.0}:3001:3000"
 
+  scheduler:
+    # Same image as api (Dockerfile.api includes scripts/), different entrypoint —
+    # this is the long-running process that turns config/cycles.yaml into real,
+    # automated orchestrator cycles (F025 §6 activation). No ports: it doesn't
+    # serve HTTP, only drives the scheduler loop.
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["uv", "run", "python", "scripts/run_scheduler.py"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # config/llm.yaml's base_url ("http://localhost:4000") is for host-run
+      # scripts — this container reaches LiteLLM by its Compose service name.
+      LITELLM_BASE_URL: http://litellm:4000
+      ALPACA_PAPER_VULTURE_KEY_ID: ${ALPACA_PAPER_VULTURE_KEY_ID}
+      ALPACA_PAPER_VULTURE_SECRET_KEY: ${ALPACA_PAPER_VULTURE_SECRET_KEY}
+      ALPACA_PAPER_GUARDIAN_KEY_ID: ${ALPACA_PAPER_GUARDIAN_KEY_ID}
+      ALPACA_PAPER_GUARDIAN_SECRET_KEY: ${ALPACA_PAPER_GUARDIAN_SECRET_KEY}
+      ALPACA_PAPER_CHARTIST_KEY_ID: ${ALPACA_PAPER_CHARTIST_KEY_ID}
+      ALPACA_PAPER_CHARTIST_SECRET_KEY: ${ALPACA_PAPER_CHARTIST_SECRET_KEY}
+      ALPACA_MARKET_DATA_KEY_ID: ${ALPACA_MARKET_DATA_KEY_ID}
+      ALPACA_MARKET_DATA_SECRET_KEY: ${ALPACA_MARKET_DATA_SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+
 volumes:
   postgres-data:
