@@ -26,8 +26,10 @@ vorliegt — kein Punkt wird ohne echten Nachweis auf `[x]` gesetzt.
       zweiter Mail-Typ (DER AKTIONÄR-Musterdepot-Transaktionen, Absender
       `noreply@boersenmedien.de`, Betreff "Neue Transaktion") als zweiter Workflow-
       Zweig ergänzt, Regex-Parser + eigene Tabelle `musterdepot_transaction`, Endpoint
-      per Smoke-Test auf der UGREEN mit der echten Beispielmail verifiziert
-      (2026-07-06). n8n-seitig noch zu importieren/verifizieren (F014 §5).
+      per Smoke-Test auf der UGREEN mit der echten Beispielmail verifiziert; n8n-Import
+      inkl. Fix eines Feldnamen-Fehlers (`$json.metadata['message-id']` statt
+      `$json.messageId`) ebenfalls live verifiziert — Workflow läuft durchgängig
+      (2026-07-06).
 - [ ] aktienfinder-Grabbing liefert für 10 Testtitel strukturierte Snapshots +
       Beleg-Screenshot, täglich per Schedule
       **Teilweise:** [F012](../features/F012-aktienfinder-grabbing.md) — Login +
@@ -83,9 +85,8 @@ gegen 2 echte Symbole (Details in F009/F012). Verbleibt strukturell offen:
 2. **8 weitere Testtitel** für den vollen aktienfinder-10-Titel-Nachweis (aktuell 2
    verifiziert) — reine Wiederholung, kein neues Risiko, aber noch nicht gemacht.
 3. **Grafana-Freshness-Panel** für den 5-Tage-Nachweis — braucht Punkt 1 zuerst.
-4. **F014 n8n-Import**: der zweite Workflow-Zweig (Musterdepot-Transaktionen) muss
-   noch in Ralfs n8n-Instanz importiert/verifiziert werden (Webhook-Seite ist bereits
-   per Smoke-Test auf der UGREEN bestätigt).
 
-**Update (2026-07-06):** n8n-IMAP-Trigger (F013) ist live verifiziert — Punkt aus der
-DoD-Liste oben abgehakt. Phase 3 bleibt bis zu den vier verbleibenden Punkten offen.
+**Update (2026-07-06):** n8n-IMAP-Trigger (F013) und die Musterdepot-Erweiterung
+(F014) sind beide live verifiziert — beide Punkte aus der DoD-Liste oben abgehakt.
+Phase 3 bleibt bis zu den drei verbleibenden Punkten offen (alle drei brauchen einen
+Scheduler, der planmäßig erst mit P4 kommt).
