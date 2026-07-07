@@ -34,7 +34,7 @@ def main() -> None:
             seq=1,
             market_session=MarketSession.US_EQUITY.value,
             cycle_id=None,
-            research_item_id=None,
+            research_item_ids=[],
         )
         thread_id = f"{trading_day.isoformat()}-1-us_equity"
         final_state = graph.invoke(initial_state, config={"configurable": {"thread_id": thread_id}})

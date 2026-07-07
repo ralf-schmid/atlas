@@ -20,22 +20,8 @@ from langgraph.types import Send
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import (
-    AgentRun,
-    AgentRunStatus,
-    Cycle,
-    MarketSession,
-    Persona,
-    Portfolio,
-    ResearchItem,
-)
-
-_BOOTSTRAP_RESEARCH_SUMMARY = (
-    "Platzhalter-Recherche-Item (F016-Orchestrator-Grundgerüst): die echte "
-    "Recherche-Synthese aus den Ingestion-Tabellen (F008-F014) ist noch nicht "
-    "implementiert. Dieses Item existiert, damit spätere Decisions bereits jetzt "
-    "eine valide input_research_ids-Referenz haben."
-)
+from src.db.models import AgentRun, AgentRunStatus, Cycle, MarketSession, Persona, Portfolio
+from src.orchestrator.research_synthesis import synthesize_research_items
 
 
 class CycleState(TypedDict):
@@ -43,7 +29,7 @@ class CycleState(TypedDict):
     seq: int
     market_session: str
     cycle_id: str | None
-    research_item_id: str | None
+    research_item_ids: list[str]
 
 
 class PersonaTaskState(TypedDict):
@@ -64,21 +50,6 @@ def create_cycle(
     session.add(cycle)
     session.flush()
     return cycle
-
-
-def create_bootstrap_research_item(session: Session, cycle_id: uuid.UUID) -> ResearchItem:
-    item = ResearchItem(
-        cycle_id=cycle_id,
-        agent="orchestrator_bootstrap",
-        source_type="placeholder",
-        source_ref="f016-skeleton",
-        summary=_BOOTSTRAP_RESEARCH_SUMMARY,
-        instruments=[],
-        raw={},
-    )
-    session.add(item)
-    session.flush()
-    return item
 
 
 def create_persona_agent_run_placeholder(
@@ -125,9 +96,10 @@ def build_and_compile_graph(
     def _shared_research_node(state: CycleState) -> dict[str, object]:
         assert state["cycle_id"] is not None
         with session_factory() as session:
-            item = create_bootstrap_research_item(session, uuid.UUID(state["cycle_id"]))
+            cycle = session.get_one(Cycle, uuid.UUID(state["cycle_id"]))
+            items = synthesize_research_items(session, cycle)
             session.commit()
-            return {"research_item_id": str(item.id)}
+            return {"research_item_ids": [str(item.id) for item in items]}
 
     def _fanout_to_personas(state: CycleState) -> list[Send]:
         assert state["cycle_id"] is not None

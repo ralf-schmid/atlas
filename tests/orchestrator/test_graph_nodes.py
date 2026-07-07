@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 
 from src.db.models import AgentRunStatus, MarketSession, Persona
 from src.orchestrator.graph import (
-    create_bootstrap_research_item,
     create_cycle,
     create_persona_agent_run_placeholder,
     list_active_portfolios,
@@ -24,16 +23,6 @@ def test_create_cycle_persists_fields(session: Session) -> None:
     assert cycle.trading_day == datetime.date(2026, 7, 7)
     assert cycle.seq == 2
     assert cycle.market_session == MarketSession.US_EQUITY
-
-
-def test_create_bootstrap_research_item_persists_with_expected_fields(session: Session) -> None:
-    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
-
-    item = create_bootstrap_research_item(session, cycle.id)
-
-    assert item.cycle_id == cycle.id
-    assert item.agent == "orchestrator_bootstrap"
-    assert item.summary != ""
 
 
 def test_create_persona_agent_run_placeholder_persists_with_expected_fields(
