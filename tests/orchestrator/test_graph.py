@@ -11,25 +11,37 @@ from __future__ import annotations
 
 import datetime
 import os
+import uuid
 
 import pytest
 from sqlalchemy import select
 
 from src.db.base import get_session_factory
-from src.db.models import AgentRun, Cycle, MarketSession, ResearchItem
+from src.db.models import AgentRun, Cycle, EdgarFiling, MarketSession, ResearchItem
 from src.orchestrator.graph import CycleState, build_and_compile_graph, list_active_portfolios
 from src.orchestrator.seed import seed_personas_and_portfolios
 
 pytestmark = pytest.mark.integration
 
 
-def test_full_cycle_run_fans_out_to_all_six_portfolios() -> None:
+def test_full_cycle_run_fans_out_to_all_six_portfolios_and_synthesizes_research() -> None:
     if not os.environ.get("DATABASE_URL"):
         pytest.skip("DATABASE_URL not set — needs a real local Postgres, see F016 §5")
 
     session_factory = get_session_factory()
     with session_factory() as seed_session:
         seed_personas_and_portfolios(seed_session)
+        seed_session.add(
+            EdgarFiling(
+                accession_number=f"TEST-{uuid.uuid4().hex[:12]}",
+                company_name="Test Corp",
+                form_type="8-K",
+                filed_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+                title="Test filing for F016/F017 integration test",
+                link="https://example.invalid/test-filing",
+                summary="irrelevant raw feed summary",
+            )
+        )
         seed_session.commit()
 
     graph = build_and_compile_graph(session_factory)
@@ -39,7 +51,7 @@ def test_full_cycle_run_fans_out_to_all_six_portfolios() -> None:
         seq=1,
         market_session=MarketSession.US_EQUITY.value,
         cycle_id=None,
-        research_item_id=None,
+        research_item_ids=[],
     )
 
     final_state = graph.invoke(initial_state, config={"max_concurrency": 1})
@@ -56,7 +68,7 @@ def test_full_cycle_run_fans_out_to_all_six_portfolios() -> None:
             select(ResearchItem).where(ResearchItem.cycle_id == cycle_id)
         ).all()
         assert len(research_items) == 1
-        assert research_items[0].agent == "orchestrator_bootstrap"
+        assert research_items[0].source_type == "edgar_filing"
 
         agent_runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle_id)).all()
         expected_portfolio_ids = {str(p.id) for p, _name in list_active_portfolios(session)}

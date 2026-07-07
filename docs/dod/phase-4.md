@@ -15,11 +15,14 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       Alpaca-Paper-Account-IDs aus ADR-0001, virtuelle Personas mit
       `internal_ledger`). [F016](../features/F016-orchestrator-graph-skeleton.md) —
       echter LangGraph-`StateGraph` mit Postgres-Checkpointer: legt einen `cycle` an,
-      erzeugt ein (noch platzhalterhaftes) `research_item`, fanoutet per `Send`
-      parallel über alle 6 aktiven Portfolios (je ein `agent_run`). Live verifiziert
-      (2026-07-07): 1 `cycle`, 1 `research_item`, 6 `agent_run`, 7 echte
-      Checkpoint-Zeilen. **Offen:** echte Recherche-Synthese aus den
-      Ingestion-Tabellen, echte Persona-Analyse (LLM), Risk-Gate-Anbindung an echte
+      fanoutet per `Send` parallel über alle 6 aktiven Portfolios (je ein
+      `agent_run`). Live verifiziert (2026-07-07): 1 `cycle`, 6 `agent_run`, 7 echte
+      Checkpoint-Zeilen. [F017](../features/F017-shared-research-synthesis.md) —
+      ersetzt F016s Platzhalter durch echte Synthese von `research_item`-Zeilen aus
+      EDGAR/Screener/Publikationen/aktienfinder/Musterdepot, inkrementell seit dem
+      letzten Cycle derselben `market_session`. Live verifiziert: 49 echte
+      EDGAR-Filings → 49 `research_item`-Zeilen mit echten Titeln/Zeitstempeln.
+      **Offen:** echte Persona-Analyse (LLM), Risk-Gate-Anbindung an echte
       Trade-Decisions, HITL, Handels-Agent — noch keine einzige echte `decision`-Zeile
       (bewusst, siehe F016 §1 Non-Scope).
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
@@ -44,8 +47,9 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    Postgres-Checkpointer, `cycle`-Lebenszyklus, Send-Fanout über die 6 echten
    Portfolios, Platzhalter-`agent_run` je Persona — bewusst noch ohne
    `decision`-Zeilen (siehe F016 §1 Non-Scope), ohne Order-Pfad, ohne HITL.
-3. Shared-Research-Synthese: `research_item`-Zeilen aus den bestehenden
-   Ingestion-Tabellen (F008–F014) ableiten statt dem F016-Platzhalter.
+3. ~~F017 — Shared-Research-Synthese~~ ✅ erledigt: `research_item`-Zeilen aus den
+   bestehenden Ingestion-Tabellen (F009–F012, F014) statt dem F016-Platzhalter;
+   `market_bar` bewusst ausgeschlossen (siehe F017 §1 Non-Scope).
 4. Persona-Analyse-Agent (echte LLM-Calls über LiteLLM, Charter-Prompts aus
    `src/personas/`), Risk-Gate-Anbindung an echte Trade-Decisions.
 5. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
