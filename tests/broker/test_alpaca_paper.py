@@ -1,13 +1,31 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from alpaca.common.exceptions import APIError
 from alpaca.trading.enums import PositionSide
 from alpaca.trading.models import Order as AlpacaOrder
 from alpaca.trading.models import Position as AlpacaPosition
 from alpaca.trading.models import TradeAccount
 
-from src.broker.alpaca_paper import AlpacaPaperAdapter
+from src.broker.alpaca_paper import AlpacaPaperAdapter, _is_duplicate_client_order_id
 from src.broker.protocol import OrderSide
+
+
+def _duplicate_client_order_id_error() -> APIError:
+    http_error = MagicMock()
+    http_error.response.status_code = 422
+    return APIError('{"code": 40010001, "message": "client order id must be unique"}', http_error)
+
+
+def test_is_duplicate_client_order_id_false_on_malformed_error_body():
+    """`.message`/`.status_code` parse the raw error body as JSON — a malformed
+    body must not be mistaken for a duplicate (fail closed: propagate as a real
+    error instead of silently treating it as a crash-replay recovery)."""
+    http_error = MagicMock()
+    http_error.response.status_code = 422
+    exc = APIError("not valid json", http_error)
+
+    assert _is_duplicate_client_order_id(exc) is False
 
 
 @pytest.fixture
@@ -39,6 +57,51 @@ def test_place_order_requires_stop_loss_price(adapter):
         adapter.place_order(  # type: ignore[call-arg]
             decision_id=1, symbol="AAPL", qty=1, side=OrderSide.BUY
         )
+
+
+def test_place_order_passes_decision_id_as_client_order_id(adapter, mock_client):
+    stop_leg = AlpacaOrder.model_construct(id="stop-456")
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(
+        id="entry-123", legs=[stop_leg]
+    )
+
+    adapter.place_order(
+        decision_id=42, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+    )
+
+    (call,) = mock_client.submit_order.call_args_list
+    assert call.kwargs["order_data"].client_order_id == "42"
+
+
+def test_place_order_recovers_existing_order_on_duplicate_client_order_id(adapter, mock_client):
+    mock_client.submit_order.side_effect = _duplicate_client_order_id_error()
+    stop_leg = AlpacaOrder.model_construct(id="stop-456")
+    mock_client.get_order_by_client_id.return_value = AlpacaOrder.model_construct(
+        id="entry-123", legs=[stop_leg]
+    )
+
+    result = adapter.place_order(
+        decision_id=42, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+    )
+
+    mock_client.get_order_by_client_id.assert_called_once_with("42")
+    assert result.entry_order_id == "entry-123"
+    assert result.stop_order_id == "stop-456"
+
+
+def test_place_order_reraises_non_duplicate_api_errors(adapter, mock_client):
+    http_error = MagicMock()
+    http_error.response.status_code = 403
+    mock_client.submit_order.side_effect = APIError(
+        '{"code": 40310000, "message": "insufficient buying power"}', http_error
+    )
+
+    with pytest.raises(APIError):
+        adapter.place_order(
+            decision_id=42, symbol="AAPL", qty=1, side=OrderSide.BUY, stop_loss_price=150.0
+        )
+
+    mock_client.get_order_by_client_id.assert_not_called()
 
 
 def test_place_order_submits_oto_bracket_with_gtc_stop_leg(adapter, mock_client):

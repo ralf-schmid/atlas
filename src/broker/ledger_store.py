@@ -34,10 +34,25 @@ class PendingStop:
 
 
 @dataclass(slots=True)
+class ExecutedOrder:
+    """Recorded per `decision_id` so a crash-replay of `place_order` (LangGraph
+    replay before the DB commit, see F027/security-audit P2) returns the original
+    fill instead of applying it twice."""
+
+    entry_order_id: str
+    stop_order_id: str
+    symbol: str
+    qty: float
+    side: OrderSide
+    stop_loss_price: float
+
+
+@dataclass(slots=True)
 class LedgerState:
     cash: float
     positions: dict[str, PositionState] = field(default_factory=dict)
     pending_stops: dict[str, PendingStop] = field(default_factory=dict)
+    executed_decisions: dict[str, ExecutedOrder] = field(default_factory=dict)
 
 
 class LedgerStore(Protocol):
@@ -73,6 +88,18 @@ class JSONLedgerStore:
                     stop_price=s["stop_price"],
                 )
                 for order_id, s in raw["pending_stops"].items()
+            },
+            # .get(..., {}): older ledger files predate this field (F027) — treat as empty.
+            executed_decisions={
+                decision_id: ExecutedOrder(
+                    entry_order_id=e["entry_order_id"],
+                    stop_order_id=e["stop_order_id"],
+                    symbol=e["symbol"],
+                    qty=e["qty"],
+                    side=OrderSide(e["side"]),
+                    stop_loss_price=e["stop_loss_price"],
+                )
+                for decision_id, e in raw.get("executed_decisions", {}).items()
             },
         )
 

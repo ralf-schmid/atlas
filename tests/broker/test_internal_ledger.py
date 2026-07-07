@@ -262,3 +262,45 @@ def test_state_persists_across_adapter_instances(market_data, store):
 
     assert second.get_positions() == first.get_positions()
     assert second.get_account_balance() == first.get_account_balance()
+
+
+def test_place_order_replayed_with_same_decision_id_does_not_refill(adapter):
+    first = adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    replayed = adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    assert replayed == first
+    balance = adapter.get_account_balance()
+    positions = adapter.get_positions()
+    assert balance.cash == 5000.0 - 10 * 150.0  # only filled once
+    assert len(positions) == 1
+    assert positions[0].qty == 10
+
+
+def test_place_order_replayed_with_same_decision_id_does_not_duplicate_pending_stop(adapter, store):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    state = store.load("HYPE", default_cash=5000.0)
+    assert len(state.pending_stops) == 1
+
+
+def test_place_order_with_different_decision_id_fills_again(adapter):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+    adapter.place_order(
+        decision_id=2, symbol="AAPL", qty=5, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    positions = adapter.get_positions()
+    assert len(positions) == 1
+    assert positions[0].qty == 15

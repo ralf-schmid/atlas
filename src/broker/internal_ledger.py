@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import uuid
 
-from src.broker.ledger_store import LedgerState, LedgerStore, PendingStop, PositionState
+from src.broker.ledger_store import (
+    ExecutedOrder,
+    LedgerState,
+    LedgerStore,
+    PendingStop,
+    PositionState,
+)
 from src.broker.market_data import MarketDataProvider
 from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 
@@ -44,12 +50,27 @@ class InternalLedgerAdapter:
         side: OrderSide,
         stop_loss_price: float,
     ) -> OrderResult:
-        del decision_id  # not persisted here yet — order_record is a later feature (F001 §1)
-
+        decision_key = str(decision_id)
         state = self._load()
+
+        # Crash-idempotency (F027, security-audit P2): a LangGraph replay after a
+        # crash between this call and the DB commit must not re-apply the fill —
+        # return the original result instead.
+        existing = state.executed_decisions.get(decision_key)
+        if existing is not None:
+            return OrderResult(
+                entry_order_id=existing.entry_order_id,
+                stop_order_id=existing.stop_order_id,
+                symbol=existing.symbol,
+                qty=existing.qty,
+                side=existing.side,
+                stop_loss_price=existing.stop_loss_price,
+            )
+
         last_price = self._market_data.get_last_price(symbol)
         self._apply_fill(state, symbol=symbol, qty=qty, side=side, price=last_price)
 
+        entry_order_id = str(uuid.uuid4())
         stop_order_id = str(uuid.uuid4())
         state.pending_stops[stop_order_id] = PendingStop(
             order_id=stop_order_id,
@@ -58,10 +79,18 @@ class InternalLedgerAdapter:
             side=_OPPOSITE_SIDE[side],
             stop_price=stop_loss_price,
         )
+        state.executed_decisions[decision_key] = ExecutedOrder(
+            entry_order_id=entry_order_id,
+            stop_order_id=stop_order_id,
+            symbol=symbol,
+            qty=qty,
+            side=side,
+            stop_loss_price=stop_loss_price,
+        )
         self._store.save(self._persona, state)
 
         return OrderResult(
-            entry_order_id=str(uuid.uuid4()),
+            entry_order_id=entry_order_id,
             stop_order_id=stop_order_id,
             symbol=symbol,
             qty=qty,
