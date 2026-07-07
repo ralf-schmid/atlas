@@ -7,12 +7,8 @@ import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import AgentRunStatus, MarketSession, Persona
-from src.orchestrator.graph import (
-    create_cycle,
-    create_persona_agent_run_placeholder,
-    list_active_portfolios,
-)
+from src.db.models import MarketSession, Persona
+from src.orchestrator.graph import create_cycle, list_active_portfolios
 from src.orchestrator.seed import seed_personas_and_portfolios
 
 
@@ -23,21 +19,6 @@ def test_create_cycle_persists_fields(session: Session) -> None:
     assert cycle.trading_day == datetime.date(2026, 7, 7)
     assert cycle.seq == 2
     assert cycle.market_session == MarketSession.US_EQUITY
-
-
-def test_create_persona_agent_run_placeholder_persists_with_expected_fields(
-    session: Session,
-) -> None:
-    seed_personas_and_portfolios(session)
-    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
-    portfolio, _name = list_active_portfolios(session)[0]
-
-    run = create_persona_agent_run_placeholder(session, cycle.id, portfolio.id)
-
-    assert run.cycle_id == cycle.id
-    assert run.portfolio_id == portfolio.id
-    assert run.agent == "persona_analysis_placeholder"
-    assert run.status == AgentRunStatus.SUCCEEDED
 
 
 def test_list_active_portfolios_returns_all_six_after_seed(session: Session) -> None:

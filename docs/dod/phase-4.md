@@ -26,9 +26,15 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
       Personas. [F019](../features/F019-cost-ledger-enforcement.md) —
       Kosten-Bremse (Invariante 7) vor dem ersten echten LLM-Call.
       [F020](../features/F020-portfolio-risk-inputs.md) — echter Broker-Kontostand
-      als Risk-Gate-Eingabe. **Offen:** echte Persona-Analyse (LLM), Risk-Gate-
-      Anbindung an echte Trade-Decisions, HITL, Handels-Agent — noch keine einzige
-      echte `decision`-Zeile (bewusst, siehe F016 §1 Non-Scope).
+      als Risk-Gate-Eingabe. [F021](../features/F021-persona-analysis-agent.md) —
+      **erste echte `decision`-Zeilen.** Persona-Analyse-Agent mit echten LLM-Calls,
+      Risk-Gate-Anbindung für `buy` (Sizing per LLM-Konfidenz × `max_position_pct` ×
+      Equity), `hold`/`reject_idea` ohne Risk-Gate. Live verifiziert
+      (voller lokaler Stack inkl. echtem LiteLLM-Proxy): alle 6 Personas mit echtem
+      Sonnet-Call, plausible charaktertypische `hold`-Decisions, 0,13 USD
+      Gesamtkosten, korrekte `cost_ledger`-Zeilen. **Offen:** `sell`/`close`
+      (brauchen echte, vom Handels-Agenten eröffnete Positionen — noch nicht
+      vorhanden), HITL, Handels-Agent (Order-Pfad) selbst.
 - [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
       Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
       dokumentiert
@@ -66,9 +72,11 @@ zwei noch offenen Live-Nachweise ohne Scheduler-Abhängigkeit) vorab geklärt, s
    liest Equity/Cash/offene Positionen live über den echten `BrokerAdapter`
    (F001/F002), Peak-Equity aus der `portfolio_snapshot`-Historie (Kaltstart-Fallback:
    aktuelle Equity), Trades heute aus `order_record`/`decision`.
-7. Persona-Analyse-Agent (echte LLM-Calls über `guarded_complete`, nutzt F018s
-   Charter + F017s Research-Pool + F020s Risk-Inputs), Risk-Gate-Anbindung an echte
-   Trade-Decisions.
+7. ~~F021 — Persona-Analyse-Agent~~ ✅ erledigt: echte LLM-Calls über
+   `guarded_complete`, nutzt F018s Charter + F017s Research-Pool + F020s
+   Risk-Inputs; `hold`/`reject_idea` direkt, `buy` durchs Risk-Gate (Sizing-Formel
+   mit Ralf abgestimmt: `conviction × max_position_pct × equity`). `sell`/`close`
+   bewusst zurückgestellt bis der Handels-Agent echte Positionen erzeugt.
 8. HITL-Flow (Telegram-Approval, `interrupt()`/`Command(resume=...)`).
 9. Handels-Agent (Order-Pfad, Privilege Separation, GTC-Stop).
 10. Reporting-Agent.
