@@ -62,7 +62,9 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      # Gleiche Interface-Bindung wie postgres/litellm: die API hat bewusst keine
+      # Auth-Schicht (F007) — sie darf nur im LAN erreichbar sein.
+      - "${ATLAS_BIND_IP:-0.0.0.0}:8000:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -81,7 +83,7 @@ services:
     ports:
       # Host port 3001, not 3000 — 3000 is taken by the existing Grafana instance
       # on the UGREEN (ARCHITECTURE.md "Grafana: bestehende Instanz").
-      - "3001:3000"
+      - "${ATLAS_BIND_IP:-0.0.0.0}:3001:3000"
 
 volumes:
   postgres-data:
