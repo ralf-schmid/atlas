@@ -205,3 +205,56 @@ def test_guarded_complete_warn_status_still_calls_llm(session: Session) -> None:
     assert result.response.content == "ok"
     rows = session.scalars(select(CostLedger)).all()
     assert len(rows) == 2
+
+
+def test_guarded_complete_post_call_recheck_still_records_cost_before_raising(
+    session: Session,
+) -> None:
+    """Security-audit P3: a sibling persona's spend that lands *during* this call's
+    LLM round-trip (simulated here inside the mock handler, using the same session
+    a real concurrent session would eventually commit) must still be caught, and this
+    call's own (already incurred) cost must still be recorded — not lost — even
+    though the post-call recheck then raises."""
+    role = RoleConfig(
+        name="market_research",
+        model="claude-haiku-4-5",
+        provider="anthropic",
+        shared=True,
+        prompt_caching=True,
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        # Simulates a sibling `Send` task's guarded_complete committing its own
+        # cost while this call's LLM round-trip is in flight.
+        record_llm_call(
+            session,
+            ts=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+            scope=CostLedgerScope.SYSTEM,
+            persona_id=None,
+            provider="anthropic",
+            model="claude-haiku-4-5",
+            tokens_in=1,
+            tokens_out=1,
+            cost_usd=4.50,
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            },
+            headers={"x-litellm-response-cost": "0.60"},  # 4.50 + 0.60 > 5.0 cap
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    with pytest.raises(BudgetExceededError):
+        guarded_complete(session, client, role, _CAPS, [])
+
+    rows = session.scalars(select(CostLedger)).all()
+    assert len(rows) == 2  # the sibling's row AND this call's own row, not lost
+    assert sum(float(r.cost_usd) for r in rows) == pytest.approx(5.10)

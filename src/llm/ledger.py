@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 from sqlalchemy import ColumnElement, func, select
@@ -25,6 +27,13 @@ from src.llm.cost_guard import (
     check_persona_budget,
     check_system_budget,
 )
+
+# Arbitrary fixed key for Postgres' session-level advisory lock (security-audit P3):
+# serializes the recheck+insert below across the 6 parallel per-persona sessions a
+# cycle's `Send` fanout opens, without holding a lock across the (slow) LLM call
+# itself — that would serialize the very parallelism the fanout exists for. Any
+# int64 works as long as it's the same constant everywhere this is taken.
+_SYSTEM_BUDGET_LOCK_KEY = 875_309_142
 
 
 class BudgetExceededError(Exception):
@@ -127,18 +136,33 @@ def guarded_complete(
 
     response = client.complete(model=role.model, messages=messages)
 
+    # The LLM call above is unlocked and can run in parallel across personas — the
+    # checks above may all have read a stale (pre-sibling-insert) total. What must be
+    # atomic is only the brief recheck+insert here (see F0xx / security-audit P3): the
+    # cost is real and already incurred, so it is recorded regardless of the recheck
+    # outcome (losing it would desync cost_ledger from actual spend) — the recheck
+    # only decides whether to *signal* an overrun via BudgetExceededError so the next
+    # call sees an accurate total and gets blocked before its own LLM call.
     scope = CostLedgerScope.SYSTEM if role.shared else CostLedgerScope.PERSONA
-    record_llm_call(
-        session,
-        ts=now,
-        scope=scope,
-        persona_id=None if role.shared else persona_id,
-        provider=role.provider,
-        model=role.model,
-        tokens_in=response.tokens_in,
-        tokens_out=response.tokens_out,
-        cost_usd=response.cost_usd,
-    )
+    with _system_budget_lock(session):
+        record_llm_call(
+            session,
+            ts=now,
+            scope=scope,
+            persona_id=None if role.shared else persona_id,
+            provider=role.provider,
+            model=role.model,
+            tokens_in=response.tokens_in,
+            tokens_out=response.tokens_out,
+            cost_usd=response.cost_usd,
+        )
+        # Recheck *after* inserting this call's own cost — this is what tells us
+        # whether this specific call (combined with whatever siblings committed while
+        # its LLM round-trip was in flight) tipped the system over the cap.
+        post_call_system_check = check_system_budget(sum_system_spend_today(session, now), caps)
+
+    if post_call_system_check.status == BudgetStatus.BLOCKED:
+        raise BudgetExceededError(post_call_system_check)
 
     return GuardedCompletionResult(
         response=response,
@@ -146,6 +170,18 @@ def guarded_complete(
         persona_check=persona_check,
         monthly_check=monthly_check,
     )
+
+
+@contextmanager
+def _system_budget_lock(session: Session) -> Iterator[None]:
+    """Postgres session-level advisory lock — explicitly released (not xact-scoped),
+    so it doesn't linger for the rest of the caller's transaction (that transaction
+    stays open well past this function, until the orchestrator's graph-node commit)."""
+    session.execute(select(func.pg_advisory_lock(_SYSTEM_BUDGET_LOCK_KEY)))
+    try:
+        yield
+    finally:
+        session.execute(select(func.pg_advisory_unlock(_SYSTEM_BUDGET_LOCK_KEY)))
 
 
 def _day_bounds(now: datetime.datetime) -> tuple[datetime.datetime, datetime.datetime]:
