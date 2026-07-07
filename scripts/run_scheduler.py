@@ -21,6 +21,7 @@ from langgraph.checkpoint.postgres import PostgresSaver
 from src.db.base import get_session_factory
 from src.llm.client import LiteLLMClient
 from src.llm.config import load_llm_config
+from src.logging_config import configure_logging
 from src.orchestrator.cycles_config import load_cycles_config
 from src.orchestrator.graph import build_and_compile_graph
 from src.orchestrator.scheduler import build_scheduler
@@ -34,6 +35,7 @@ def _handle_signal(signum: int, frame: FrameType | None) -> None:
 
 
 def main() -> None:
+    configure_logging()
     database_url = os.environ["DATABASE_URL"]
     session_factory = get_session_factory()
 

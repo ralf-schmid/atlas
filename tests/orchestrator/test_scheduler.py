@@ -1,10 +1,16 @@
-"""See docs/features/F025-cycle-scheduling.md §3, tests 4-6. `build_scheduler` is
+"""See docs/features/F025-cycle-scheduling.md §3, tests 4-6 and
+docs/features/F029-scheduler-logging-alert.md §3, tests 1-4. `build_scheduler` is
 never `.start()`ed — pure job-registration inspection, no real time trigger."""
 
 from __future__ import annotations
 
+import pytest
+
+from src.db.models import MarketSession
+from src.orchestrator import scheduler as scheduler_module
 from src.orchestrator.cycles_config import CyclesConfig, StockCycle, load_cycles_config
-from src.orchestrator.scheduler import build_scheduler
+from src.orchestrator.scheduler import _run_cycle_job, build_scheduler
+from src.telegram.config import TelegramConfig
 
 
 def _field(job: object, name: str) -> str:
@@ -56,3 +62,92 @@ def test_stock_jobs_use_exchange_timezone_and_crypto_jobs_use_utc() -> None:
     assert str(crypto_job.trigger.timezone) == "UTC"
     assert _field(stock_job, "hour") == "9"
     assert _field(stock_job, "minute") == "0"
+
+
+@pytest.fixture(autouse=True)
+def _reset_failure_counters():
+    scheduler_module._consecutive_failures.clear()
+    yield
+    scheduler_module._consecutive_failures.clear()
+
+
+@pytest.fixture
+def _fake_telegram_config(monkeypatch):
+    monkeypatch.setattr(
+        scheduler_module,
+        "load_telegram_config",
+        lambda: TelegramConfig(bot_token="test-token", allowed_chat_id=1),
+    )
+
+
+def test_run_cycle_job_logs_structured_error_on_failure(monkeypatch) -> None:
+    # Not caplog: alembic's `command.upgrade` (session-scoped `_migrated_schema`
+    # fixture, autouse in this directory) calls `fileConfig`, which — by its own
+    # `disable_existing_loggers=True` default — disables every logger that already
+    # existed at that point, including this module's. Spying on `logger.error`
+    # directly sidesteps that global logging-plumbing quirk entirely.
+    def _raise(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", _raise)
+    calls = []
+    monkeypatch.setattr(scheduler_module.logger, "error", lambda *a, **k: calls.append((a, k)))
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    (call,) = calls
+    args, kwargs = call
+    assert args[0] == "cycle failed"
+    assert kwargs["extra"]["seq"] == 1
+    assert kwargs["extra"]["market_session"] == "us_equity"
+
+
+def test_run_cycle_job_does_not_alert_on_first_failure(monkeypatch, _fake_telegram_config) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", _raise)
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    assert sent == []
+
+
+def test_run_cycle_job_alerts_on_second_consecutive_failure(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", _raise)
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    assert len(sent) == 1
+    assert "2x in Folge" in sent[0]
+
+
+def test_run_cycle_job_resets_failure_streak_on_success(monkeypatch, _fake_telegram_config) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", _raise)
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", lambda *a, **k: {})
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    assert scheduler_module._consecutive_failures["us_equity-1"] == 0
