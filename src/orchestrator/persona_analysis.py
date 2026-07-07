@@ -71,17 +71,21 @@ def analyze_persona_cycle(
     broker_adapter: BrokerAdapter,
 ) -> Decision | None:
     # Idempotency for LangGraph's interrupt() replay (see F022 §2): if this exact
-    # node already created a HITL_PENDING decision in a prior (interrupted) attempt
-    # for this cycle/portfolio, skip straight to awaiting the outcome — no repeat
-    # LLM call, no repeat research/risk-gate work.
-    pending = _find_pending_hitl_decision(session, cycle_id, portfolio_id)
-    if pending is not None:
-        resumed = _await_hitl_outcome(session, pending)
-        _maybe_execute_decision(session, resumed, persona_name, broker_adapter)
+    # node already created a HITL decision in a prior (interrupted) attempt for this
+    # cycle/portfolio, skip straight to awaiting/applying the outcome — no repeat
+    # LLM call, no repeat research/risk-gate work. Matches not just HITL_PENDING:
+    # the Telegram bot applies the outcome (APPROVED/HITL_REJECTED) to the DB
+    # *before* resuming the graph (bot.py `_handle_hitl_callback`), so on that
+    # replay the decision is already resolved and only needs execution.
+    existing = _find_hitl_decision(session, cycle_id, portfolio_id)
+    if existing is not None:
+        if existing.status == DecisionStatus.HITL_PENDING:
+            existing = _await_hitl_outcome(session, existing)
+        _maybe_execute_decision(session, existing, persona_name, broker_adapter)
         generate_portfolio_snapshot(
             session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
         )
-        return resumed
+        return existing
 
     research_items = list(
         session.scalars(select(ResearchItem).where(ResearchItem.cycle_id == cycle_id)).all()
@@ -360,13 +364,25 @@ def _resolve_buy_decision(
     return decision
 
 
-def _find_pending_hitl_decision(
+# Every status a decision that went through mark_hitl_pending() can be in when the
+# node replays: still pending, resolved by the bot (approved/rejected), or already
+# executed (replay after a crash between execution and checkpoint commit).
+_HITL_REPLAY_STATUSES = (
+    DecisionStatus.HITL_PENDING,
+    DecisionStatus.APPROVED,
+    DecisionStatus.HITL_REJECTED,
+    DecisionStatus.EXECUTED,
+)
+
+
+def _find_hitl_decision(
     session: Session, cycle_id: uuid.UUID, portfolio_id: uuid.UUID
 ) -> Decision | None:
     stmt = select(Decision).where(
         Decision.cycle_id == cycle_id,
         Decision.portfolio_id == portfolio_id,
-        Decision.status == DecisionStatus.HITL_PENDING,
+        Decision.status.in_(_HITL_REPLAY_STATUSES),
+        Decision.hitl.isnot(None),  # HITL-off approvals never set `hitl` — don't match those
     )
     return session.scalar(stmt)
 
