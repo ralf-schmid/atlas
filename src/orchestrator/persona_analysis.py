@@ -499,7 +499,7 @@ def _build_messages(
             "id": str(item.id),
             "source_type": item.source_type,
             "published_at": item.published_at.isoformat() if item.published_at else None,
-            "age_days": _age_days(item.published_at, reference_time),
+            "age_days": compute_age_days(item.published_at, reference_time),
             "summary": item.summary,
             "instruments": item.instruments,
         }
@@ -529,9 +529,11 @@ def _build_messages(
     ]
 
 
-def _age_days(
+def compute_age_days(
     published_at: datetime.datetime | None, reference_time: datetime.datetime
 ) -> float | None:
+    """Public so the API layer (F034) can show the same age figure for a decision's
+    cited research items that the persona itself saw at decision time."""
     if published_at is None:
         return None
     return round((reference_time - published_at).total_seconds() / 86400, 1)

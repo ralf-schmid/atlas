@@ -98,7 +98,10 @@ def make_decision(
         quantity=overrides.get("quantity", Decimal("10")),
         thesis_text="Test thesis",
         rejection_reason=overrides.get("rejection_reason"),
-        expected_outcome={"target_price": 160.0, "horizon_days": 10, "stop_loss_price": 140.0},
+        expected_outcome=overrides.get(
+            "expected_outcome",
+            {"target_price": 160.0, "horizon_days": 10, "stop_loss_price": 140.0},
+        ),
         input_research_ids=overrides.get("input_research_ids", [research_item.id]),
     )
     session.add(decision)
@@ -112,8 +115,10 @@ def make_order_record(session: Session, decision: Decision, **overrides: object)
         broker="alpaca_paper",
         broker_order_id="entry-123",
         mode=PortfolioMode.PAPER,
-        submitted_at=datetime.datetime(2026, 7, 4, 9, 1),
-        status=OrderRecordStatus.FILLED,
+        submitted_at=overrides.get("submitted_at", datetime.datetime(2026, 7, 4, 9, 1)),
+        filled_at=overrides.get("filled_at"),
+        fill_price=overrides.get("fill_price"),
+        status=overrides.get("status", OrderRecordStatus.FILLED),
         fees=Decimal("0"),
     )
     session.add(order)

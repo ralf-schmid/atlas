@@ -203,6 +203,36 @@ _env = Environment(autoescape=False)  # noqa: S701 — plain text prompt, no HTM
 _template = _env.from_string(_TEMPLATE_SOURCE)
 
 
+@dataclass(frozen=True, slots=True)
+class PersonaProfile:
+    """The human-readable subset of `_CharterContent` — for the web UI (F034), not
+    the LLM prompt. No guardrail numbers here; those stay charter/risk-gate detail."""
+
+    name: str
+    display_name: str
+    philosophy: str
+    universe: str
+    signals: str
+    holding_period: str
+    failure_mode: str
+
+
+def get_persona_profile(persona_name: str) -> PersonaProfile:
+    if persona_name not in _CHARTER_CONTENT:
+        raise ValueError(f"No charter content defined for persona {persona_name!r}")
+
+    content = _CHARTER_CONTENT[persona_name]
+    return PersonaProfile(
+        name=persona_name,
+        display_name=content.display_name,
+        philosophy=content.philosophy,
+        universe=content.universe,
+        signals=content.signals,
+        holding_period=content.holding_period,
+        failure_mode=content.failure_mode,
+    )
+
+
 def render_charter(persona_name: str) -> str:
     if persona_name not in _CHARTER_CONTENT:
         raise ValueError(f"No charter content defined for persona {persona_name!r}")
