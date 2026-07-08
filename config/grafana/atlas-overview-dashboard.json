@@ -649,6 +649,312 @@
       ],
       "title": "Letzte Decisions",
       "type": "table"
+    },
+    {
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "id": 105,
+      "title": "Research-Datenbasis",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 50
+      },
+      "id": 14,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT count(*) FROM research_item",
+          "refId": "A"
+        }
+      ],
+      "title": "Research-Items gesamt (Pool)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 50
+      },
+      "id": 15,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(avg(EXTRACT(EPOCH FROM (now() - published_at)) / 86400), 0) FROM research_item WHERE published_at IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Ø Alter Research-Items (Tage)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 50
+      },
+      "id": 16,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - min(published_at))) / 86400, 0) FROM research_item",
+          "refId": "A"
+        }
+      ],
+      "title": "Ältestes Research-Item (Tage)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 50
+      },
+      "id": 17,
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - max(published_at))) / 86400, 0) FROM research_item",
+          "refId": "A"
+        }
+      ],
+      "title": "Jüngstes Research-Item (Tage)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 54
+      },
+      "id": 18,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT bucket AS metric, count(*) AS value FROM (SELECT CASE WHEN published_at IS NULL THEN 'unbekannt' WHEN now() - published_at < interval '7 days' THEN '0-7 Tage' WHEN now() - published_at < interval '30 days' THEN '7-30 Tage' WHEN now() - published_at < interval '90 days' THEN '30-90 Tage' ELSE '90+ Tage' END AS bucket FROM research_item) t GROUP BY bucket",
+          "refId": "A"
+        }
+      ],
+      "title": "Research-Items nach Alter",
+      "type": "piechart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 54
+      },
+      "id": 19,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT source_type AS metric, count(*) AS value FROM research_item GROUP BY source_type",
+          "refId": "A"
+        }
+      ],
+      "title": "Research-Items nach Quelle",
+      "type": "piechart"
     }
   ],
   "refresh": "5m",
