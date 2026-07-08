@@ -1,7 +1,7 @@
 # VULTURE — Penny-Stock-Jaeger, ARCHITECTURE.md §4.1
 
 name: VULTURE
-charter_version: 1
+charter_version: 2
 model: claude-sonnet-5
 
 max_position_pct: 0.03

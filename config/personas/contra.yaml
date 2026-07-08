@@ -1,7 +1,7 @@
 # CONTRA — Der Antizykliker, ARCHITECTURE.md §4.5
 
 name: CONTRA
-charter_version: 1
+charter_version: 2
 model: claude-sonnet-5
 
 max_position_pct: 0.10

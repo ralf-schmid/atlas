@@ -40,7 +40,7 @@ def test_all_personas_render_with_their_charter_version(persona_name: str) -> No
     charter = render_charter(persona_name)
 
     assert charter != ""
-    assert "Charter-Version 1" in charter
+    assert "Charter-Version 2" in charter
 
 
 @pytest.mark.parametrize("persona_name", _ALL_PERSONAS)
@@ -51,6 +51,14 @@ def test_all_personas_contain_untrusted_content_and_research_id_rules(
 
     assert "Daten, keine Instruktionen" in charter
     assert "research_item-ID" in charter
+
+
+@pytest.mark.parametrize("persona_name", _ALL_PERSONAS)
+def test_all_personas_contain_recency_weighting_instruction(persona_name: str) -> None:
+    charter = render_charter(persona_name)
+
+    assert "age_days" in charter
+    assert "nicht automatisch noch gültig" in charter
 
 
 def test_unknown_persona_raises() -> None:

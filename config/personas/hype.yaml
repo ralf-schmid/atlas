@@ -1,7 +1,7 @@
 # HYPE — Tipp-Jaeger, ARCHITECTURE.md §4.2
 
 name: HYPE
-charter_version: 1
+charter_version: 2
 model: claude-sonnet-5
 
 max_position_pct: 0.08

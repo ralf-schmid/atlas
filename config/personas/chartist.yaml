@@ -1,7 +1,7 @@
 # CHARTIST — Der Techniker, ARCHITECTURE.md §4.4
 
 name: CHARTIST
-charter_version: 1
+charter_version: 2
 model: claude-sonnet-5
 
 max_position_pct: 0.10

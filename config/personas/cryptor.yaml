@@ -4,7 +4,7 @@
 # Bitte von Ralf gegenpruefen/fixieren, siehe docs/features/F004-risk-gate.md §2.
 
 name: CRYPTOR
-charter_version: 1
+charter_version: 2
 model: claude-sonnet-5
 
 max_position_pct: 0.20

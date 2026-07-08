@@ -20,6 +20,7 @@ from src.broker.registry import get_adapter_type
 from src.db.models import (
     AgentRun,
     AgentRunStatus,
+    Cycle,
     Decision,
     DecisionAction,
     DecisionStatus,
@@ -101,9 +102,10 @@ def analyze_persona_cycle(
     if not research_items:
         return None
 
+    cycle = session.get_one(Cycle, cycle_id)
     charter = render_charter(persona_name)
     positions = broker_adapter.get_positions()
-    messages = _build_messages(charter, research_items, positions)
+    messages = _build_messages(charter, research_items, positions, cycle.started_at)
     role = llm_config.roles["persona_analysis"]
 
     try:
@@ -484,13 +486,20 @@ def _serialize_risk_check(risk_check: RiskCheckResult) -> dict[str, object]:
 
 
 def _build_messages(
-    charter: str, research_items: list[ResearchItem], positions: list[Position]
+    charter: str,
+    research_items: list[ResearchItem],
+    positions: list[Position],
+    reference_time: datetime.datetime,
 ) -> list[dict[str, str]]:
+    # age_days is computed here, not left to the LLM, so staleness weighting rests
+    # on a real date subtraction rather than the model's own arithmetic over two
+    # ISO timestamps (see docs/features/F033-research-item-recency-signal.md).
     research_payload = [
         {
             "id": str(item.id),
             "source_type": item.source_type,
             "published_at": item.published_at.isoformat() if item.published_at else None,
+            "age_days": _age_days(item.published_at, reference_time),
             "summary": item.summary,
             "instruments": item.instruments,
         }
@@ -518,3 +527,11 @@ def _build_messages(
         {"role": "system", "content": charter},
         {"role": "user", "content": user_content},
     ]
+
+
+def _age_days(
+    published_at: datetime.datetime | None, reference_time: datetime.datetime
+) -> float | None:
+    if published_at is None:
+        return None
+    return round((reference_time - published_at).total_seconds() / 86400, 1)
