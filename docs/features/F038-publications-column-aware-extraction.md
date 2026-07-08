@@ -100,3 +100,8 @@ Layout-Qualität ist kein rein unit-testbares Kriterium.
   und 3-5 Stichproben mit dem alten Ergebnis vergleichen.
 - **Rollback-Pfad:** reiner Code-Revert von `extract_articles` (keine
   Schema-/Config-Änderung).
+
+**Nachtrag 08.07.2026 (Live-Verifikation gegen zwei echte Ausgaben, siehe
+`docs/deployment.md`):** Der Vorher/Nachher-Vergleich deckte einen echten,
+zuvor unbemerkten Bug in `sync_publication_articles` auf, unabhängig von der
+Segmentierungs-Qualität selbst — siehe F042.

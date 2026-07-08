@@ -218,6 +218,53 @@ def test_sync_publication_articles_is_idempotent_on_rerun(session):
     assert rows[0].title == "NEW TITLE"
 
 
+def test_sync_publication_articles_drops_rows_orphaned_by_a_smaller_rerun(session):
+    """Regression test: found live while re-processing a real issue with F038's
+    improved heuristic. extract_articles()'s seq values aren't contiguous after
+    the min-length filter (assigned during the walk, before filtering) — a rerun
+    producing fewer articles than before must not leave the old run's
+    higher-seq rows behind as permanent orphans."""
+    day = datetime.date(2026, 7, 5)
+    v1 = [
+        Article(seq=0, page=1, title="KEPT", text="old text"),
+        Article(seq=5, page=2, title="ORPHANED BY SMALLER RERUN", text="stale text"),
+    ]
+    v2 = [Article(seq=0, page=1, title="KEPT (UPDATED)", text="new text")]
+
+    sync_publication_articles(session, "pub", day, "x.pdf", v1)
+    sync_publication_articles(session, "pub", day, "x.pdf", v2)
+
+    from sqlalchemy import select
+
+    from src.db.models import PublicationArticle
+
+    rows = session.scalars(
+        select(PublicationArticle).where(PublicationArticle.publication == "pub")
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].title == "KEPT (UPDATED)"
+
+
+def test_sync_publication_articles_empty_list_leaves_existing_rows_untouched(session):
+    day = datetime.date(2026, 7, 5)
+    v1 = [Article(seq=0, page=1, title="EXISTING", text="existing text")]
+    sync_publication_articles(session, "pub", day, "x.pdf", v1)
+
+    count = sync_publication_articles(session, "pub", day, "x.pdf", [])
+
+    assert count == 0
+
+    from sqlalchemy import select
+
+    from src.db.models import PublicationArticle
+
+    rows = session.scalars(
+        select(PublicationArticle).where(PublicationArticle.publication == "pub")
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].title == "EXISTING"
+
+
 def test_process_pdf_fallback_file_end_to_end(session, tmp_path):
     base_dir = tmp_path / "publications"
     pdf_path = base_dir / "euro_am_sonntag" / "2026-07-05.pdf"

@@ -6,8 +6,15 @@ Fallback-first (ARCHITECTURE.md §3.5.1): this operates purely on a PDF already 
 in the ingest directory — the Playwright auto-download/login is separate, later work.
 Directory convention: `<base_dir>/<publication>/<issue_date:YYYY-MM-DD>.pdf`.
 
-Idempotent: upsert on the (publication, issue_date, seq) unique constraint, so
-re-processing the same file (crash-recovery, manual re-trigger) never duplicates.
+Idempotent: re-processing the same (publication, issue_date) replaces its full
+article set (delete-then-insert, not upsert-by-seq) — `extract_articles`'s `seq`
+values aren't stable across runs (assigned during the walk *before* the
+min-length filter drops some, see F038 §2), so a run producing fewer articles
+than a previous one (e.g. after a heuristic improvement, or a corrected PDF)
+would otherwise leave the previous run's higher-seq rows as permanent orphans.
+Found live while re-processing a real issue with F038's improved heuristic —
+874 stale rows would have silently stuck around forever under the old
+upsert-only approach.
 """
 
 from __future__ import annotations
@@ -19,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pymupdf
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from src.db.models import PublicationArticle
@@ -162,36 +169,32 @@ def sync_publication_articles(
     source_file: str,
     articles: list[Article],
 ) -> int:
+    """Replaces this issue's full article set. Empty `articles` is a no-op
+    (leaves any previously-synced rows untouched) rather than wiping existing
+    data on e.g. a transient extraction failure — see module docstring."""
     if not articles:
         return 0
 
-    rows = [
-        {
-            "publication": publication,
-            "issue_date": issue_date,
-            "seq": a.seq,
-            "page": a.page,
-            "title": a.title,
-            "text": a.text,
-            "source_file": source_file,
-        }
-        for a in articles
-    ]
-
-    stmt = insert(PublicationArticle).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_publication_article_issue_seq",
-        set_={
-            "page": stmt.excluded.page,
-            "title": stmt.excluded.title,
-            "text": stmt.excluded.text,
-            "source_file": stmt.excluded.source_file,
-            "synced_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
-        },
+    session.execute(
+        delete(PublicationArticle).where(
+            PublicationArticle.publication == publication,
+            PublicationArticle.issue_date == issue_date,
+        )
     )
-    session.execute(stmt)
+    session.add_all(
+        PublicationArticle(
+            publication=publication,
+            issue_date=issue_date,
+            seq=a.seq,
+            page=a.page,
+            title=a.title,
+            text=a.text,
+            source_file=source_file,
+        )
+        for a in articles
+    )
     session.flush()
-    return len(rows)
+    return len(articles)
 
 
 def process_pdf_fallback_file(session: Session, publications_base_dir: Path, pdf_path: Path) -> int:
