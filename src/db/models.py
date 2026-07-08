@@ -426,3 +426,47 @@ class MusterdepotTransaction(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class BtcDominanceSnapshot(Base):
+    """A point-in-time crypto-market-regime reading from CoinGecko's free, no-auth
+    `/global` endpoint, see docs/features/F040-btc-dominance-ingestion.md.
+
+    Deliberately **no** unique constraint/upsert like the other ingestion tables —
+    each scheduled fetch is a legitimate new time-series point, not a re-delivery of
+    the same fact, so there is nothing to conflict on.
+    """
+
+    __tablename__ = "btc_dominance_snapshot"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    snapshot_at: Mapped[datetime]
+    btc_dominance_pct: Mapped[Decimal] = mapped_column(Numeric(6, 3))
+    total_market_cap_usd: Mapped[Decimal] = mapped_column(Numeric(24, 2))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
+
+
+class RedditPost(Base):
+    """A post from one of CRYPTOR's configured crypto subreddits, see
+    docs/features/F039-reddit-ingestion.md.
+
+    Raw structured facts only (title/score/comment count) — no sentiment scoring
+    happens here or anywhere in ingestion code; interpretation is left entirely to
+    the persona, same as every other research source (Invariant #9).
+    """
+
+    __tablename__ = "reddit_post"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[str] = mapped_column(String(20), unique=True)
+    subreddit: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(Text)
+    score: Mapped[int]
+    num_comments: Mapped[int]
+    created_utc: Mapped[datetime]
+    permalink: Mapped[str] = mapped_column(String(500))
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

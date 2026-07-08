@@ -252,6 +252,22 @@ def run_daily_grab_live(
     return sync_aktienfinder_snapshots(session, snapshot_date, snapshots)
 
 
+def run_daily_grab_configured(
+    session: Session,
+    snapshot_date: datetime.date,
+    config_path: Path = _DEFAULT_CONFIG_PATH,
+) -> int:
+    """Config-driven entry point for the scheduler (F037): reads the Ralf-curated
+    `aktienfinder.candidate_isins` list and delegates to `run_daily_grab_live` —
+    see docs/features/F037-aktienfinder-candidate-list-and-scheduling.md. There is
+    deliberately no automatic candidate discovery (no fundamentals-screening data
+    source available); Ralf maintains the list by hand.
+    """
+    config = yaml.safe_load(config_path.read_text())
+    candidate_isins: list[str] = config["aktienfinder"]["candidate_isins"]
+    return run_daily_grab_live(session, candidate_isins, snapshot_date, config_path=config_path)
+
+
 def _require_env(var_name: str) -> str:
     value = os.environ.get(var_name)
     if not value:

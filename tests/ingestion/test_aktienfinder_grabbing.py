@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from src.ingestion import aktienfinder_grabbing as aktienfinder_grabbing_module
 from src.ingestion.aktienfinder_grabbing import (
     AktienfinderLoginError,
     Snapshot,
@@ -10,6 +11,7 @@ from src.ingestion.aktienfinder_grabbing import (
     extract_snapshot,
     login,
     run_daily_grab,
+    run_daily_grab_configured,
     sync_aktienfinder_snapshots,
 )
 
@@ -115,6 +117,31 @@ def test_run_daily_grab_raises_when_env_var_missing(session, tmp_path, monkeypat
 
     with pytest.raises(ValueError, match="TEST_SCREENSHOT_DIR_MISSING"):
         run_daily_grab(session, {}, datetime.date(2026, 7, 5), config_path=config_path)
+
+
+def test_run_daily_grab_configured_reads_candidate_isins_from_config(
+    session, tmp_path, monkeypatch
+):
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "aktienfinder:\n  candidate_isins:\n    - DE0007164600\n    - US0378331005\n"
+    )
+    captured: dict[str, object] = {}
+
+    def _fake_run_daily_grab_live(session, isins, snapshot_date, config_path=None):
+        captured["isins"] = isins
+        captured["snapshot_date"] = snapshot_date
+        return len(isins)
+
+    monkeypatch.setattr(
+        aktienfinder_grabbing_module, "run_daily_grab_live", _fake_run_daily_grab_live
+    )
+
+    count = run_daily_grab_configured(session, datetime.date(2026, 7, 8), config_path=config_path)
+
+    assert count == 2
+    assert captured["isins"] == ["DE0007164600", "US0378331005"]
+    assert captured["snapshot_date"] == datetime.date(2026, 7, 8)
 
 
 class _FakeLocator:

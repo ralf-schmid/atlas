@@ -137,8 +137,8 @@ def run_current_filings_sync(
     session: Session,
     config_path: Path = _DEFAULT_CONFIG_PATH,
 ) -> int:
-    """Config-driven entry point, mirrors `market_data_sync.run_daily_sync`. Not wired
-    into a scheduler yet (P4/ops follow-up)."""
+    """Config-driven entry point, mirrors `market_data_sync.run_daily_sync`. Wired
+    into the ingestion scheduler (F035, `src/ingestion/scheduler.py`)."""
     config = yaml.safe_load(config_path.read_text())
     edgar_config = config["edgar"]
 

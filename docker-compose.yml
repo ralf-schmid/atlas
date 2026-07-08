@@ -117,6 +117,19 @@ services:
       ALPACA_MARKET_DATA_SECRET_KEY: ${ALPACA_MARKET_DATA_SECRET_KEY}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      # F035/F037/F039: the ingestion jobs registered alongside the cycle
+      # scheduler (src/ingestion/scheduler.py) need their own credentials too.
+      EDGAR_USER_AGENT: ${EDGAR_USER_AGENT}
+      AKTIENFINDER_USERNAME: ${AKTIENFINDER_USERNAME}
+      AKTIENFINDER_PASSWORD: ${AKTIENFINDER_PASSWORD}
+      AKTIENFINDER_SCREENSHOT_DIR: /data/ingest/aktienfinder/screenshots
+      REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID}
+      REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
+      REDDIT_USER_AGENT: ${REDDIT_USER_AGENT}
+    volumes:
+      # F037: screenshot evidence (F012 lineage) — host-persistent across
+      # deploys, same convention as the api service's publications volume.
+      - ./data/ingest/aktienfinder/screenshots:/data/ingest/aktienfinder/screenshots
     depends_on:
       postgres:
         condition: service_healthy

@@ -9,11 +9,15 @@ from sqlalchemy.orm import Session
 
 from src.db.models import (
     AktienfinderSnapshot,
+    BtcDominanceSnapshot,
     Cycle,
     EdgarFiling,
+    MarketBar,
+    MarketBarTimeframe,
     MarketSession,
     MusterdepotTransaction,
     PublicationArticle,
+    RedditPost,
     ScreenerResult,
 )
 from src.orchestrator.graph import create_cycle
@@ -272,3 +276,153 @@ def test_previous_cycle_of_other_market_session_is_ignored(session: Session) -> 
 
     assert len(items) == 1
     assert items[0].source_ref == "IGNORE_CRYPTO_CYCLE"
+
+
+def _seed_market_bars(session: Session, symbol: str, num_bars: int) -> None:
+    start = datetime.datetime(2026, 1, 1)
+    for i in range(num_bars):
+        session.add(
+            MarketBar(
+                symbol=symbol,
+                timeframe=MarketBarTimeframe.DAY,
+                ts=start + datetime.timedelta(days=i),
+                open=Decimal("100"),
+                high=Decimal("101"),
+                low=Decimal("99"),
+                close=Decimal(str(100 + i * 0.1)),
+                volume=Decimal("1000000"),
+            )
+        )
+    session.flush()
+
+
+def test_technical_indicator_item_emitted_for_seed_watchlist_symbol_with_enough_bars(
+    session: Session,
+) -> None:
+    # AAPL is part of config/ingestion.yaml's static market_data.watchlist. 50
+    # bars so both SMA20 and SMA50 (and therefore the crossover check) resolve.
+    _seed_market_bars(session, "AAPL", 50)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+
+    items = synthesize_research_items(session, cycle)
+
+    indicator_items = [item for item in items if item.source_type == "technical_indicator"]
+    assert len(indicator_items) == 1
+    assert indicator_items[0].source_ref == "AAPL"
+    assert indicator_items[0].instruments == ["AAPL"]
+    assert indicator_items[0].published_at == cycle.started_at
+    assert "SMA20" in indicator_items[0].summary
+    assert "RSI14" in indicator_items[0].summary
+
+
+def test_no_technical_indicator_item_when_no_market_bars_exist(session: Session) -> None:
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "technical_indicator"] == []
+
+
+def test_technical_indicator_item_not_windowed_by_synced_at(session: Session) -> None:
+    """Unlike the other 5 sources, a technical-indicator item is recomputed every
+    cycle regardless of when the underlying market_bar rows were synced."""
+    _seed_market_bars(session, "AAPL", 20)
+    first_cycle = _make_cycle_at(session, _WINDOW_START, seq=1)
+    second_cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+
+    first_items = synthesize_research_items(session, first_cycle)
+    second_items = synthesize_research_items(session, second_cycle)
+
+    assert len([i for i in first_items if i.source_type == "technical_indicator"]) == 1
+    assert len([i for i in second_items if i.source_type == "technical_indicator"]) == 1
+
+
+def test_btc_dominance_item_mapping_inside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        BtcDominanceSnapshot(
+            snapshot_at=_INSIDE_WINDOW,
+            btc_dominance_pct=Decimal("54.231"),
+            total_market_cap_usd=Decimal("2100000000000.00"),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    btc_items = [item for item in items if item.source_type == "btc_dominance"]
+    assert len(btc_items) == 1
+    assert btc_items[0].instruments == ["BTC/USD"]
+    assert "54.231" in btc_items[0].summary
+    assert btc_items[0].published_at == _INSIDE_WINDOW
+
+
+def test_btc_dominance_item_excluded_outside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        BtcDominanceSnapshot(
+            snapshot_at=_BEFORE_WINDOW,
+            btc_dominance_pct=Decimal("50.0"),
+            total_market_cap_usd=Decimal("2000000000000.00"),
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "btc_dominance"] == []
+
+
+def test_reddit_post_item_mapping_inside_window_has_no_sentiment_scoring(
+    session: Session,
+) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        RedditPost(
+            post_id="abc123",
+            subreddit="Bitcoin",
+            title="BTC breaks above 60k",
+            score=4200,
+            num_comments=731,
+            created_utc=_INSIDE_WINDOW,
+            permalink="https://reddit.com/r/Bitcoin/comments/abc123/",
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    reddit_items = [item for item in items if item.source_type == "reddit_post"]
+    assert len(reddit_items) == 1
+    assert reddit_items[0].source_ref == "abc123"
+    assert "BTC breaks above 60k" in reddit_items[0].summary
+    assert reddit_items[0].raw == {"score": 4200, "num_comments": 731}
+    assert "sentiment" not in reddit_items[0].raw
+
+
+def test_reddit_post_item_excluded_outside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        RedditPost(
+            post_id="old456",
+            subreddit="Bitcoin",
+            title="Old post",
+            score=1,
+            num_comments=0,
+            created_utc=_BEFORE_WINDOW,
+            permalink="https://reddit.com/r/Bitcoin/comments/old456/",
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "reddit_post"] == []

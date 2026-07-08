@@ -2,8 +2,9 @@
 into `research_item` rows for the shared research pool. See
 docs/features/F017-shared-research-synthesis.md.
 
-`market_bar` is deliberately excluded — raw OHLCV bars are base market data for later
-technical-indicator computation, not a research finding (see F017 §1 Non-Scope).
+Technical indicators (F036) are a 6th, structurally different source: computed
+fresh every cycle over the symbol universe rather than windowed by `synced_at` —
+see `_research_items_from_technical_indicators` below and F036 §2.
 
 Deliberately no LLM calls: every `summary` is a deterministic text template built from
 fields the ingestion pipelines already parsed out.
@@ -13,26 +14,43 @@ from __future__ import annotations
 
 import datetime
 import uuid
+from pathlib import Path
 
+import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.db.models import (
     AktienfinderSnapshot,
+    BtcDominanceSnapshot,
     Cycle,
     EdgarFiling,
     MusterdepotTransaction,
     PublicationArticle,
+    RedditPost,
     ResearchItem,
     ScreenerResult,
 )
+from src.orchestrator.indicators import (
+    BollingerBands,
+    IndicatorSnapshot,
+    compute_indicator_snapshot,
+)
+from src.orchestrator.symbol_universe import resolve_symbol_universe
 
 _BOOTSTRAP_WINDOW = datetime.timedelta(days=7)
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 
 
-def synthesize_research_items(session: Session, cycle: Cycle) -> list[ResearchItem]:
+def synthesize_research_items(
+    session: Session, cycle: Cycle, config_path: Path = _DEFAULT_CONFIG_PATH
+) -> list[ResearchItem]:
     window_start = _resolve_window_start(session, cycle)
     window_end = cycle.started_at
+
+    config = yaml.safe_load(config_path.read_text())
+    seed_watchlist: list[str] = config["market_data"]["watchlist"]
+    symbols = resolve_symbol_universe(session, seed_watchlist)
 
     items = [
         *_research_items_from_edgar_filings(session, cycle.id, window_start, window_end),
@@ -40,6 +58,9 @@ def synthesize_research_items(session: Session, cycle: Cycle) -> list[ResearchIt
         *_research_items_from_publication_articles(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_musterdepot_transactions(session, cycle.id, window_start, window_end),
+        *_research_items_from_technical_indicators(session, cycle.id, symbols, cycle.started_at),
+        *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
+        *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
     ]
     session.add_all(items)
     session.flush()
@@ -210,4 +231,148 @@ def _research_items_from_musterdepot_transactions(
             },
         )
         for tx in transactions
+    ]
+
+
+def _research_items_from_technical_indicators(
+    session: Session,
+    cycle_id: uuid.UUID,
+    symbols: list[str],
+    as_of: datetime.datetime,
+) -> list[ResearchItem]:
+    """Unlike the 5 sources above, this isn't windowed by `synced_at` — an
+    indicator value isn't a new external fact arriving, it's a fresh computation
+    over already-ingested `market_bar` rows, recomputed every cycle for the
+    current symbol universe (see F036 §2). A symbol with too few bars for any
+    indicator yet is silently skipped, not an error."""
+    items = []
+    for symbol in symbols:
+        snapshot = compute_indicator_snapshot(session, symbol)
+        if _snapshot_is_empty(snapshot):
+            continue
+        items.append(
+            ResearchItem(
+                cycle_id=cycle_id,
+                agent="market_research",
+                source_type="technical_indicator",
+                source_ref=symbol,
+                url=None,
+                published_at=as_of,
+                summary=_format_indicator_summary(symbol, snapshot),
+                instruments=[symbol],
+                raw=_indicator_raw(snapshot),
+            )
+        )
+    return items
+
+
+def _snapshot_is_empty(snapshot: IndicatorSnapshot) -> bool:
+    return (
+        snapshot.sma20 is None
+        and snapshot.sma50 is None
+        and snapshot.rsi14 is None
+        and snapshot.macd is None
+        and snapshot.bollinger is None
+        and snapshot.crossover is None
+    )
+
+
+def _format_indicator_summary(symbol: str, snapshot: IndicatorSnapshot) -> str:
+    parts = [f"Technische Indikatoren {symbol}:"]
+    if snapshot.sma20 is not None and snapshot.sma50 is not None:
+        relation = "über" if snapshot.sma20 > snapshot.sma50 else "unter"
+        parts.append(f"SMA20 {relation} SMA50 ({snapshot.sma20:.2f} vs {snapshot.sma50:.2f})")
+    if snapshot.crossover is not None:
+        label = "Golden Cross" if snapshot.crossover == "golden_cross" else "Death Cross"
+        parts.append(f"frischer {label}")
+    if snapshot.rsi14 is not None:
+        parts.append(f"RSI14 {snapshot.rsi14:.1f}")
+    if snapshot.macd is not None:
+        parts.append(
+            f"MACD {snapshot.macd.macd_line:.2f} (Signal {snapshot.macd.signal_line:.2f}, "
+            f"Histogramm {snapshot.macd.histogram:.2f})"
+        )
+    if snapshot.bollinger is not None:
+        parts.append(
+            f"Bollinger-Baender [{snapshot.bollinger.lower:.2f}, {snapshot.bollinger.upper:.2f}]"
+        )
+    return ", ".join(parts)
+
+
+def _indicator_raw(snapshot: IndicatorSnapshot) -> dict[str, object]:
+    bollinger: BollingerBands | None = snapshot.bollinger
+    return {
+        "sma20": snapshot.sma20,
+        "sma50": snapshot.sma50,
+        "rsi14": snapshot.rsi14,
+        "macd_line": snapshot.macd.macd_line if snapshot.macd else None,
+        "macd_signal": snapshot.macd.signal_line if snapshot.macd else None,
+        "macd_histogram": snapshot.macd.histogram if snapshot.macd else None,
+        "bollinger_upper": bollinger.upper if bollinger else None,
+        "bollinger_lower": bollinger.lower if bollinger else None,
+        "crossover": snapshot.crossover,
+    }
+
+
+def _research_items_from_btc_dominance_snapshots(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    stmt = select(BtcDominanceSnapshot).where(
+        BtcDominanceSnapshot.synced_at > window_start,
+        BtcDominanceSnapshot.synced_at <= window_end,
+    )
+    snapshots = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="market_research",
+            source_type="btc_dominance",
+            source_ref=str(snapshot.id),
+            url=None,
+            published_at=snapshot.snapshot_at,
+            summary=(
+                f"BTC-Dominanz: {snapshot.btc_dominance_pct}% "
+                f"(Gesamt-Marktkapitalisierung {snapshot.total_market_cap_usd} USD)"
+            ),
+            instruments=["BTC/USD"],
+            raw={
+                "btc_dominance_pct": str(snapshot.btc_dominance_pct),
+                "total_market_cap_usd": str(snapshot.total_market_cap_usd),
+            },
+        )
+        for snapshot in snapshots
+    ]
+
+
+def _research_items_from_reddit_posts(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """No sentiment scoring here — raw title/score/comment-count facts only, the
+    persona interprets them (same pattern as every other source, Invariant #9)."""
+    stmt = select(RedditPost).where(
+        RedditPost.synced_at > window_start, RedditPost.synced_at <= window_end
+    )
+    posts = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="news_research",
+            source_type="reddit_post",
+            source_ref=post.post_id,
+            url=post.permalink,
+            published_at=post.created_utc,
+            summary=(
+                f'r/{post.subreddit}: "{post.title}" '
+                f"(Score {post.score}, {post.num_comments} Kommentare)"
+            ),
+            instruments=[],
+            raw={"score": post.score, "num_comments": post.num_comments},
+        )
+        for post in posts
     ]

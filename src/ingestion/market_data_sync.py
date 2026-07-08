@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Protocol
 
 import yaml
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.models.bars import BarSet
 from alpaca.data.requests import StockBarsRequest
@@ -58,7 +59,18 @@ class AlpacaBarsProvider:
             symbol_or_symbols=symbols,
             timeframe=TimeFrame.Day,
             start=datetime.datetime.combine(start, datetime.time.min),
-            end=datetime.datetime.combine(end, datetime.time.min),
+            # time.max, not time.min: Alpaca's range is start-inclusive/end-exclusive,
+            # so a same-day request (start == end, the common "sync today's bar"
+            # case) would otherwise be a zero-width [midnight, midnight) window that
+            # can never contain that day's bar — found via live verification while
+            # deploying F035 (see docs/features/F035-ingestion-scheduler-activation.md).
+            end=datetime.datetime.combine(end, datetime.time.max),
+            # IEX, not the SIP default: the account behind ALPACA_MARKET_DATA_KEY_ID
+            # is a Paper-Key reused for read-only market data (.env.example, F002 §2),
+            # which has no SIP subscription — a request for "recent" data with the
+            # default feed gets a 403 ("subscription does not permit querying recent
+            # SIP data"), also found via live verification while deploying F035.
+            feed=DataFeed.IEX,
         )
         bar_set = self._client.get_stock_bars(request)
         assert isinstance(bar_set, BarSet)
@@ -133,16 +145,20 @@ def run_daily_sync(
     session: Session,
     trading_day: datetime.date,
     config_path: Path = _DEFAULT_CONFIG_PATH,
+    watchlist_override: list[str] | None = None,
 ) -> int:
     """Config-driven entry point: reads `config/ingestion.yaml`'s watchlist + Alpaca
     market-data credentials from environment, syncs one day of bars.
 
-    Not wired into a scheduler yet (orchestrator/cron wiring is P4/ops follow-up) —
-    this is the callable a future scheduler invokes once a day per Cycle.
+    Wired into the ingestion scheduler (F035, `src/ingestion/scheduler.py`), which
+    passes `watchlist_override` from `symbol_universe.resolve_symbol_universe` —
+    the static YAML watchlist stays the fallback for direct/manual invocation.
     """
     config = yaml.safe_load(config_path.read_text())
     market_data_config = config["market_data"]
-    watchlist: list[str] = market_data_config["watchlist"]
+    watchlist: list[str] = (
+        watchlist_override if watchlist_override is not None else market_data_config["watchlist"]
+    )
 
     key_id = _require_env(market_data_config["key_id_env"])
     secret_key = _require_env(market_data_config["secret_key_env"])

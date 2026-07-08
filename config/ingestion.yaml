@@ -39,6 +39,17 @@ aktienfinder:
   username_env: AKTIENFINDER_USERNAME
   password_env: AKTIENFINDER_PASSWORD
   screenshot_dir_env: AKTIENFINDER_SCREENSHOT_DIR
+  # GUARDIANs Kandidatenliste (F037) — bewusst statisch, Ralf pflegt sie manuell.
+  # Kein Fundamental-Screener: dafuer bräuchte es einen kostenpflichtigen
+  # Datenanbieter (P/E, Payout-Ratio, Dividenden-Streak flächendeckend), siehe
+  # docs/features/F037-aktienfinder-candidate-list-and-scheduling.md §2.
+  candidate_isins:
+    - DE0007164600 # SAP
+    - US0378331005 # Apple
+    - US5949181045 # Microsoft
+    - DE0008430026 # Munich Re
+    - US4781601046 # Johnson & Johnson
+    - US7427181091 # Procter & Gamble
   field_selectors:
     price: "li.stockprofile-tiles__list-item:has-text('Aktienkurs') span:not(.stockprofile-tiles__fixed-width-span)"
     isin: "li.stockprofile-tiles__list-item:has-text('ISIN') span:not(.stockprofile-tiles__fixed-width-span)"
@@ -46,6 +57,25 @@ aktienfinder:
     quality_score_dividend_yield: ":nth-match(.scorecard-tile-layout__current-score, 1)"
     quality_score_dividend_growth: ":nth-match(.scorecard-tile-layout__current-score, 2)"
     quality_score_earnings_growth: ":nth-match(.scorecard-tile-layout__current-score, 3)"
+
+schedule:
+  # Siehe docs/features/F035-ingestion-scheduler-activation.md. America/New_York
+  # fuer die aktienbezogenen Jobs (Screener vor Markt-Bar-Sync, beide vor dem
+  # ersten Aktien-Zyklus C1 09:00 ET, config/cycles.yaml) — EDGAR braucht keine
+  # Boersenzeit, laeuft per Intervall.
+  timezone: America/New_York
+  edgar_rss:
+    interval_minutes: 30
+  vulture_screener:
+    time: "06:00"
+  market_data_sync:
+    time: "06:30"
+  aktienfinder:
+    time: "07:00"
+  coingecko:
+    interval_minutes: 60
+  reddit:
+    interval_minutes: 60
 
 publications:
   # Fallback-first (ARCHITECTURE.md §3.5.1): n8n erkennt die Benachrichtigungs-Mail
@@ -65,3 +95,21 @@ publications:
     - slug: der_aktionaer
       subject_keyword: "DER AKTIONÄR"
       overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778322/A-10510232/ausgaben"
+
+coingecko:
+  # Kostenlos, kein Auth (F040) — Krypto-Marktregime-Signal (BTC-Dominanz) fuer
+  # CRYPTOR.
+  base_url: "https://api.coingecko.com/api/v3/global"
+
+reddit:
+  # OAuth2 App-only (client_credentials, F039) — CRYPTORs Krypto-Sentiment-Quelle.
+  # Ralf muss einmalig eine "script"-App unter reddit.com/prefs/apps registrieren.
+  # Keine Sentiment-Berechnung im Code — nur rohe Fakten, siehe reddit_sentiment.py.
+  client_id_env: REDDIT_CLIENT_ID
+  client_secret_env: REDDIT_CLIENT_SECRET
+  user_agent_env: REDDIT_USER_AGENT
+  subreddits:
+    - CryptoCurrency
+    - Bitcoin
+    - ethereum
+  limit_per_subreddit: 25

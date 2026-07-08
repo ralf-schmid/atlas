@@ -15,6 +15,12 @@ COPY scripts ./scripts
 
 RUN uv sync --frozen --no-dev
 
+# F037: the `playwright` package (aktienfinder ingestion) needs its own browser
+# binary — `uv sync` only installs the Python package, never the browser
+# itself. Must run as root (--with-deps apt-installs system libraries), before
+# the USER switch below.
+RUN uv run playwright install --with-deps chromium
+
 # Non-root: UID/GID matching user ralf / group familie on the UGREEN box, so any
 # future bind mounts get sane ownership. /app is chowned so `uv run` (venv checks,
 # bytecode) works for the runtime user too.

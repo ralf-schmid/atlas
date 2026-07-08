@@ -19,6 +19,7 @@ from types import FrameType
 from langgraph.checkpoint.postgres import PostgresSaver
 
 from src.db.base import get_session_factory
+from src.ingestion.scheduler import register_ingestion_jobs
 from src.llm.client import LiteLLMClient
 from src.llm.config import load_llm_config
 from src.logging_config import configure_logging
@@ -53,6 +54,7 @@ def main() -> None:
         )
 
         scheduler = build_scheduler(graph, session_factory, cycles_config)
+        register_ingestion_jobs(scheduler, session_factory)
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)
 

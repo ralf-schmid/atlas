@@ -145,9 +145,9 @@ def make_position_snapshot(
     session: Session, portfolio: Portfolio, **overrides: object
 ) -> PositionSnapshot:
     snapshot = PositionSnapshot(
-        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        ts=overrides.get("ts", datetime.datetime(2026, 7, 4, 16, 0)),
         portfolio_id=portfolio.id,
-        instrument="AAPL",
+        instrument=overrides.get("instrument", "AAPL"),
         qty=Decimal("10"),
         avg_price=Decimal("150.00"),
         market_value=Decimal("1550.00"),

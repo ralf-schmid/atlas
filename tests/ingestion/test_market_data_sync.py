@@ -3,6 +3,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
+from alpaca.data.enums import DataFeed
 from alpaca.data.models.bars import Bar as AlpacaBar
 from alpaca.data.models.bars import BarSet
 
@@ -52,6 +53,41 @@ def test_alpaca_bars_provider_maps_bar_set_to_bar_dataclass():
                 volume=Decimal("1000.0"),
             )
         ]
+
+
+def test_alpaca_bars_provider_uses_inclusive_end_of_day_for_same_day_range():
+    """Regression test: found via live verification against the real Alpaca API
+    while deploying F035 — a same-day request (start == end, the common "sync
+    today's bar" case) with `end` at midnight was a zero-width window that never
+    returned that day's bar."""
+    bar_set = BarSet.model_construct(data={})
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        provider = AlpacaBarsProvider(api_key="key", secret_key="secret")
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.start == datetime.datetime(2026, 7, 1, 0, 0, 0)
+        assert request.end == datetime.datetime(2026, 7, 1, 23, 59, 59, 999999)
+
+
+def test_alpaca_bars_provider_uses_iex_feed():
+    """Regression test: found via live verification against the real Alpaca API
+    while deploying F035 — the default (SIP) feed 403s for the Paper-Key-based
+    market-data account ("subscription does not permit querying recent SIP
+    data"); IEX is what this account tier is actually entitled to."""
+    bar_set = BarSet.model_construct(data={})
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        provider = AlpacaBarsProvider(api_key="key", secret_key="secret")
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.feed == DataFeed.IEX
 
 
 def test_alpaca_bars_provider_skips_symbols_with_no_bars():

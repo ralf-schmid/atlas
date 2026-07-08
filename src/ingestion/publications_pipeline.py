@@ -1,5 +1,6 @@
 """Publications PDF-Fallback-Pipeline — manually-dropped PDF -> segmented articles
-in `publication_article`. See docs/features/F011-publications-pdf-fallback.md.
+in `publication_article`. See docs/features/F011-publications-pdf-fallback.md,
+docs/features/F038-publications-column-aware-extraction.md.
 
 Fallback-first (ARCHITECTURE.md §3.5.1): this operates purely on a PDF already sitting
 in the ingest directory — the Playwright auto-download/login is separate, later work.
@@ -13,6 +14,7 @@ from __future__ import annotations
 
 import datetime
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +26,8 @@ from src.db.models import PublicationArticle
 
 _ISSUE_FILENAME_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})\.pdf$")
 _HEADLINE_SIZE_RATIO = 1.3  # a span this much bigger than the page's median counts as a headline
+_BOILERPLATE_MIN_PAGES = 3  # an identical line on >= this many pages is a running header/footer
+_MIN_ARTICLE_BODY_LENGTH = 80  # drops TOC entries/ad pages with a big "headline" but no real body
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,59 +38,69 @@ class Article:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class _Span:
+    text: str
+    size: float
+    column: int
+    y0: float
+
+
 def extract_articles(pdf_path: Path) -> list[Article]:
     """Segments a PDF into articles using a font-size heuristic: a text span whose
     size is notably larger than the page's median span size starts a new article;
     everything until the next such span is that article's body.
 
-    A simple heuristic (not full document-layout understanding) — good enough for the
-    fallback path; Docling/vision-based segmentation can replace this later without
-    changing the DB schema or the sync function.
+    Three refinements over the original single-column heuristic (F038, see
+    docs/features/F038-publications-column-aware-extraction.md §2 for rationale):
+    spans are read column-by-column (left column top-to-bottom, then right column)
+    rather than PyMuPDF's raw block order, which otherwise interleaves real
+    multi-column layouts; a line repeated verbatim across several pages (running
+    headers/footers) is dropped before segmentation; and a resulting "article"
+    shorter than a small threshold (TOC entries, ad pages) is dropped entirely.
+
+    Still a heuristic, not full document-layout understanding — good enough for
+    the fallback path; Docling/vision-based segmentation remains a possible future
+    escalation if this proves insufficient in practice.
     """
+    with pymupdf.open(pdf_path) as doc:
+        pages_spans = [_extract_page_spans(page) for page in doc]
+
+    boilerplate = _detect_boilerplate_lines(pages_spans)
+
     articles: list[Article] = []
     current_title: str | None = None
     current_page = 1
     current_lines: list[str] = []
     seq = 0
 
-    with pymupdf.open(pdf_path) as doc:
-        for page_index, page in enumerate(doc, start=1):
-            page_dict = page.get_text("dict")
-            sizes = [
-                span["size"]
-                for block in page_dict["blocks"]
-                for line in block.get("lines", [])
-                for span in line["spans"]
-                if span["text"].strip()
-            ]
-            if not sizes:
-                continue
-            median_size = sorted(sizes)[len(sizes) // 2]
-            threshold = median_size * _HEADLINE_SIZE_RATIO
+    for page_index, spans in enumerate(pages_spans, start=1):
+        if not spans:
+            continue
+        sizes = [span.size for span in spans]
+        median_size = sorted(sizes)[len(sizes) // 2]
+        threshold = median_size * _HEADLINE_SIZE_RATIO
 
-            for block in page_dict["blocks"]:
-                for line in block.get("lines", []):
-                    for span in line["spans"]:
-                        text = span["text"].strip()
-                        if not text:
-                            continue
-                        is_headline = span["size"] >= threshold and span["size"] > median_size
-                        if is_headline:
-                            if current_title is not None:
-                                articles.append(
-                                    Article(
-                                        seq=seq,
-                                        page=current_page,
-                                        title=current_title,
-                                        text="\n".join(current_lines).strip(),
-                                    )
-                                )
-                                seq += 1
-                            current_title = text
-                            current_page = page_index
-                            current_lines = []
-                        else:
-                            current_lines.append(text)
+        for span in sorted(spans, key=lambda s: (s.column, s.y0)):
+            if span.text in boilerplate:
+                continue
+            is_headline = span.size >= threshold and span.size > median_size
+            if is_headline:
+                if current_title is not None:
+                    articles.append(
+                        Article(
+                            seq=seq,
+                            page=current_page,
+                            title=current_title,
+                            text="\n".join(current_lines).strip(),
+                        )
+                    )
+                    seq += 1
+                current_title = span.text
+                current_page = page_index
+                current_lines = []
+            else:
+                current_lines.append(span.text)
 
     if current_title is not None:
         articles.append(
@@ -98,7 +112,31 @@ def extract_articles(pdf_path: Path) -> list[Article]:
             )
         )
 
-    return articles
+    return [a for a in articles if len(a.text) >= _MIN_ARTICLE_BODY_LENGTH]
+
+
+def _extract_page_spans(page: pymupdf.Page) -> list[_Span]:
+    page_dict = page.get_text("dict")
+    midpoint = page.rect.width / 2
+    spans = []
+    for block in page_dict["blocks"]:
+        for line in block.get("lines", []):
+            for span in line["spans"]:
+                text = span["text"].strip()
+                if not text:
+                    continue
+                x0 = span["bbox"][0]
+                column = 0 if x0 < midpoint else 1
+                spans.append(_Span(text=text, size=span["size"], column=column, y0=span["bbox"][1]))
+    return spans
+
+
+def _detect_boilerplate_lines(pages_spans: list[list[_Span]]) -> set[str]:
+    page_counts: Counter[str] = Counter()
+    for spans in pages_spans:
+        for text in {span.text for span in spans}:
+            page_counts[text] += 1
+    return {text for text, count in page_counts.items() if count >= _BOILERPLATE_MIN_PAGES}
 
 
 def parse_issue_path(publications_base_dir: Path, pdf_path: Path) -> tuple[str, datetime.date]:

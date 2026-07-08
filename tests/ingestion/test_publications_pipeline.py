@@ -16,15 +16,19 @@ from src.ingestion.publications_pipeline import (
 
 def _make_two_article_pdf(path: Path) -> None:
     # More body lines than headline lines — realistic for a magazine page and what
-    # the median-based headline heuristic in extract_articles() relies on.
+    # the median-based headline heuristic in extract_articles() relies on. Body
+    # text is long enough to clear F038's minimum-article-length filter (>= 80
+    # chars) so this fixture keeps testing headline segmentation, not that filter.
     doc = pymupdf.open()
     page = doc.new_page()
     page.insert_text((72, 72), "HEADLINE ONE", fontsize=18)
     page.insert_text((72, 100), "Body text for article one", fontsize=10)
-    page.insert_text((72, 114), "goes here across two lines.", fontsize=10)
+    page.insert_text((72, 114), "goes here across two lines,", fontsize=10)
+    page.insert_text((72, 128), "and continues a bit further still.", fontsize=10)
     page.insert_text((72, 140), "HEADLINE TWO", fontsize=18)
     page.insert_text((72, 168), "Body text for article two", fontsize=10)
-    page.insert_text((72, 182), "goes here across two lines.", fontsize=10)
+    page.insert_text((72, 182), "goes here across two lines,", fontsize=10)
+    page.insert_text((72, 196), "and continues a bit further still.", fontsize=10)
     doc.save(path)
     doc.close()
 
@@ -47,13 +51,19 @@ def test_extract_articles_segments_on_headline_font_size(tmp_path):
             seq=0,
             page=1,
             title="HEADLINE ONE",
-            text="Body text for article one\ngoes here across two lines.",
+            text=(
+                "Body text for article one\ngoes here across two lines,\n"
+                "and continues a bit further still."
+            ),
         ),
         Article(
             seq=1,
             page=1,
             title="HEADLINE TWO",
-            text="Body text for article two\ngoes here across two lines.",
+            text=(
+                "Body text for article two\ngoes here across two lines,\n"
+                "and continues a bit further still."
+            ),
         ),
     ]
 
@@ -61,6 +71,91 @@ def test_extract_articles_segments_on_headline_font_size(tmp_path):
 def test_extract_articles_returns_empty_for_blank_page(tmp_path):
     pdf_path = tmp_path / "blank.pdf"
     _make_empty_pdf(pdf_path)
+
+    assert extract_articles(pdf_path) == []
+
+
+def _make_two_column_pdf(path: Path) -> None:
+    # Left/right column inserted interleaved (left headline, right headline, left
+    # body, right body, ...) so PyMuPDF's raw block order is very likely already
+    # interleaved — only column-aware sorting groups each column back together.
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "HEADLINE LEFT", fontsize=18)
+    page.insert_text((320, 72), "HEADLINE RIGHT", fontsize=18)
+    page.insert_text((72, 100), "Left body line one is long enough to matter here.", fontsize=10)
+    page.insert_text((320, 100), "Right body line one is long enough to matter here.", fontsize=10)
+    page.insert_text((72, 114), "Left body line two continues on here quite nicely.", fontsize=10)
+    page.insert_text((320, 114), "Right body line two continues on here quite nicely.", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+
+def test_extract_articles_groups_each_column_separately(tmp_path):
+    pdf_path = tmp_path / "columns.pdf"
+    _make_two_column_pdf(pdf_path)
+
+    articles = extract_articles(pdf_path)
+
+    assert [a.title for a in articles] == ["HEADLINE LEFT", "HEADLINE RIGHT"]
+    assert "Right body" not in articles[0].text
+    assert "Left body" not in articles[1].text
+    assert articles[0].text == (
+        "Left body line one is long enough to matter here.\n"
+        "Left body line two continues on here quite nicely."
+    )
+    assert articles[1].text == (
+        "Right body line one is long enough to matter here.\n"
+        "Right body line two continues on here quite nicely."
+    )
+
+
+def _make_pdf_with_repeated_boilerplate_line(path: Path, num_pages: int) -> None:
+    doc = pymupdf.open()
+    for i in range(num_pages):
+        page = doc.new_page()
+        page.insert_text((72, 72), f"HEADLINE PAGE {i + 1}", fontsize=18)
+        page.insert_text(
+            (72, 100), f"Real article body content for page {i + 1}, long enough.", fontsize=10
+        )
+        page.insert_text(
+            (72, 114),
+            f"to clear the minimum length filter on its own here, page {i + 1}.",
+            fontsize=10,
+        )
+        page.insert_text((72, 200), "SEITENKOPF WIEDERHOLT SICH", fontsize=10)
+    doc.save(path)
+    doc.close()
+
+
+def test_extract_articles_drops_line_repeated_across_at_least_three_pages(tmp_path):
+    pdf_path = tmp_path / "boilerplate.pdf"
+    _make_pdf_with_repeated_boilerplate_line(pdf_path, num_pages=3)
+
+    articles = extract_articles(pdf_path)
+
+    assert len(articles) == 3
+    assert all("SEITENKOPF" not in a.text for a in articles)
+
+
+def test_extract_articles_keeps_line_repeated_on_fewer_than_three_pages(tmp_path):
+    pdf_path = tmp_path / "boilerplate_two_pages.pdf"
+    _make_pdf_with_repeated_boilerplate_line(pdf_path, num_pages=2)
+
+    articles = extract_articles(pdf_path)
+
+    assert len(articles) == 2
+    assert all("SEITENKOPF" in a.text for a in articles)
+
+
+def test_extract_articles_drops_article_shorter_than_minimum_body_length(tmp_path):
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "TABLE OF CONTENTS", fontsize=18)
+    page.insert_text((72, 100), "Seite 12", fontsize=10)
+    pdf_path = tmp_path / "toc.pdf"
+    doc.save(pdf_path)
+    doc.close()
 
     assert extract_articles(pdf_path) == []
 
