@@ -1,9 +1,9 @@
-import { getPersonaSnapshot } from "@/lib/api";
+import { getPersonaSnapshot, type PortfolioSnapshot } from "@/lib/api";
 
-// Placeholder: shows one hardcoded persona until a persona-switcher UI exists
-// (F007 scope is just "a portfolio snapshot from the DB", not the full
-// Leaderboard/persona-navigation from later phases).
-const PERSONA = "VULTURE";
+// All 6 personas side by side. No ranking/sorting logic here — that belongs to
+// the later-phase Leaderboard view (CLAUDE.md); this just lists every persona's
+// current snapshot instead of hardcoding a single one (F007's original scope).
+const PERSONAS = ["VULTURE", "HYPE", "GUARDIAN", "CHARTIST", "CONTRA", "CRYPTOR"];
 
 const currency = new Intl.NumberFormat("de-DE", {
   style: "currency",
@@ -11,15 +11,36 @@ const currency = new Intl.NumberFormat("de-DE", {
 });
 
 export default async function Home() {
-  const snapshot = await getPersonaSnapshot(PERSONA);
+  const snapshots = await Promise.all(
+    PERSONAS.map(async (persona) => ({
+      persona,
+      snapshot: await getPersonaSnapshot(persona),
+    })),
+  );
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-4 p-4">
-      <h1 className="text-xl font-semibold">{PERSONA}</h1>
+    <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-4">
+      {snapshots.map(({ persona, snapshot }) => (
+        <PersonaCard key={persona} persona={persona} snapshot={snapshot} />
+      ))}
+    </main>
+  );
+}
+
+function PersonaCard({
+  persona,
+  snapshot,
+}: {
+  persona: string;
+  snapshot: PortfolioSnapshot | null;
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <h1 className="text-xl font-semibold">{persona}</h1>
 
       {snapshot === null ? (
         <p className="rounded-lg bg-gray-100 p-4 text-sm text-gray-600">
-          Noch kein Snapshot für {PERSONA} vorhanden.
+          Noch kein Snapshot für {persona} vorhanden.
         </p>
       ) : (
         <>
@@ -90,6 +111,6 @@ export default async function Home() {
           </section>
         </>
       )}
-    </main>
+    </div>
   );
 }
