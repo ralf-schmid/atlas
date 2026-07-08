@@ -28,7 +28,7 @@ def _fake_telegram_config(monkeypatch):
     )
 
 
-def test_register_ingestion_jobs_registers_all_six_jobs() -> None:
+def test_register_ingestion_jobs_registers_all_seven_jobs() -> None:
     scheduler = BackgroundScheduler()
 
     register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
@@ -41,6 +41,7 @@ def test_register_ingestion_jobs_registers_all_six_jobs() -> None:
         "ingestion-aktienfinder",
         "ingestion-coingecko",
         "ingestion-reddit",
+        "ingestion-aktienfinder-blog",
     }
 
 
@@ -171,6 +172,31 @@ def test_reddit_job_alerts_on_second_consecutive_failure(
 
     assert len(sent) == 1
     assert "Reddit-Sync" in sent[0]
+
+
+def test_aktienfinder_blog_job_alerts_on_second_consecutive_failure(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("fetch failed")
+
+    monkeypatch.setattr(scheduler_module, "run_aktienfinder_blog_sync", _raise)
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    scheduler_module._aktienfinder_blog_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+    scheduler_module._aktienfinder_blog_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+
+    assert len(sent) == 1
+    assert "aktienfinder-Blog-Sync" in sent[0]
 
 
 class _FakeSession:

@@ -22,6 +22,7 @@ import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
+from src.ingestion.aktienfinder_blog import run_aktienfinder_blog_sync
 from src.ingestion.aktienfinder_grabbing import run_daily_grab_configured
 from src.ingestion.coingecko_global import run_coingecko_sync
 from src.ingestion.edgar_rss import run_current_filings_sync
@@ -111,6 +112,18 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
+    hour, minute = _parse_time(schedule["aktienfinder_blog"]["time"])
+    scheduler.add_job(
+        _aktienfinder_blog_job,
+        trigger="cron",
+        hour=hour,
+        minute=minute,
+        timezone=timezone,
+        args=[session_factory, config_path],
+        id="ingestion-aktienfinder-blog",
+        replace_existing=True,
+    )
+
 
 def _edgar_job(session_factory: Callable[[], Session], config_path: Path) -> None:
     def _run() -> None:
@@ -172,6 +185,15 @@ def _reddit_job(session_factory: Callable[[], Session], config_path: Path) -> No
             session.commit()
 
     _run_with_failure_alert("reddit", "Reddit-Sync", _run)
+
+
+def _aktienfinder_blog_job(session_factory: Callable[[], Session], config_path: Path) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            run_aktienfinder_blog_sync(session, config_path=config_path)
+            session.commit()
+
+    _run_with_failure_alert("aktienfinder_blog", "aktienfinder-Blog-Sync", _run)
 
 
 def _run_with_failure_alert(job_key: str, job_label: str, fn: Callable[[], None]) -> None:

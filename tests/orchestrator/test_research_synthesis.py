@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from src.db.models import (
+    AktienfinderBlogPost,
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
@@ -426,3 +427,52 @@ def test_reddit_post_item_excluded_outside_window(session: Session) -> None:
     items = synthesize_research_items(session, cycle)
 
     assert [item for item in items if item.source_type == "reddit_post"] == []
+
+
+def test_aktienfinder_blog_item_mapping_inside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        AktienfinderBlogPost(
+            post_id="32176",
+            title="General Mills – 7,2 % Dividende! Wird die Dividende gekürzt?",
+            url="https://aktienfinder.net/blog/general-mills-72-dividende/",
+            categories=["aktienanalyse"],
+            tags=["aktie", "dividende", "general-mills"],
+            is_premium=True,
+            published_at=datetime.date(2026, 6, 11),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    blog_items = [item for item in items if item.source_type == "aktienfinder_blog"]
+    assert len(blog_items) == 1
+    assert blog_items[0].source_ref == "32176"
+    assert "General Mills" in blog_items[0].summary
+    assert "Premium" in blog_items[0].summary
+    assert blog_items[0].raw["is_premium"] is True
+
+
+def test_aktienfinder_blog_item_excluded_outside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        AktienfinderBlogPost(
+            post_id="old789",
+            title="Old analysis",
+            url="https://aktienfinder.net/blog/old-analysis/",
+            categories=["aktienanalyse"],
+            tags=[],
+            is_premium=False,
+            published_at=datetime.date(2026, 5, 1),
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "aktienfinder_blog"] == []

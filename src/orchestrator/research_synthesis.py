@@ -21,6 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.db.models import (
+    AktienfinderBlogPost,
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
@@ -61,6 +62,7 @@ def synthesize_research_items(
         *_research_items_from_technical_indicators(session, cycle.id, symbols, cycle.started_at),
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
+        *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
     ]
     session.add_all(items)
     session.flush()
@@ -373,6 +375,38 @@ def _research_items_from_reddit_posts(
             ),
             instruments=[],
             raw={"score": post.score, "num_comments": post.num_comments},
+        )
+        for post in posts
+    ]
+
+
+def _research_items_from_aktienfinder_blog_posts(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """Title/date/category/tags only — never the Premium article body (F041,
+    no login used for this source, see aktienfinder_blog.py)."""
+    stmt = select(AktienfinderBlogPost).where(
+        AktienfinderBlogPost.synced_at > window_start,
+        AktienfinderBlogPost.synced_at <= window_end,
+    )
+    posts = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="news_research",
+            source_type="aktienfinder_blog",
+            source_ref=post.post_id,
+            url=post.url,
+            published_at=_as_datetime(post.published_at),
+            summary=(
+                f"aktienfinder-Blog ({', '.join(post.categories)}"
+                f"{', Premium' if post.is_premium else ', frei'}): {post.title}"
+            ),
+            instruments=[],
+            raw={"categories": post.categories, "tags": post.tags, "is_premium": post.is_premium},
         )
         for post in posts
     ]

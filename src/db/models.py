@@ -470,3 +470,29 @@ class RedditPost(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class AktienfinderBlogPost(Base):
+    """A blog/analysis/recommendation article listing from aktienfinder.net's
+    **public** archive pages (title/date/category/tags only — no login, no
+    Premium full text), see docs/features/F041-aktienfinder-blog-ingestion.md.
+
+    Deliberately title/metadata only, never the Premium article body: CLAUDE.md
+    forbids storing aktienfinder full text in the repo/UI, and the listing pages
+    themselves don't expose Premium body text without a login this ingestion
+    path doesn't use.
+    """
+
+    __tablename__ = "aktienfinder_blog_post"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    post_id: Mapped[str] = mapped_column(String(20), unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(String(500))
+    categories: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    tags: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    is_premium: Mapped[bool]
+    published_at: Mapped[date]
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

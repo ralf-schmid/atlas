@@ -57,6 +57,28 @@ aktienfinder:
     quality_score_dividend_yield: ":nth-match(.scorecard-tile-layout__current-score, 1)"
     quality_score_dividend_growth: ":nth-match(.scorecard-tile-layout__current-score, 2)"
     quality_score_earnings_growth: ":nth-match(.scorecard-tile-layout__current-score, 3)"
+    # F041 Todo 2 (Ralfs erweiterte Kriterien-Liste): price_target nutzt dasselbe
+    # robuste has-text-Label-Muster wie price/isin/dividend_yield oben (fällt bei
+    # falschem Label sicher auf `None` zurück, siehe extract_snapshot). Die beiden
+    # Scorecard-Kandidaten (Gewinn-Stabilität, Cashflow) sind NICHT live gegen die
+    # eingeloggte Seite verifiziert (kein Zugriff auf Ralfs Login in dieser
+    # Session) — bewusst per has-text statt fragilem :nth-match, damit ein
+    # falsches Label ebenfalls sicher zu `None` statt zu einem falsch
+    # zugeordneten Score führt. Ralf: bitte einmal eingeloggt prüfen/korrigieren,
+    # siehe docs/features/F041-aktienfinder-blog-ingestion.md §2.
+    price_target: "li.stockprofile-tiles__list-item:has-text('Kursziel') span:not(.stockprofile-tiles__fixed-width-span)"
+    cashflow: "li.stockprofile-tiles__list-item:has-text('Cashflow') span:not(.stockprofile-tiles__fixed-width-span)"
+    quality_score_earnings_stability: "li.stockprofile-tiles__list-item:has-text('Stabilität') span:not(.stockprofile-tiles__fixed-width-span)"
+
+aktienfinder_blog:
+  # F041: oeffentliche Blog-/Analyse-/Empfehlungs-Archivseiten, kein Login, kein
+  # Playwright — reine HTTP-GET + Regex-Parsing der Elementor-Artikelkarten
+  # (Titel/Datum/Kategorie/Tags/Premium-Flag), niemals der Premium-Volltext.
+  # Nur Seite 1 je URL (reicht fuer taegliche Deltas, kein Backfill).
+  urls:
+    - "https://aktienfinder.net/blog/"
+    - "https://aktienfinder.net/blog/aktienanalyse/"
+    - "https://aktienfinder.net/blog/kaufenswerte-aktien/"
 
 schedule:
   # Siehe docs/features/F035-ingestion-scheduler-activation.md. America/New_York
@@ -76,6 +98,8 @@ schedule:
     interval_minutes: 60
   reddit:
     interval_minutes: 60
+  aktienfinder_blog:
+    time: "05:30"
 
 publications:
   # Fallback-first (ARCHITECTURE.md §3.5.1): n8n erkennt die Benachrichtigungs-Mail
