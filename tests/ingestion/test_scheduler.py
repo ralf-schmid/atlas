@@ -28,7 +28,9 @@ def _fake_telegram_config(monkeypatch):
     )
 
 
-def test_register_ingestion_jobs_registers_all_seven_jobs() -> None:
+def test_register_ingestion_jobs_registers_six_jobs_reddit_disabled() -> None:
+    """Reddit is disabled by default (config/ingestion.yaml) until F039 credentials
+    are provisioned — see docs/deployment.md."""
     scheduler = BackgroundScheduler()
 
     register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
@@ -40,9 +42,26 @@ def test_register_ingestion_jobs_registers_all_seven_jobs() -> None:
         "ingestion-market-data",
         "ingestion-aktienfinder",
         "ingestion-coingecko",
-        "ingestion-reddit",
         "ingestion-aktienfinder-blog",
     }
+
+
+def test_register_ingestion_jobs_registers_reddit_when_enabled(tmp_path) -> None:
+    import yaml
+
+    config = yaml.safe_load(scheduler_module._DEFAULT_CONFIG_PATH.read_text())
+    config["schedule"]["reddit"]["enabled"] = True
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+
+    scheduler = BackgroundScheduler()
+    register_ingestion_jobs(
+        scheduler,
+        session_factory=lambda: None,
+        config_path=config_path,  # type: ignore[arg-type]
+    )
+
+    assert "ingestion-reddit" in {job.id for job in scheduler.get_jobs()}
 
 
 def test_screener_and_market_data_jobs_use_configured_timezone() -> None:

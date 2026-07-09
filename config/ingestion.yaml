@@ -96,6 +96,11 @@ schedule:
     interval_minutes: 60
   reddit:
     interval_minutes: 60
+    # F039: REDDIT_CLIENT_ID/_SECRET/_USER_AGENT sind noch nicht in der Box-.env
+    # hinterlegt (docs/deployment.md) — Job schlug jeden Lauf fehl und loeste
+    # wiederholte Telegram-Fehlalarme aus. Abgeschaltet, bis Ralf die Reddit-
+    # "script"-App registriert und die Werte eintraegt.
+    enabled: false
   aktienfinder_blog:
     time: "05:30"
 

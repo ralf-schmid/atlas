@@ -103,14 +103,15 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
-    scheduler.add_job(
-        _reddit_job,
-        trigger="interval",
-        minutes=schedule["reddit"]["interval_minutes"],
-        args=[session_factory, config_path],
-        id="ingestion-reddit",
-        replace_existing=True,
-    )
+    if schedule["reddit"].get("enabled", True):
+        scheduler.add_job(
+            _reddit_job,
+            trigger="interval",
+            minutes=schedule["reddit"]["interval_minutes"],
+            args=[session_factory, config_path],
+            id="ingestion-reddit",
+            replace_existing=True,
+        )
 
     hour, minute = _parse_time(schedule["aktienfinder_blog"]["time"])
     scheduler.add_job(
