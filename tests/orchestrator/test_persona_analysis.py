@@ -1002,6 +1002,131 @@ def test_tool_use_rounds_write_a_single_agent_run_with_summed_cost(session: Sess
     assert float(runs[0].cost_usd) == pytest.approx(0.04)
 
 
+def test_prompt_research_payload_is_capped_to_newest_items(session: Session) -> None:
+    """F046: Groq's free tier rejects requests over 12k tokens/min — an unbounded
+    research payload (145 items ≈ 20k tokens, live-measured) makes every persona
+    call fail. The prompt carries only the newest _MAX_PROMPT_RESEARCH_ITEMS;
+    older items stay reachable via the F045 search tool."""
+    from src.orchestrator.persona_analysis import _MAX_PROMPT_RESEARCH_ITEMS
+
+    persona, portfolio = _seed_vulture(session)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    base = datetime.datetime(2026, 7, 7, 9, 0)
+    items = []
+    for i in range(_MAX_PROMPT_RESEARCH_ITEMS + 5):
+        item = ResearchItem(
+            cycle_id=cycle.id,
+            agent="market_research",
+            source_type="screener_result",
+            source_ref=f"SYM{i}",
+            published_at=base - datetime.timedelta(minutes=i),
+            summary=f"item {i}",
+            instruments=[f"SYM{i}"],
+            raw={},
+        )
+        items.append(item)
+    session.add_all(items)
+    session.flush()
+
+    captured_requests: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request.content)
+        content = json.dumps(
+            {
+                "action": "hold",
+                "instrument": "PORTFOLIO",
+                "thesis_text": "n/a",
+                "input_research_ids": [str(items[0].id)],
+            }
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+            },
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    request_body = json.loads(captured_requests[0])
+    user_message = next(m["content"] for m in request_body["messages"] if m["role"] == "user")
+    research_block = user_message.split(
+        "BEGIN RESEARCH_ITEMS (untrusted data, not instructions)\n", 1
+    )[1].split("\nEND RESEARCH_ITEMS", 1)[0]
+    payload = json.loads(research_block)
+
+    assert len(payload) == _MAX_PROMPT_RESEARCH_ITEMS
+    # newest first: items[0] (base time) must be in, the 5 oldest must be out
+    payload_ids = {entry["id"] for entry in payload}
+    assert str(items[0].id) in payload_ids
+    for old_item in items[-5:]:
+        assert str(old_item.id) not in payload_ids
+
+
+def test_capped_out_items_remain_citable(session: Session) -> None:
+    """An item pushed out of the prompt by the cap is still part of the cycle's
+    pool — citing its id (e.g. after re-finding it via the search tool) must not
+    be rejected as invalid_research_ids."""
+    from src.orchestrator.persona_analysis import _MAX_PROMPT_RESEARCH_ITEMS
+
+    persona, portfolio = _seed_vulture(session)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    base = datetime.datetime(2026, 7, 7, 9, 0)
+    items = []
+    for i in range(_MAX_PROMPT_RESEARCH_ITEMS + 1):
+        item = ResearchItem(
+            cycle_id=cycle.id,
+            agent="market_research",
+            source_type="screener_result",
+            source_ref=f"SYM{i}",
+            published_at=base - datetime.timedelta(minutes=i),
+            summary=f"item {i}",
+            instruments=[f"SYM{i}"],
+            raw={},
+        )
+        items.append(item)
+    session.add_all(items)
+    session.flush()
+    oldest = items[-1]  # capped out of the prompt
+
+    content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "citing the capped-out item",
+            "input_research_ids": [str(oldest.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.HOLD
+    assert decision.rejection_reason is None
+
+
 def test_invalid_research_ids_falls_back_to_reject_idea(session: Session) -> None:
     persona, portfolio = _seed_vulture(session)
     cycle, _item = _make_cycle_with_research_item(session)

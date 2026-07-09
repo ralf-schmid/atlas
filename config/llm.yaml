@@ -25,9 +25,14 @@ roles:
     provider: anthropic
     shared: true
     prompt_caching: true
+  # TEMPORAER auf den Groq-Slot umgestellt (09.07.2026, Ralfs Anweisung): das
+  # Anthropic-Konto hinter dem Proxy hat kein Guthaben mehr, jeder Zyklus scheiterte
+  # seit 00:00 UTC mit 400 "credit balance too low". Gilt uniform fuer alle 6
+  # Personas (Fairness-Invariante #10 unberuehrt). Rollback nach Aufladung:
+  # model wieder claude-sonnet-5, provider anthropic.
   persona_analysis:
-    model: claude-sonnet-5
-    provider: anthropic
+    model: claude-haiku-4-5-groq
+    provider: groq
     shared: false
     prompt_caching: true
   trading:

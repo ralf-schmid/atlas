@@ -33,8 +33,11 @@ class LLMResponse:
 
 # httpx defaults to a 5s read timeout — far too short for LLM completions, which
 # routinely take longer (Sonnet analysis calls especially). Generous read timeout,
-# tight connect timeout so a dead proxy still fails fast.
-_DEFAULT_TIMEOUT = httpx.Timeout(120.0, connect=10.0)
+# tight connect timeout so a dead proxy still fails fast. 300s (not 120) because
+# the LiteLLM proxy retries provider rate limits (429) internally for ~2 minutes
+# before answering — live-measured against Groq's 12k-TPM free tier (F046); a
+# shorter read timeout turns every such retry window into a lost response.
+_DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
 
 
 class LiteLLMClient:

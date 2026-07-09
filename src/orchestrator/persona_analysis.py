@@ -52,6 +52,14 @@ _INSTRUMENT_HOLD_SENTINEL = "PORTFOLIO"
 # calls max per persona per cycle, vs. 1 before this feature.
 _MAX_TOOL_ROUNDS = 2
 
+# F046: hard bound on prompt size. Groq's free tier caps requests at 12k
+# tokens/min and rejects larger ones outright ("Request too large", live-measured:
+# 145 items ≈ 20.3k tokens); an unbounded payload also inflates Anthropic costs
+# linearly with ingestion volume. Newest items win; everything older in the
+# cycle's pool stays reachable via search_research_pool (F045) and remains
+# citable either way (the id-validation set is the full pool, not this slice).
+_MAX_PROMPT_RESEARCH_ITEMS = 30
+
 _OUTPUT_SCHEMA_INSTRUCTIONS = """\
 Antworte ausschließlich mit einem einzigen JSON-Objekt (keine Erklärung davor/danach), \
 in exakt diesem Schema:
@@ -72,12 +80,14 @@ keine USD-Zahl, keine Positionsgröße),
 # template) so it applies uniformly to all 6 personas without a
 # charter_version bump (Invariant #10 fairness).
 _TOOL_USAGE_HINT = (
-    "Du hast außerdem Zugriff auf das Tool `search_research_pool`, um gezielt im "
-    "gesamten bisherigen Research-Pool (nicht nur im obigen Fenster) nach "
-    "Symbolen oder Stichworten zu suchen — z. B. nach aktienfinder-Empfehlungen "
-    "oder Filings, die inhaltlich zu deinem Universum passen könnten, aber "
-    "gerade nicht oben aufgelistet sind. Gefundene Treffer kannst du wie jedes "
-    "andere research_item über seine id in input_research_ids zitieren."
+    "Der Datenblock oben zeigt nur die neuesten Research-Items dieses Zyklus "
+    "(gekürzt, falls es mehr gibt). Du hast außerdem Zugriff auf das Tool "
+    "`search_research_pool`, um gezielt im gesamten bisherigen Research-Pool "
+    "nach Symbolen oder Stichworten zu suchen — z. B. nach "
+    "aktienfinder-Empfehlungen oder Filings, die inhaltlich zu deinem Universum "
+    "passen könnten, aber gerade nicht oben aufgelistet sind. Gefundene Treffer "
+    "kannst du wie jedes andere research_item über seine id in "
+    "input_research_ids zitieren."
 )
 
 
@@ -606,6 +616,14 @@ def _build_messages(
     positions: list[Position],
     reference_time: datetime.datetime,
 ) -> list[dict[str, object]]:
+    # F046: newest first, capped — undated items sort last (they carry the least
+    # recency signal, F033). Uniform rule for all personas (Invariant #10).
+    prompt_items = sorted(
+        research_items,
+        key=lambda item: item.published_at or datetime.datetime.min,
+        reverse=True,
+    )[:_MAX_PROMPT_RESEARCH_ITEMS]
+
     # age_days is computed here, not left to the LLM, so staleness weighting rests
     # on a real date subtraction rather than the model's own arithmetic over two
     # ISO timestamps (see docs/features/F033-research-item-recency-signal.md).
@@ -619,7 +637,7 @@ def _build_messages(
             "instruments": item.instruments,
             "raw": item.raw,
         }
-        for item in research_items
+        for item in prompt_items
     ]
     positions_payload = [
         {
