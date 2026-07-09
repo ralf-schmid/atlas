@@ -27,14 +27,15 @@ from src.db.models import (
     Portfolio,
     ResearchItem,
 )
-from src.llm.client import LiteLLMClient
-from src.llm.config import LlmConfig
+from src.llm.client import LiteLLMClient, LLMResponse, ToolCall
+from src.llm.config import CostCaps, LlmConfig, RoleConfig
 from src.llm.ledger import BudgetExceededError, guarded_complete
 from src.orchestrator.decision_sizing import compute_position_value_usd, compute_stop_loss_price
 from src.orchestrator.hitl_config import is_hitl_required
 from src.orchestrator.llm_decision_schema import PersonaDecisionOutput, parse_llm_decision
 from src.orchestrator.market_pricing import compute_atr14, get_latest_price
 from src.orchestrator.reporting import generate_portfolio_snapshot
+from src.orchestrator.research_search import SEARCH_RESEARCH_POOL_TOOL, search_research_pool
 from src.orchestrator.risk_inputs import read_portfolio_risk_state
 from src.orchestrator.trading import execute_decision
 from src.personas.charters import render_charter
@@ -44,6 +45,12 @@ from src.risk.models import RiskCheckResult, TradeAction
 from src.telegram.hitl_store import mark_hitl_pending
 
 _INSTRUMENT_HOLD_SENTINEL = "PORTFOLIO"
+
+# F045: bounds how many times a persona can call search_research_pool before it's
+# forced to answer — caps latency and, via guarded_complete's per-call budget
+# check, cost (Invariant #7). 2 search rounds + 1 forced-final round = 3 LLM
+# calls max per persona per cycle, vs. 1 before this feature.
+_MAX_TOOL_ROUNDS = 2
 
 _OUTPUT_SCHEMA_INSTRUCTIONS = """\
 Antworte ausschließlich mit einem einzigen JSON-Objekt (keine Erklärung davor/danach), \
@@ -60,6 +67,18 @@ keine USD-Zahl, keine Positionsgröße),
 (mindestens eine, exakt wie im Datenblock unten angegeben)
 }
 """
+
+# Generic infra text, not persona-specific — lives here (not in a charter
+# template) so it applies uniformly to all 6 personas without a
+# charter_version bump (Invariant #10 fairness).
+_TOOL_USAGE_HINT = (
+    "Du hast außerdem Zugriff auf das Tool `search_research_pool`, um gezielt im "
+    "gesamten bisherigen Research-Pool (nicht nur im obigen Fenster) nach "
+    "Symbolen oder Stichworten zu suchen — z. B. nach aktienfinder-Empfehlungen "
+    "oder Filings, die inhaltlich zu deinem Universum passen könnten, aber "
+    "gerade nicht oben aufgelistet sind. Gefundene Treffer kannst du wie jedes "
+    "andere research_item über seine id in input_research_ids zitieren."
+)
 
 
 def analyze_persona_cycle(
@@ -107,10 +126,11 @@ def analyze_persona_cycle(
     positions = broker_adapter.get_positions()
     messages = _build_messages(charter, research_items, positions, cycle.started_at)
     role = llm_config.roles["persona_analysis"]
+    available_ids = {str(item.id) for item in research_items}
 
     try:
-        result = guarded_complete(
-            session, client, role, llm_config.caps, messages, persona_id=persona_id
+        response, tokens_in, tokens_out, cost_usd = _run_llm_with_tools(
+            session, client, role, llm_config.caps, messages, persona_id, cycle, available_ids
         )
     except BudgetExceededError as exc:
         session.add(
@@ -125,8 +145,7 @@ def analyze_persona_cycle(
         session.flush()
         raise
 
-    available_ids = {str(item.id) for item in research_items}
-    parsed = parse_llm_decision(result.response.content)
+    parsed = parse_llm_decision(response.content)
 
     decision = _resolve_decision(
         session,
@@ -145,9 +164,9 @@ def analyze_persona_cycle(
             portfolio_id=portfolio_id,
             agent="persona_analysis",
             status=AgentRunStatus.SUCCEEDED,
-            tokens_in=result.response.tokens_in,
-            tokens_out=result.response.tokens_out,
-            cost_usd=Decimal(str(result.response.cost_usd)),
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            cost_usd=Decimal(str(cost_usd)),
         )
     )
     session.flush()
@@ -485,12 +504,108 @@ def _serialize_risk_check(risk_check: RiskCheckResult) -> dict[str, object]:
     return dict(asdict(risk_check))
 
 
+def _run_llm_with_tools(
+    session: Session,
+    client: LiteLLMClient,
+    role: RoleConfig,
+    caps: CostCaps,
+    messages: list[dict[str, object]],
+    persona_id: uuid.UUID,
+    cycle: Cycle,
+    available_ids: set[str],
+) -> tuple[LLMResponse, int, int, float]:
+    """Runs the persona's LLM conversation, letting it call `search_research_pool`
+    up to `_MAX_TOOL_ROUNDS` times before forcing a final, tool-less answer (F045).
+    Each round goes through `guarded_complete` independently, so the existing
+    per-call budget check/cost_ledger write (Invariant #7) applies to every round,
+    not just the first. Mutates `available_ids` in place with any research_item ids
+    the tool surfaces, so `_resolve_decision` accepts citations of them.
+    """
+    total_tokens_in = 0
+    total_tokens_out = 0
+    total_cost_usd = 0.0
+    response: LLMResponse | None = None
+
+    for round_index in range(_MAX_TOOL_ROUNDS + 1):
+        tools = [SEARCH_RESEARCH_POOL_TOOL] if round_index < _MAX_TOOL_ROUNDS else None
+        result = guarded_complete(
+            session, client, role, caps, messages, persona_id=persona_id, tools=tools
+        )
+        response = result.response
+        total_tokens_in += response.tokens_in
+        total_tokens_out += response.tokens_out
+        total_cost_usd += response.cost_usd
+
+        if not response.tool_calls:
+            break
+
+        messages.append(_assistant_tool_call_message(response))
+        for tool_call in response.tool_calls:
+            message, found_ids = _execute_tool_call(session, cycle, tool_call)
+            available_ids.update(found_ids)
+            messages.append(message)
+
+    assert response is not None  # loop always runs at least once (range >= 1)
+    return response, total_tokens_in, total_tokens_out, total_cost_usd
+
+
+def _assistant_tool_call_message(response: LLMResponse) -> dict[str, object]:
+    return {
+        "role": "assistant",
+        "content": response.content or None,
+        "tool_calls": [
+            {
+                "id": tool_call.id,
+                "type": "function",
+                "function": {"name": tool_call.name, "arguments": tool_call.arguments_json},
+            }
+            for tool_call in response.tool_calls
+        ],
+    }
+
+
+def _execute_tool_call(
+    session: Session, cycle: Cycle, tool_call: ToolCall
+) -> tuple[dict[str, object], set[str]]:
+    try:
+        args = json.loads(tool_call.arguments_json) if tool_call.arguments_json else {}
+    except json.JSONDecodeError:
+        args = {}
+
+    symbols = args.get("symbols") or None
+    keyword = args.get("keyword") or None
+    source_types = args.get("source_types") or None
+
+    if not symbols and not keyword and not source_types:
+        payload: dict[str, object] = {
+            "error": "mindestens ein Filter (symbols, keyword oder source_types) angeben"
+        }
+        found_ids: set[str] = set()
+    else:
+        found = search_research_pool(
+            session,
+            as_of=cycle.started_at,
+            symbols=symbols,
+            keyword=keyword,
+            source_types=source_types,
+        )
+        payload = {"results": found}
+        found_ids = {str(item["id"]) for item in found}
+
+    message: dict[str, object] = {
+        "role": "tool",
+        "tool_call_id": tool_call.id,
+        "content": json.dumps(payload, ensure_ascii=False),
+    }
+    return message, found_ids
+
+
 def _build_messages(
     charter: str,
     research_items: list[ResearchItem],
     positions: list[Position],
     reference_time: datetime.datetime,
-) -> list[dict[str, str]]:
+) -> list[dict[str, object]]:
     # age_days is computed here, not left to the LLM, so staleness weighting rests
     # on a real date subtraction rather than the model's own arithmetic over two
     # ISO timestamps (see docs/features/F033-research-item-recency-signal.md).
@@ -522,6 +637,7 @@ def _build_messages(
         "BEGIN OPEN_POSITIONS\n"
         f"{json.dumps(positions_payload, ensure_ascii=False)}\n"
         "END OPEN_POSITIONS\n\n"
+        f"{_TOOL_USAGE_HINT}\n\n"
         f"{_OUTPUT_SCHEMA_INSTRUCTIONS}"
     )
     return [

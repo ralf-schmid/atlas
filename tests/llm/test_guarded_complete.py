@@ -74,6 +74,45 @@ def test_guarded_complete_ok_writes_one_ledger_row(session: Session) -> None:
     assert rows[0].persona_id == vulture_id
 
 
+def test_guarded_complete_passes_tools_through_to_client(session: Session) -> None:
+    """F045: persona_analysis's tool-use loop needs `tools` to reach the actual
+    LiteLLM request, not get silently dropped by the cost-guard wrapper."""
+    seed_personas_and_portfolios(session)
+    vulture_id = _get_persona_id(session, "VULTURE")
+    role = RoleConfig(
+        name="persona_analysis",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        shared=False,
+        prompt_caching=True,
+    )
+    captured_tools: list[object] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        captured_tools.append(json.loads(request.content).get("tools"))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 100, "completion_tokens": 20},
+            },
+            headers={"x-litellm-response-cost": "0.05"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tools = [{"type": "function", "function": {"name": "search", "parameters": {}}}]
+
+    guarded_complete(session, client, role, _CAPS, [], persona_id=vulture_id, tools=tools)
+
+    assert captured_tools == [tools]
+
+
 def test_guarded_complete_blocked_by_persona_cap_does_not_call_llm(session: Session) -> None:
     seed_personas_and_portfolios(session)
     vulture_id = _get_persona_id(session, "VULTURE")

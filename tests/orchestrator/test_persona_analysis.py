@@ -798,6 +798,210 @@ def test_buy_response_rejected_by_risk_gate_when_trades_today_exceeded(
     assert decision.risk_check["approved"] is False
 
 
+def _sequenced_client(responses: list[dict]) -> tuple[LiteLLMClient, list[dict]]:
+    """Returns a distinct canned response per successive HTTP call (repeats the
+    last one if more calls happen than responses provided) — simulates a
+    multi-round tool-use conversation (F045)."""
+    call_bodies: list[dict] = []
+    call_count = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        call_bodies.append(json.loads(request.content))
+        index = min(call_count["n"], len(responses) - 1)
+        call_count["n"] += 1
+        return httpx.Response(
+            200,
+            json=responses[index],
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    return client, call_bodies
+
+
+def _tool_call_response(tokens_in: int = 500, tokens_out: int = 50) -> dict:
+    return {
+        "choices": [
+            {
+                "message": {
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "search_research_pool",
+                                "arguments": json.dumps({"symbols": ["AAPL"]}),
+                            },
+                        }
+                    ],
+                }
+            }
+        ],
+        "usage": {"prompt_tokens": tokens_in, "completion_tokens": tokens_out},
+    }
+
+
+def _final_response(content: str, tokens_in: int = 300, tokens_out: int = 40) -> dict:
+    return {
+        "choices": [{"message": {"content": content}}],
+        "usage": {"prompt_tokens": tokens_in, "completion_tokens": tokens_out},
+    }
+
+
+def test_tool_call_search_result_can_be_cited_in_final_decision(session: Session) -> None:
+    """F045: a research_item that only exists in an *earlier* cycle (outside the
+    current cycle's synthesis window) becomes citable once the persona finds it
+    via search_research_pool — this used to hard-fail as invalid_research_ids."""
+    persona, portfolio = _seed_vulture(session)
+    earlier_cycle = create_cycle(session, datetime.date(2026, 7, 5), 1, MarketSession.US_EQUITY)
+    earlier_cycle.started_at = datetime.datetime(2026, 7, 5, 10, 0)
+    past_item = ResearchItem(
+        cycle_id=earlier_cycle.id,
+        agent="news_research",
+        source_type="aktienfinder_blog",
+        source_ref="ref",
+        summary="aktienfinder: AAPL kaufenswert",
+        instruments=["AAPL"],
+        raw={},
+    )
+    session.add(past_item)
+
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    cycle.started_at = datetime.datetime(2026, 7, 7, 10, 0)
+    current_item = ResearchItem(
+        cycle_id=cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="MSFT",
+        summary="MSFT volume spike",
+        instruments=["MSFT"],
+        raw={},
+    )
+    session.add(current_item)
+    session.flush()
+
+    final_content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "found a relevant older aktienfinder recommendation via search",
+            "input_research_ids": [str(past_item.id)],
+        }
+    )
+    client, call_bodies = _sequenced_client([_tool_call_response(), _final_response(final_content)])
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.HOLD
+    assert decision.rejection_reason is None
+    assert decision.input_research_ids == [past_item.id]
+    assert len(call_bodies) == 2
+    # round 1 offers the tool, round 2 (after the tool result) is a normal follow-up
+    assert call_bodies[0]["tools"][0]["function"]["name"] == "search_research_pool"
+    tool_result_message = call_bodies[1]["messages"][-1]
+    assert tool_result_message["role"] == "tool"
+    assert str(past_item.id) in tool_result_message["content"]
+
+
+def test_tool_use_loop_is_capped_then_forces_a_final_answer(session: Session) -> None:
+    """A persona that keeps calling the tool must not loop forever — after the cap,
+    the next call is made without `tools`, forcing a plain-JSON answer."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    final_content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "giving up the search, nothing conclusive",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    # Always offers a tool call except the client only returns as many distinct
+    # canned responses as configured; keep returning tool-calls to prove the loop
+    # itself enforces the cap rather than relying on the model to stop.
+    client, call_bodies = _sequenced_client(
+        [_tool_call_response(), _tool_call_response(), _final_response(final_content)]
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    assert decision is not None
+    assert decision.rejection_reason is None
+    # 2 tool-enabled rounds + 1 forced final round without tools
+    assert len(call_bodies) == 3
+    assert "tools" in call_bodies[0]
+    assert "tools" in call_bodies[1]
+    assert "tools" not in call_bodies[2]
+
+
+def test_tool_use_rounds_write_a_single_agent_run_with_summed_cost(session: Session) -> None:
+    persona, portfolio = _seed_vulture(session)
+    earlier_cycle = create_cycle(session, datetime.date(2026, 7, 5), 1, MarketSession.US_EQUITY)
+    earlier_cycle.started_at = datetime.datetime(2026, 7, 5, 10, 0)
+    past_item = ResearchItem(
+        cycle_id=earlier_cycle.id,
+        agent="news_research",
+        source_type="aktienfinder_blog",
+        source_ref="ref",
+        summary="aktienfinder: AAPL kaufenswert",
+        instruments=["AAPL"],
+        raw={},
+    )
+    session.add(past_item)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    cycle.started_at = datetime.datetime(2026, 7, 7, 10, 0)
+    current_item = ResearchItem(
+        cycle_id=cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="MSFT",
+        summary="MSFT volume spike",
+        instruments=["MSFT"],
+        raw={},
+    )
+    session.add(current_item)
+    session.flush()
+
+    final_content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "ok",
+            "input_research_ids": [str(past_item.id)],
+        }
+    )
+    client, _bodies = _sequenced_client(
+        [
+            _tool_call_response(tokens_in=500, tokens_out=50),
+            _final_response(final_content, tokens_in=300, tokens_out=40),
+        ]
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
+    assert len(runs) == 1
+    assert runs[0].agent == "persona_analysis"
+    assert runs[0].tokens_in == 800
+    assert runs[0].tokens_out == 90
+    assert float(runs[0].cost_usd) == pytest.approx(0.04)
+
+
 def test_invalid_research_ids_falls_back_to_reject_idea(session: Session) -> None:
     persona, portfolio = _seed_vulture(session)
     cycle, _item = _make_cycle_with_research_item(session)
