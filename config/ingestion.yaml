@@ -17,8 +17,23 @@ edgar:
   # aussagekraeftigen User-Agent (Name + Kontakt) fuer automatisierte Zugriffe, siehe
   # https://www.sec.gov/os/webmaster-faq#developers — echte Kontaktdaten kommen aus
   # der Env-Var, nicht aus dieser Datei.
-  feed_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=&company=&dateb=&owner=include&count=100&output=atom"
+  feed_url: "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&company=&dateb=&owner=include&count=100&output=atom"
   user_agent_env: EDGAR_USER_AGENT
+  # F044: ungefiltert (type= leer) war das die komplette SEC-Firehose — 424B/FWP
+  # (Struktur-Produkte grosser Banken), N-CSRS/N-PX/497* (Fonds-Pflichtberichte),
+  # 13F-HR (Institutionelle) machten >60% der Zeilen aus und verwaesserten den
+  # Research-Pool (live gemessen: 1257 Filings gesamt, nur 451 in dieser Liste,
+  # siehe docs/features/F044). Liste = genau VULTUREs Charter-Signale
+  # ("EDGAR-Filings (8-K, Insider-Käufe)", config/personas/vulture.yaml via
+  # src/personas/charters.py) plus Beteiligungsmeldungen.
+  form_types:
+    - "8-K"
+    - "3"
+    - "4"
+    - "4/A"
+    - "144"
+    - "SC 13D"
+    - "SC 13G"
 
 vulture_screener:
   # Universum = komplettes Alpaca-Asset-Verzeichnis (kein Whitelisting), siehe

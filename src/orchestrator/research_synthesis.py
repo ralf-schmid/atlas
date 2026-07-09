@@ -42,6 +42,19 @@ from src.orchestrator.symbol_universe import resolve_symbol_universe
 _BOOTSTRAP_WINDOW = datetime.timedelta(days=7)
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 
+# F044: `summary` stays a short, UI/API-safe metadata line (CLAUDE.md forbids
+# Zeitschriften-Volltexte in UI/Repo, enforced by not selecting `raw` in
+# src/api/routes.py `ResearchRefOut`). The excerpt below only reaches the persona
+# LLM context (src/orchestrator/persona_analysis.py `_build_messages`) via `raw` —
+# capped so one magazine issue (~200 articles) can't blow up a cycle's LLM cost.
+_ARTICLE_EXCERPT_MAX_CHARS = 600
+
+
+def _excerpt(text: str, max_chars: int = _ARTICLE_EXCERPT_MAX_CHARS) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + "…"
+
 
 def synthesize_research_items(
     session: Session, cycle: Cycle, config_path: Path = _DEFAULT_CONFIG_PATH
@@ -165,7 +178,11 @@ def _research_items_from_publication_articles(
                 f"{article.publication} ({article.issue_date}), S. {article.page}: {article.title}"
             ),
             instruments=[],
-            raw={"publication": article.publication, "page": article.page},
+            raw={
+                "publication": article.publication,
+                "page": article.page,
+                "text_excerpt": _excerpt(article.text),
+            },
         )
         for article in articles
     ]

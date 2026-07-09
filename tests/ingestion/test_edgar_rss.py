@@ -169,3 +169,79 @@ def test_run_current_filings_sync_raises_when_env_var_missing(session, tmp_path,
 
     with pytest.raises(ValueError, match="TEST_EDGAR_USER_AGENT_MISSING"):
         run_current_filings_sync(session, config_path=config_path)
+
+
+def test_http_edgar_feed_provider_appends_form_type_to_url():
+    with patch("src.ingestion.edgar_rss.httpx.get") as mock_get:
+        mock_get.return_value = httpx.Response(
+            200,
+            text=_MALFORMED_ENTRY_FEED,
+            request=httpx.Request("GET", "https://www.sec.gov/feed"),
+        )
+
+        provider = HttpEdgarFeedProvider(
+            feed_url="https://www.sec.gov/feed", user_agent="ATLAS/1.0"
+        )
+        provider.fetch_current_filings(form_type="SC 13D")
+
+        mock_get.assert_called_once_with(
+            "https://www.sec.gov/feed&type=SC+13D",
+            headers={"User-Agent": "ATLAS/1.0"},
+            timeout=10.0,
+        )
+
+
+def test_run_current_filings_sync_fetches_one_request_per_configured_form_type(
+    session, tmp_path, monkeypatch
+):
+    """F044: the unfiltered SEC firehose (424B/FWP/N-CSRS from large banks/funds)
+    drowned out the 8-K/insider-filing signal VULTURE's charter names — see
+    docs/features/F044-research-pool-signal-quality.md."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "edgar:\n"
+        "  feed_url: https://www.sec.gov/feed\n"
+        "  user_agent_env: TEST_EDGAR_USER_AGENT\n"
+        "  form_types: ['8-K', '4']\n"
+    )
+    monkeypatch.setenv("TEST_EDGAR_USER_AGENT", "ATLAS/1.0 (test@example.com)")
+
+    requested_urls: list[str] = []
+
+    def _fake_get(url: str, headers: dict, timeout: float) -> httpx.Response:
+        requested_urls.append(url)
+        return httpx.Response(200, text=_SAMPLE_FEED, request=httpx.Request("GET", url))
+
+    with patch("src.ingestion.edgar_rss.httpx.get", side_effect=_fake_get):
+        count = run_current_filings_sync(session, config_path=config_path)
+
+    assert requested_urls == [
+        "https://www.sec.gov/feed&type=8-K",
+        "https://www.sec.gov/feed&type=4",
+    ]
+    # _SAMPLE_FEED has 2 entries, fetched twice (once per type) but deduped by
+    # accession_number on upsert — same 2 rows either way.
+    assert count == 2
+
+
+def test_run_current_filings_sync_without_form_types_makes_a_single_unfiltered_request(
+    session, tmp_path, monkeypatch
+):
+    """Backward-compat: omitting `form_types` keeps the old single-fetch behaviour."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "edgar:\n  feed_url: https://www.sec.gov/feed\n  user_agent_env: TEST_EDGAR_USER_AGENT\n"
+    )
+    monkeypatch.setenv("TEST_EDGAR_USER_AGENT", "ATLAS/1.0 (test@example.com)")
+
+    with patch("src.ingestion.edgar_rss.httpx.get") as mock_get:
+        mock_get.return_value = httpx.Response(
+            200, text=_SAMPLE_FEED, request=httpx.Request("GET", "https://www.sec.gov/feed")
+        )
+        run_current_filings_sync(session, config_path=config_path)
+
+        mock_get.assert_called_once_with(
+            "https://www.sec.gov/feed",
+            headers={"User-Agent": "ATLAS/1.0 (test@example.com)"},
+            timeout=10.0,
+        )

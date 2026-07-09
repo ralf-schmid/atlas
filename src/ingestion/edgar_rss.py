@@ -13,6 +13,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import quote_plus
 
 import httpx
 import yaml
@@ -41,7 +42,7 @@ class Filing:
 
 
 class EdgarFeedProvider(Protocol):
-    def fetch_current_filings(self) -> list[Filing]: ...
+    def fetch_current_filings(self, form_type: str | None = None) -> list[Filing]: ...
 
 
 class HttpEdgarFeedProvider:
@@ -56,8 +57,16 @@ class HttpEdgarFeedProvider:
         self._feed_url = feed_url
         self._user_agent = user_agent
 
-    def fetch_current_filings(self) -> list[Filing]:
-        response = httpx.get(self._feed_url, headers={"User-Agent": self._user_agent}, timeout=10.0)
+    def fetch_current_filings(self, form_type: str | None = None) -> list[Filing]:
+        """`form_type` filters the feed server-side (F044) — the unfiltered feed is
+        the whole SEC's firehose (structured-note prospectuses, fund reports, ...),
+        which drowned out the 8-K/insider-filing signal the personas actually use.
+        SEC's `type=` param only exact-matches one form per request, so callers that
+        want several types issue one call per type (see `run_current_filings_sync`)."""
+        url = self._feed_url
+        if form_type is not None:
+            url = f"{url}&type={quote_plus(form_type)}"
+        response = httpx.get(url, headers={"User-Agent": self._user_agent}, timeout=10.0)
         response.raise_for_status()
         return parse_atom_feed(response.text)
 
@@ -145,8 +154,27 @@ def run_current_filings_sync(
     user_agent = _require_env(edgar_config["user_agent_env"])
     provider = HttpEdgarFeedProvider(feed_url=edgar_config["feed_url"], user_agent=user_agent)
 
-    filings = provider.fetch_current_filings()
+    form_types: list[str] | None = edgar_config.get("form_types")
+    if form_types:
+        filings = _fetch_filtered_filings(provider, form_types)
+    else:
+        filings = provider.fetch_current_filings()
     return sync_edgar_filings(session, filings)
+
+
+def _fetch_filtered_filings(provider: EdgarFeedProvider, form_types: list[str]) -> list[Filing]:
+    """One feed request per configured type (SEC's `type=` only exact-matches),
+    deduped by `accession_number` — a filing can't legitimately appear under two
+    different form-type queries, but dedup guards against SEC returning the same
+    entry twice regardless."""
+    filings: list[Filing] = []
+    seen: set[str] = set()
+    for form_type in form_types:
+        for filing in provider.fetch_current_filings(form_type=form_type):
+            if filing.accession_number not in seen:
+                seen.add(filing.accession_number)
+                filings.append(filing)
+    return filings
 
 
 def _require_env(var_name: str) -> str:

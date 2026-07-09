@@ -205,6 +205,57 @@ def test_publication_article_summary_excludes_full_text(session: Session) -> Non
     assert full_text not in items[0].summary
 
 
+def test_publication_article_raw_carries_text_excerpt_for_agents(session: Session) -> None:
+    """`summary` stays metadata-only (UI/API-safe, see test above); the article body
+    goes into `raw`, which only reaches the persona LLM context (F044) — the API
+    (`src/api/routes.py` `ResearchRefOut`) never selects `raw`, so this doesn't
+    surface Zeitschriften-Volltexte in the UI (CLAUDE.md)."""
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+    full_text = "Dies ist der volle Artikeltext mit einer echten Anlage-These und Details dazu."
+    session.add(
+        PublicationArticle(
+            publication="Börse Online",
+            issue_date=datetime.date(2026, 7, 6),
+            seq=1,
+            page=5,
+            title="Kurzer Titel",
+            text=full_text,
+            source_file="test.pdf",
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert len(items) == 1
+    assert items[0].raw["text_excerpt"] == full_text
+
+
+def test_publication_article_raw_excerpt_is_truncated_for_long_articles(session: Session) -> None:
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+    long_text = "x" * 2000
+    session.add(
+        PublicationArticle(
+            publication="Börse Online",
+            issue_date=datetime.date(2026, 7, 6),
+            seq=1,
+            page=5,
+            title="Langer Artikel",
+            text=long_text,
+            source_file="test.pdf",
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    excerpt = items[0].raw["text_excerpt"]
+    assert len(excerpt) < len(long_text)
+    assert excerpt.endswith("…")
+
+
 def test_musterdepot_transaction_mapping_excludes_raw_text(session: Session) -> None:
     cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
     session.add(

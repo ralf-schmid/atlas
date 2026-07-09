@@ -502,6 +502,7 @@ def _build_messages(
             "age_days": compute_age_days(item.published_at, reference_time),
             "summary": item.summary,
             "instruments": item.instruments,
+            "raw": item.raw,
         }
         for item in research_items
     ]
