@@ -219,9 +219,63 @@ def test_run_current_filings_sync_fetches_one_request_per_configured_form_type(
         "https://www.sec.gov/feed&type=8-K",
         "https://www.sec.gov/feed&type=4",
     ]
-    # _SAMPLE_FEED has 2 entries, fetched twice (once per type) but deduped by
-    # accession_number on upsert — same 2 rows either way.
-    assert count == 2
+    # _SAMPLE_FEED has a 10-K and a Form-4 entry. The type=8-K response keeps
+    # neither (exact post-filter), the type=4 response keeps only the Form 4.
+    assert count == 1
+
+
+def test_fetch_filtered_filings_drops_prefix_matched_form_types(session, tmp_path, monkeypatch):
+    """SEC's `type=` param matches by *prefix* (live-observed 09.07.2026: type=4
+    returned 59 424B2 plus 485BXT/497K/424B4 rows within two hours) — the exact
+    form_type post-filter is what actually enforces the configured whitelist."""
+    prefix_polluted_feed = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <title>4 - Doe John (0000000001) (Reporting)</title>
+    <link rel="alternate" type="text/html" href="https://www.sec.gov/a"/>
+    <summary type="html">Statement of changes</summary>
+    <updated>2026-07-09T15:00:00-04:00</updated>
+    <id>urn:tag:sec.gov,2008:accession-number=0000000001-26-000010</id>
+  </entry>
+  <entry>
+    <title>424B2 - BIG BANK INC (0000000002) (Filer)</title>
+    <link rel="alternate" type="text/html" href="https://www.sec.gov/b"/>
+    <summary type="html">Structured note prospectus</summary>
+    <updated>2026-07-09T15:01:00-04:00</updated>
+    <id>urn:tag:sec.gov,2008:accession-number=0000000002-26-000011</id>
+  </entry>
+  <entry>
+    <title>497K - SOME FUND (0000000003) (Filer)</title>
+    <link rel="alternate" type="text/html" href="https://www.sec.gov/c"/>
+    <summary type="html">Fund summary prospectus</summary>
+    <updated>2026-07-09T15:02:00-04:00</updated>
+    <id>urn:tag:sec.gov,2008:accession-number=0000000003-26-000012</id>
+  </entry>
+</feed>
+"""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "edgar:\n"
+        "  feed_url: https://www.sec.gov/feed\n"
+        "  user_agent_env: TEST_EDGAR_USER_AGENT\n"
+        "  form_types: ['4']\n"
+    )
+    monkeypatch.setenv("TEST_EDGAR_USER_AGENT", "ATLAS/1.0 (test@example.com)")
+
+    with patch("src.ingestion.edgar_rss.httpx.get") as mock_get:
+        mock_get.return_value = httpx.Response(
+            200, text=prefix_polluted_feed, request=httpx.Request("GET", "https://www.sec.gov/feed")
+        )
+        count = run_current_filings_sync(session, config_path=config_path)
+
+    assert count == 1
+
+    from sqlalchemy import select
+
+    from src.db.models import EdgarFiling
+
+    rows = session.scalars(select(EdgarFiling)).all()
+    assert [row.form_type for row in rows] == ["4"]
 
 
 def test_run_current_filings_sync_without_form_types_makes_a_single_unfiltered_request(

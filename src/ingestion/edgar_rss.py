@@ -163,15 +163,16 @@ def run_current_filings_sync(
 
 
 def _fetch_filtered_filings(provider: EdgarFeedProvider, form_types: list[str]) -> list[Filing]:
-    """One feed request per configured type (SEC's `type=` only exact-matches),
-    deduped by `accession_number` — a filing can't legitimately appear under two
-    different form-type queries, but dedup guards against SEC returning the same
-    entry twice regardless."""
+    """One feed request per configured type, then an exact form_type post-filter:
+    SEC's `type=` param matches by *prefix* (live-observed: type=4 also returned
+    424B2/485BXT/497K), so the server-side param only narrows the feed — the
+    whitelist is enforced here. Deduped by `accession_number` against overlapping
+    prefix results (e.g. type=4 and type=4/A both returning a 4/A filing)."""
     filings: list[Filing] = []
     seen: set[str] = set()
     for form_type in form_types:
         for filing in provider.fetch_current_filings(form_type=form_type):
-            if filing.accession_number not in seen:
+            if filing.form_type == form_type and filing.accession_number not in seen:
                 seen.add(filing.accession_number)
                 filings.append(filing)
     return filings
