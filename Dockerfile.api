@@ -18,7 +18,14 @@ RUN uv sync --frozen --no-dev
 # F037: the `playwright` package (aktienfinder ingestion) needs its own browser
 # binary — `uv sync` only installs the Python package, never the browser
 # itself. Must run as root (--with-deps apt-installs system libraries), before
-# the USER switch below.
+# the USER switch below. Fixed path (not the default ~/.cache/ms-playwright) so
+# the browser installed as root at build time is still found once the process
+# runs as `ralf` below — Playwright resolves the cache dir from $HOME, and the
+# two users' $HOME differ. This silently broke every Playwright-based ingestion
+# job (aktienfinder login/screener) on the box; masked until now by the
+# missing AKTIENFINDER_USERNAME/_PASSWORD failing first, further up the call
+# chain (see docs/deployment.md, local-only, not in the repo).
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 RUN uv run playwright install --with-deps chromium
 
 # Non-root: UID/GID matching user ralf / group familie on the UGREEN box, so any
@@ -26,7 +33,7 @@ RUN uv run playwright install --with-deps chromium
 # bytecode) works for the runtime user too.
 RUN groupadd --gid 3000 familie \
     && useradd --uid 3001 --gid 3000 --create-home ralf \
-    && chown -R ralf:familie /app
+    && chown -R ralf:familie /app /ms-playwright
 USER ralf
 
 EXPOSE 8000
