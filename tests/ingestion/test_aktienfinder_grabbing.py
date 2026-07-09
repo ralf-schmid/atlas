@@ -7,6 +7,8 @@ from src.ingestion import aktienfinder_grabbing as aktienfinder_grabbing_module
 from src.ingestion.aktienfinder_grabbing import (
     AktienfinderLoginError,
     Snapshot,
+    _map_screener_row,
+    _merge_fields,
     extract_dividend_history,
     extract_snapshot,
     login,
@@ -142,6 +144,68 @@ def test_run_daily_grab_configured_reads_candidate_isins_from_config(
     assert count == 2
     assert captured["isins"] == ["DE0007164600", "US0378331005"]
     assert captured["snapshot_date"] == datetime.date(2026, 7, 8)
+
+
+def test_map_screener_row_matches_headers_by_text():
+    headers = ["Aktie", "Kursziel", "Stabilität Gewinn", "Stabilität CashFlow"]
+    cells = ["SAP DE0007164600", "207.79 EUR", "0.91", "0.88"]
+
+    result = _map_screener_row(
+        headers,
+        cells,
+        {
+            "price_target": "Kursziel",
+            "quality_score_earnings_stability": "Stabilität Gewinn",
+            "quality_score_cashflow_stability": "Stabilität CashFlow",
+        },
+    )
+
+    assert result == {
+        "price_target": "207.79 EUR",
+        "quality_score_earnings_stability": "0.91",
+        "quality_score_cashflow_stability": "0.88",
+    }
+
+
+def test_map_screener_row_is_robust_to_column_reordering():
+    headers = ["Stabilität CashFlow", "Kursziel", "Aktie"]
+    cells = ["0.88", "207.79 EUR", "SAP DE0007164600"]
+
+    result = _map_screener_row(headers, cells, {"price_target": "Kursziel"})
+
+    assert result == {"price_target": "207.79 EUR"}
+
+
+def test_map_screener_row_yields_none_for_unknown_header():
+    result = _map_screener_row(["Aktie"], ["SAP"], {"price_target": "Kursziel"})
+
+    assert result == {"price_target": None}
+
+
+def test_map_screener_row_yields_all_none_when_no_unique_row_matched():
+    result = _map_screener_row(
+        ["Aktie", "Kursziel"],
+        None,
+        {"price_target": "Kursziel", "quality_score_earnings_stability": "Stabilität Gewinn"},
+    )
+
+    assert result == {"price_target": None, "quality_score_earnings_stability": None}
+
+
+def test_merge_fields_combines_snapshot_and_extra_fields():
+    snapshot = Snapshot(symbol="SAP", fields={"price": "137.99 EUR"}, screenshot_path="/a/sap.png")
+
+    merged = _merge_fields(snapshot, {"price_target": "207.79 EUR"})
+
+    assert merged.fields == {"price": "137.99 EUR", "price_target": "207.79 EUR"}
+    assert merged.symbol == "SAP"
+    assert merged.screenshot_path == "/a/sap.png"
+
+
+def test_merge_fields_returns_same_snapshot_when_extra_is_empty():
+    snapshot = Snapshot(symbol="SAP", fields={"price": "137.99 EUR"}, screenshot_path="/a/sap.png")
+
+    assert _merge_fields(snapshot, {}) == snapshot
 
 
 class _FakeLocator:

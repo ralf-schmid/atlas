@@ -116,8 +116,15 @@ Non-Fatal-Alert-Vertrag.
   `alembic upgrade head`.
 - Verifikation nach Deploy: manueller Lauf gegen die echten, öffentlichen
   URLs → echte Zeilen in `aktienfinder_blog_post`.
-- **Offen — braucht Ralfs Eingabe:** `price_target`/`cashflow`/
-  `quality_score_earnings_stability`-Selektoren einmal eingeloggt
-  verifizieren/korrigieren.
 - **Rollback-Pfad:** `ingestion-aktienfinder-blog`-Job-Registrierung entfernen
   + `alembic downgrade -1` (nur diese eine Tabelle betroffen).
+
+**Nachtrag 09.07.2026 (Live-Verifikation mit echten Zugangsdaten, siehe F043):**
+Die 3 unverifizierten Platzhalter (`price_target`/`cashflow`/
+`quality_score_earnings_stability`) existieren **nicht** als einfache Felder
+auf der Profil-Seite — die Live-Prüfung ergab, dass diese Kriterien nur im
+separaten Aktienfinder-Screener-Tool als Tabellenspalten existieren. Die 3
+Platzhalter wurden aus `field_selectors` entfernt; die Kriterien sind jetzt
+über einen neuen, eigenen Extraktionspfad (`screener_fields`,
+`extract_screener_row`) abgedeckt — siehe
+`docs/features/F043-aktienfinder-screener-criteria.md`.

@@ -57,18 +57,16 @@ aktienfinder:
     quality_score_dividend_yield: ":nth-match(.scorecard-tile-layout__current-score, 1)"
     quality_score_dividend_growth: ":nth-match(.scorecard-tile-layout__current-score, 2)"
     quality_score_earnings_growth: ":nth-match(.scorecard-tile-layout__current-score, 3)"
-    # F041 Todo 2 (Ralfs erweiterte Kriterien-Liste): price_target nutzt dasselbe
-    # robuste has-text-Label-Muster wie price/isin/dividend_yield oben (fällt bei
-    # falschem Label sicher auf `None` zurück, siehe extract_snapshot). Die beiden
-    # Scorecard-Kandidaten (Gewinn-Stabilität, Cashflow) sind NICHT live gegen die
-    # eingeloggte Seite verifiziert (kein Zugriff auf Ralfs Login in dieser
-    # Session) — bewusst per has-text statt fragilem :nth-match, damit ein
-    # falsches Label ebenfalls sicher zu `None` statt zu einem falsch
-    # zugeordneten Score führt. Ralf: bitte einmal eingeloggt prüfen/korrigieren,
-    # siehe docs/features/F041-aktienfinder-blog-ingestion.md §2.
-    price_target: "li.stockprofile-tiles__list-item:has-text('Kursziel') span:not(.stockprofile-tiles__fixed-width-span)"
-    cashflow: "li.stockprofile-tiles__list-item:has-text('Cashflow') span:not(.stockprofile-tiles__fixed-width-span)"
-    quality_score_earnings_stability: "li.stockprofile-tiles__list-item:has-text('Stabilität') span:not(.stockprofile-tiles__fixed-width-span)"
+  # F043: Kursziel/Stabilitaet-Kriterien existieren NICHT als einfache Felder auf der
+  # Profil-Seite (live mit echtem Login geprueft) — nur als Spalten im separaten
+  # Screener-Tool (/aktienfinder, DataTables-Grid). Werte-Namen -> exakte
+  # Spalten-Ueberschrift, per ISIN-Suche + Header-Text-Match ausgelesen (kein fester
+  # Spalten-Index, siehe extract_screener_row), robust gegen Spalten-Umsortierung.
+  screener_fields:
+    price_target: "Kursziel"
+    price_target_upside_pct: "Kursziel Rendite"
+    quality_score_earnings_stability: "Stabilität Gewinn"
+    quality_score_cashflow_stability: "Stabilität CashFlow"
 
 aktienfinder_blog:
   # F041: oeffentliche Blog-/Analyse-/Empfehlungs-Archivseiten, kein Login, kein

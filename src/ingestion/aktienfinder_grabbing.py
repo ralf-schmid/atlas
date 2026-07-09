@@ -164,6 +164,73 @@ def grab_isin_snapshot(
     )
 
 
+_SCREENER_URL = f"{_BASE_URL}/aktienfinder"
+# DataTables assigns a stable id to this specific grid ("SecuritiesTable") and its
+# auto-generated global-search input ("SecuritiesTable_filter ... input[type=search]") —
+# unlike the profile page's label-based has-text() selectors, this table has several
+# other DataTables instances on the same page (e.g. an "Aktienanalysen" list), so a
+# generic `table` or `input[type=search]` selector would be ambiguous.
+_SCREENER_TABLE_SELECTOR = "table#SecuritiesTable"
+_SCREENER_SEARCH_INPUT_SELECTOR = "#SecuritiesTable_filter input[type='search']"
+
+
+def _map_screener_row(
+    headers: list[str], cells: list[str] | None, screener_fields: dict[str, str]
+) -> dict[str, object]:
+    """Pure header/cell mapping for one Screener-Tool row — unit-tested without a
+    browser. Column order isn't hardcoded: `screener_fields` maps a friendly name to
+    the exact column header text, looked up fresh in `headers` each call, so a
+    reordered/reconfigured column set doesn't silently misassign values. `cells=None`
+    means the live ISIN filter found zero or more than one matching row (ISIN not in
+    the account's tracked universe, or an ambiguous filter match) — yields all-`None`
+    fields rather than raising, same partial-snapshot philosophy as `extract_snapshot`.
+    """
+    if cells is None:
+        return dict.fromkeys(screener_fields, None)
+    header_index = {h: i for i, h in enumerate(headers)}
+    return {
+        name: cells[header_index[label]] if label in header_index else None
+        for name, label in screener_fields.items()
+    }
+
+
+def extract_screener_row(
+    page: Page, isin: str, screener_fields: dict[str, str]
+) -> dict[str, object]:
+    """Filters aktienfinder's Screener-Tool grid (`/aktienfinder`) down to one ISIN via
+    its DataTables global search box, then reads the matched row. `page` must already
+    be logged in and navigated to `_SCREENER_URL` — the table stays loaded and is
+    re-filtered per ISIN (cheap client-side filtering, no page navigation per symbol).
+    Some criteria (Kursziel, Stabilität Gewinn/CashFlow) only exist here, not on the
+    per-stock profile page — see docs/features/F043-aktienfinder-screener-criteria.md §2.
+    """
+    search_input = page.query_selector(_SCREENER_SEARCH_INPUT_SELECTOR)
+    assert search_input is not None, "Screener search input not found — page layout changed?"
+    search_input.fill(isin)
+    page.wait_for_timeout(1_500)
+
+    table = page.query_selector(_SCREENER_TABLE_SELECTOR)
+    assert table is not None, "Screener table not found — page layout changed?"
+    rows = table.query_selector_all("tbody tr")
+    headers = [h.inner_text().strip().replace("\n", " ") for h in table.query_selector_all("th")]
+    cells = (
+        [c.inner_text().strip().replace("\n", " ") for c in rows[0].query_selector_all("td")]
+        if len(rows) == 1
+        else None
+    )
+    return _map_screener_row(headers, cells, screener_fields)
+
+
+def _merge_fields(snapshot: Snapshot, extra: dict[str, object]) -> Snapshot:
+    if not extra:
+        return snapshot
+    return Snapshot(
+        symbol=snapshot.symbol,
+        fields={**snapshot.fields, **extra},
+        screenshot_path=snapshot.screenshot_path,
+    )
+
+
 def sync_aktienfinder_snapshots(
     session: Session, snapshot_date: datetime.date, snapshots: list[Snapshot]
 ) -> int:
@@ -233,6 +300,7 @@ def run_daily_grab_live(
     config = yaml.safe_load(config_path.read_text())
     grab_config = config["aktienfinder"]
     field_selectors: dict[str, str] = grab_config["field_selectors"]
+    screener_fields: dict[str, str] = grab_config.get("screener_fields", {})
     screenshot_dir = Path(_require_env(grab_config["screenshot_dir_env"]))
     username = _require_env(grab_config["username_env"])
     password = _require_env(grab_config["password_env"])
@@ -242,8 +310,20 @@ def run_daily_grab_live(
         try:
             page = browser.new_page()
             login(page, username, password)
+
+            screener_data: dict[str, dict[str, object]] = {}
+            if screener_fields:
+                page.goto(_SCREENER_URL, wait_until="networkidle", timeout=30_000)
+                page.wait_for_timeout(1_500)
+                screener_data = {
+                    isin: extract_screener_row(page, isin, screener_fields) for isin in isins
+                }
+
             snapshots = [
-                grab_isin_snapshot(page, isin, field_selectors, screenshot_dir, snapshot_date)
+                _merge_fields(
+                    grab_isin_snapshot(page, isin, field_selectors, screenshot_dir, snapshot_date),
+                    screener_data.get(isin, {}),
+                )
                 for isin in isins
             ]
         finally:
