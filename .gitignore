@@ -227,3 +227,7 @@ __marimo__/
 
 
 .DS_Store
+
+# Enthält reale LAN-IPs/Hostnamen des privaten Netzes (UGREEN-Deployment) —
+# lokal gepflegt, nie im öffentlichen Repo.
+docs/deployment.md
