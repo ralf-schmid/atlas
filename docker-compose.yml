@@ -136,5 +136,40 @@ services:
       litellm:
         condition: service_healthy
 
+  telegram-bot:
+    # Same image as scheduler/api (Dockerfile.api includes scripts/), different
+    # entrypoint — the long-running process that polls Telegram for HITL-approval
+    # button presses (F049). Without this, approval messages still go out (the
+    # scheduler sends them directly via Bot.send_message), but nobody is listening
+    # for the callback_query a button press generates, so approvals silently do
+    # nothing (F049 §1).
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    command: ["uv", "run", "python", "scripts/run_telegram_bot.py"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+psycopg://atlas:${POSTGRES_PASSWORD:-atlas}@postgres:5432/atlas
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_BASE_URL: http://litellm:4000
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+      # Resuming a HITL interrupt replays the whole persona_analysis node
+      # (F022 §2), which touches the broker adapter again (stop-sweep,
+      # position lookups) — same credentials as the scheduler service.
+      ALPACA_PAPER_VULTURE_KEY_ID: ${ALPACA_PAPER_VULTURE_KEY_ID}
+      ALPACA_PAPER_VULTURE_SECRET_KEY: ${ALPACA_PAPER_VULTURE_SECRET_KEY}
+      ALPACA_PAPER_GUARDIAN_KEY_ID: ${ALPACA_PAPER_GUARDIAN_KEY_ID}
+      ALPACA_PAPER_GUARDIAN_SECRET_KEY: ${ALPACA_PAPER_GUARDIAN_SECRET_KEY}
+      ALPACA_PAPER_CHARTIST_KEY_ID: ${ALPACA_PAPER_CHARTIST_KEY_ID}
+      ALPACA_PAPER_CHARTIST_SECRET_KEY: ${ALPACA_PAPER_CHARTIST_SECRET_KEY}
+      ALPACA_MARKET_DATA_KEY_ID: ${ALPACA_MARKET_DATA_KEY_ID}
+      ALPACA_MARKET_DATA_SECRET_KEY: ${ALPACA_MARKET_DATA_SECRET_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+
 volumes:
   postgres-data:
