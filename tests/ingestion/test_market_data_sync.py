@@ -215,6 +215,71 @@ def test_run_daily_sync_reads_config_and_env(session, tmp_path, monkeypatch):
     assert count == 1
 
 
+def test_run_daily_sync_defaults_to_a_single_day_window(session, tmp_path, monkeypatch):
+    """F048: default lookback_days=1 preserves the exact prior single-day
+    behaviour (existing callers/tests)."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "market_data:\n"
+        "  key_id_env: TEST_MD_KEY_ID\n"
+        "  secret_key_env: TEST_MD_SECRET_KEY\n"
+        "  watchlist:\n"
+        "    - AAPL\n"
+    )
+    monkeypatch.setenv("TEST_MD_KEY_ID", "key")
+    monkeypatch.setenv("TEST_MD_SECRET_KEY", "secret")
+
+    ts = datetime.datetime(2026, 7, 1)
+    bar_set = BarSet.model_construct(data={"AAPL": [_alpaca_bar("AAPL", ts, 150.0)]})
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        run_daily_sync(session, datetime.date(2026, 7, 1), config_path=config_path)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+
+    assert request.start == datetime.datetime(2026, 7, 1)
+    assert request.end == datetime.datetime.combine(datetime.date(2026, 7, 1), datetime.time.max)
+
+
+def test_run_daily_sync_with_lookback_days_backfills_a_rolling_window(
+    session, tmp_path, monkeypatch
+):
+    """F048: technical indicators (SMA20/RSI14/MACD/Bollinger,
+    src/orchestrator/indicators.py) need 15-90 daily bars of history — a
+    symbol only ever synced one day at a time never accumulates enough
+    (live-confirmed 2026-07-10: 92 symbols, exactly 1 bar each, zero
+    technical_indicator research items ever produced). The daily job now
+    requests a rolling lookback window instead of a single day — idempotent
+    upsert (see sync_market_bars) makes this safe to re-run daily, and it's
+    self-healing for any day the job didn't fire at all (container restart,
+    outage, ...)."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "market_data:\n"
+        "  key_id_env: TEST_MD_KEY_ID\n"
+        "  secret_key_env: TEST_MD_SECRET_KEY\n"
+        "  watchlist:\n"
+        "    - AAPL\n"
+    )
+    monkeypatch.setenv("TEST_MD_KEY_ID", "key")
+    monkeypatch.setenv("TEST_MD_SECRET_KEY", "secret")
+
+    ts = datetime.datetime(2026, 7, 1)
+    bar_set = BarSet.model_construct(data={"AAPL": [_alpaca_bar("AAPL", ts, 150.0)]})
+    trading_day = datetime.date(2026, 7, 10)
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        run_daily_sync(session, trading_day, config_path=config_path, lookback_days=90)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+
+    expected_start = trading_day - datetime.timedelta(days=89)
+    assert request.start == datetime.datetime.combine(expected_start, datetime.time.min)
+    assert request.end == datetime.datetime.combine(trading_day, datetime.time.max)
+
+
 def test_run_daily_sync_raises_when_env_var_missing(session, tmp_path, monkeypatch):
     config_path = tmp_path / "ingestion.yaml"
     config_path.write_text(

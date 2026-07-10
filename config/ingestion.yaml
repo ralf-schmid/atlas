@@ -11,6 +11,11 @@ market_data:
     - AAPL
     - MSFT
     - SPY
+  # F048: technisches Indikatoren brauchen 15-90 Tages-Bars Historie je Symbol
+  # (src/orchestrator/indicators.py) - ein reiner 1-Tages-Sync akkumuliert das nie.
+  # Rollierendes Fenster statt Einzeltag, idempotent (Upsert), damit auch ein
+  # ausgefallener Tag (Container-Restart, Ausfall) automatisch nachgeholt wird.
+  lookback_days: 90
 
 edgar:
   # Kostenlos, offiziell (sec.gov), siehe ARCHITECTURE.md §3.5.3. SEC verlangt einen

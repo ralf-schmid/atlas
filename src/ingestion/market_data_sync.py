@@ -146,13 +146,22 @@ def run_daily_sync(
     trading_day: datetime.date,
     config_path: Path = _DEFAULT_CONFIG_PATH,
     watchlist_override: list[str] | None = None,
+    lookback_days: int = 1,
 ) -> int:
     """Config-driven entry point: reads `config/ingestion.yaml`'s watchlist + Alpaca
-    market-data credentials from environment, syncs one day of bars.
+    market-data credentials from environment, syncs `lookback_days` of bars ending
+    on `trading_day` (default 1 — just that day, the historical single-day
+    behaviour).
 
-    Wired into the ingestion scheduler (F035, `src/ingestion/scheduler.py`), which
-    passes `watchlist_override` from `symbol_universe.resolve_symbol_universe` —
-    the static YAML watchlist stays the fallback for direct/manual invocation.
+    F048: technical indicators (`src/orchestrator/indicators.py`) need 15-90 daily
+    bars of history per symbol; a pure single-day sync never accumulates that (a
+    symbol only ever gets 1 bar/day forever). The scheduler (F035,
+    `src/ingestion/scheduler.py`) calls this with a much larger `lookback_days` so
+    every daily run re-syncs a rolling window — idempotent (`sync_market_bars`
+    upserts), so this is also self-healing for any day the job didn't fire at all
+    (container restart, outage, ...), which is what actually starved every
+    persona's technical-indicator signals for two days straight (see
+    docs/features/F048).
     """
     config = yaml.safe_load(config_path.read_text())
     market_data_config = config["market_data"]
@@ -164,7 +173,8 @@ def run_daily_sync(
     secret_key = _require_env(market_data_config["secret_key_env"])
     provider = AlpacaBarsProvider(api_key=key_id, secret_key=secret_key)
 
-    return sync_market_bars(session, provider, watchlist, trading_day, trading_day)
+    start = trading_day - datetime.timedelta(days=lookback_days - 1)
+    return sync_market_bars(session, provider, watchlist, start, trading_day)
 
 
 def _require_env(var_name: str) -> str:

@@ -148,13 +148,16 @@ def _market_data_job(session_factory: Callable[[], Session], config_path: Path) 
     def _run() -> None:
         with session_factory() as session:
             config = yaml.safe_load(config_path.read_text())
-            seed_watchlist: list[str] = config["market_data"]["watchlist"]
+            market_data_config = config["market_data"]
+            seed_watchlist: list[str] = market_data_config["watchlist"]
+            lookback_days: int = market_data_config.get("lookback_days", 1)
             watchlist = resolve_symbol_universe(session, seed_watchlist)
             run_daily_sync(
                 session,
                 datetime.date.today(),
                 config_path=config_path,
                 watchlist_override=watchlist,
+                lookback_days=lookback_days,
             )
             session.commit()
 
