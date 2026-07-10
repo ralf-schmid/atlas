@@ -45,3 +45,25 @@ def test_compute_stop_loss_price_atr_policy_without_atr_returns_none() -> None:
     stop = compute_stop_loss_price(100.0, policy, atr14=None)
 
     assert stop is None
+
+
+def test_compute_stop_loss_price_rounds_to_cent_at_or_above_one_dollar() -> None:
+    # Live incident 2026-07-10 (F050): AAPL entry 296.78 with ATR14 2.9565 produced
+    # a raw stop of 290.8672 — Alpaca rejects that as a sub-penny increment.
+    policy = StopLossPolicy(type=StopLossPolicyType.ATR, atr_multiplier=2.0, min_loss_pct=0.02)
+
+    stop = compute_stop_loss_price(296.78, policy, atr14=2.9565)
+
+    assert stop is not None
+    assert stop == round(stop, 2)
+
+
+def test_compute_stop_loss_price_allows_sub_penny_below_one_dollar() -> None:
+    # Alpaca permits $0.0001 increments below $1.00 — penny-stock stops must not
+    # get rounded down to 2 decimals (that would distort the intended stop%).
+    policy = StopLossPolicy(type=StopLossPolicyType.ATR, atr_multiplier=2.0, min_loss_pct=0.08)
+
+    stop = compute_stop_loss_price(0.85, policy, atr14=0.02)
+
+    assert stop is not None
+    assert stop == round(stop, 4)
