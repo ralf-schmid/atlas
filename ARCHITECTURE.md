@@ -3,7 +3,9 @@
 **Projekt-Codename:** ATLAS (Agentic Trading & Learning Analysis System)
 **Autor:** Ralf Schmid, unterstützt durch Claude
 **Stand:** Juli 2026 — v2.1 (alle Phase-1-Entscheidungen getroffen, siehe §7)
-**Status:** Phase 1 abgeschlossen — freigegeben für Phase 2 (Fundament)
+**Status:** Phase 1 abgeschlossen (Architektur-Entscheidungen unten weiterhin
+verbindlich). Projektfortschritt: siehe `docs/dod/phase-N.md` — aktuell
+Phase 4 (Scheduler seit 07.07.2026 live, siehe `docs/dod/phase-4.md`).
 
 **Changelog v1 → v2:**
 - Kernkonzept erweitert: **6 parallele Strategie-Personas** im Paper-Wettbewerb, nach 8 Wochen geht der Gewinner mit echtem Geld live (§4)

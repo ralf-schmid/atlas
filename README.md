@@ -67,8 +67,25 @@ Details und Nachweise stehen in `docs/dod/phase-2.md`. Der Container-Health-Aler
 in Ralfs bestehender Grafana-/Monitoring-Instanz ist als separater Ops-Task
 aus Phase 2 ausgelagert.
 
+### Phase 3: Ingestion ✅ abgeschlossen
+Marktdaten-Sync, VULTURE-Screener, EDGAR-RSS (form-type-gefiltert), Zeitschriften-
+Pipeline (PDF-Fallback, spalten-bewusste Extraktion), aktienfinder-Grabbing +
+Blog-Wissensbasis, CoinGecko-BTC-Dominanz, Reddit-Sentiment (aktuell deaktiviert,
+fehlende Zugangsdaten). Details: `docs/dod/phase-3.md`, `docs/features/F009`–`F043`.
+
+### Phase 4: Agenten-Core — inhaltlich erledigt, Dauerlauf-Nachweis läuft
+LangGraph-Zyklus (Shared Research → 6 Personas parallel → Risk-Gate → HITL →
+Handels-Agent → Reporting) läuft automatisiert seit 07.07.2026
+([F032](docs/features/F032-scheduler-activation.md)). Alle 6 Personas
+erzeugen echte Decisions inkl. `reject_idea`, Personas können den Research-
+Pool zusätzlich aktiv durchsuchen
+([F045](docs/features/F045-persona-search-tool.md)). Offen für den
+formalen Abschluss: 5 ununterbrochene Handelstage ohne unbehandelte
+Exception, Kosten-Cap-Stichprobe, täglicher Digest — siehe
+`docs/dod/phase-4.md`.
+
 ### Weitere Phasen
-Phase 3 (Ingestion), Phase 4 (Agenten-Core), Phase 5 (Review & Wettbewerb-Start), Phase 6 (Live), Phase 7 (Autonomie & Experimente) — siehe ARCHITECTURE.md §8 für vollständige DoD.
+Phase 5 (Review & Wettbewerb-Start), Phase 6 (Live), Phase 7 (Autonomie & Experimente) — siehe ARCHITECTURE.md §8 für vollständige DoD.
 
 ---
 
@@ -83,7 +100,7 @@ Phase 3 (Ingestion), Phase 4 (Agenten-Core), Phase 5 (Review & Wettbewerb-Start)
 ### Lokal entwickeln/testen
 ```bash
 # Repo klonen
-git clone <privates-repo>
+git clone https://github.com/ralf-schmid/atlas.git
 cd atlas
 
 # Umgebung vorbereiten
@@ -179,8 +196,10 @@ Alle Risikomodelle, Guardrails und Testpläne sind in ARCHITECTURE.md §12 dokum
 
 **Maintainer:** Ralf Schmid  
 **Betreiber:** Privatperson (Eigenhandel)  
-**Status:** Aktives Lernprojekt (Phase 2)  
-**Lizenz:** Privat (nicht publiziert)
+**Status:** Aktives Lernprojekt (Phase 4, Scheduler live seit 07.07.2026)  
+**Lizenz:** kein Open-Source-Lizenzgrant — Repository ist auf GitHub öffentlich
+sichtbar, Code bleibt urheberrechtlich vorbehalten (keine Nutzungs-/
+Weiterverbreitungsrechte eingeräumt)
 
 **Kommunikation:** Deutsch über GitHub Issues/Discussions oder direkt mit Ralf; Code-Sprache: Englisch.
 
@@ -202,6 +221,6 @@ Dieses Projekt entstand in enger Zusammenarbeit mit Claude (Anthropic) für die 
 
 ---
 
-**Zuletzt aktualisiert:** Juli 2026  
-**Phase:** 2 (Fundament abgeschlossen)  
-**Status:** UGREEN-Stack live, CI grün, bereit für Phase 3
+**Zuletzt aktualisiert:** 10.07.2026  
+**Phase:** 4 (Agenten-Core inhaltlich erledigt, Dauerlauf-Nachweis läuft)  
+**Status:** UGREEN-Stack live, Scheduler automatisiert seit 07.07.2026, CI grün

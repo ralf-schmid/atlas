@@ -158,3 +158,23 @@ einzige verbleibende, bewusst zurückgestellte Schritt (siehe F025 §6). Alle
 übrigen offenen DoD-Punkte (5-Tage-Dauerlauf, Crash-Recovery, Kosten-Cap-
 Stichprobe, täglicher Digest, HITL-Timeout-Sweep) hängen an dieser einen
 Aktivierung.
+
+**Update (10.07.2026):** Scheduler läuft seit der Aktivierung durchgängig,
+inklusive mehrerer außerplanmäßiger Verifikations-Zyklen. Der
+Mehrtage-Dauerlauf-Nachweis (DoD-Punkt 4) startet seinen Zähler neu: am
+09.07.2026 sind mehrere automatische Zyklen wegen eines erschöpften
+Anthropic-Guthabens komplett fehlgeschlagen (behoben — Guthaben aufgeladen,
+siehe F046). Dabei zwei echte, unabhängig vom Guthaben-Vorfall bestehende
+Pipeline-Bugs gefunden und behoben, die den DoD-Punkt "jede Persona erzeugt
+plausible decisions" verdeckt hätten: Research aus komplett fehlgeschlagenen
+Zyklen wurde permanent übersprungen (nie wieder sichtbar für spätere
+Zyklen), und die Prompt-Auswahl ließ hochfrequente EDGAR-Filings alle
+Slots belegen und langsamere, eigentlich relevantere Quellen
+(VULTURE-Screener-Kandidaten, aktienfinder-Snapshots) komplett verdrängen
+— siehe [F047](../features/F047-research-pool-fairness-and-window-resilience.md).
+Nach dem Fix (Verifikations-Zyklus 785adc7a, 10.07.2026): alle 6
+`agent_run`-Zeilen `SUCCEEDED`, plausible, charaktertypische
+`hold`/`reject_idea`-Decisions mit korrekt zitierten `input_research_ids`.
+Offen für den formalen DoD-Abschluss: 5 ununterbrochene Handelstage ohne
+unbehandelte Exception (Zähler beginnt jetzt neu), Kosten-Cap-Stichprobe
+gegen die echte LiteLLM-Abrechnung, täglicher Telegram-Digest verifiziert.

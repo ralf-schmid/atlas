@@ -133,9 +133,13 @@ atlas/
 
 ## Arbeitsweise & Konventionen
 
-- **Phasenmodell + harte DoD einhalten** (ARCHITECTURE.md §8). Aktuell: Phase 2.
-  Kein Feature aus späteren Phasen vorziehen ohne explizite Anforderung von Ralf.
-  Phasenabschluss = ausgefüllte Checkliste in `docs/dod/phase-N.md` mit Nachweisen.
+- **Phasenmodell + harte DoD einhalten** (ARCHITECTURE.md §8). Aktuell: Phase 4
+  (Scheduler seit 07.07.2026 aktiv, siehe `docs/dod/phase-4.md`) — inhaltlich
+  weitgehend erledigt, offen sind nur noch die zeitbasierten Nachweise
+  (Mehrtage-Dauerlauf ohne unbehandelte Exceptions, Kosten-Cap-Stichprobe,
+  täglicher Digest). Kein Feature aus Phase 5+ vorziehen ohne explizite
+  Anforderung von Ralf. Phasenabschluss = ausgefüllte Checkliste in
+  `docs/dod/phase-N.md` mit Nachweisen.
 - **Feature-Prozess (ARCHITECTURE.md §10) ist verbindlich:** Zieldefinition →
   kritische Betrachtung (Invarianten, Kosten, Fairness) → Testdefinition VOR
   Umsetzung → Implementierung → kompletter Testdurchlauf inkl. Paper-Smoke-Test →
