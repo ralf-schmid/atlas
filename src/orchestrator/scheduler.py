@@ -21,14 +21,26 @@ from langgraph.types import Command, Interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import Cycle, Decision, DecisionStatus, MarketSession
+from src.broker.protocol import BrokerAdapter
+from src.broker.registry import get_adapter, get_adapter_type
+from src.db.models import (
+    Cycle,
+    Decision,
+    DecisionStatus,
+    MarketSession,
+    OrderRecord,
+    Persona,
+    Portfolio,
+)
 from src.orchestrator.cycles_config import CyclesConfig
 from src.orchestrator.graph import CycleState
+from src.orchestrator.trading import execute_decision
 from src.telegram.config import load_config as load_telegram_config
 from src.telegram.hitl import HitlDecision, HitlOutcome
 from src.telegram.hitl_store import apply_hitl_outcome, decision_to_hitl_request
 
 _HITL_SWEEP_INTERVAL_MINUTES = 5
+_STUCK_DECISION_SWEEP_INTERVAL_MINUTES = 15
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +180,23 @@ def build_scheduler(
         replace_existing=True,
     )
 
+    # F050 §1: an APPROVED decision whose broker call fails (network blip, a bad
+    # stop price, a transient 5xx) has no code path back to `execute_decision` once
+    # its cycle's Send-branch has finished — `_find_hitl_decision`'s idempotency
+    # replay in persona_analysis.py is scoped to that one cycle_id, so the next
+    # cycle never revisits it. Live-confirmed: two real Telegram-approved buy
+    # decisions (AAPL, ALDX) got stuck exactly this way. This sweep is the retry
+    # F023's own docstring already promised ("wird beim nächsten Lauf erneut
+    # versucht") but that never actually existed.
+    scheduler.add_job(
+        _retry_stuck_decisions_job,
+        trigger="interval",
+        minutes=_STUCK_DECISION_SWEEP_INTERVAL_MINUTES,
+        args=[session_factory],
+        id="stuck-decision-retry-sweep",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -282,6 +311,54 @@ def sweep_expired_hitl_decisions(
             )
 
     return len(expired)
+
+
+def _retry_stuck_decisions_job(session_factory: Callable[[], Session]) -> None:
+    """A failed sweep must not take down the scheduler thread either — same
+    non-fatal contract as `_run_cycle_job`/`_sweep_expired_hitl_job`."""
+    try:
+        count = retry_stuck_decisions(session_factory)
+        if count:
+            logger.info("stuck-decision retry sweep executed %d decision(s)", count)
+    except Exception:
+        logger.error("stuck-decision retry sweep failed", exc_info=True)
+
+
+def retry_stuck_decisions(
+    session_factory: Callable[[], Session],
+    adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
+) -> int:
+    """Re-attempts `execute_decision` for every APPROVED decision that has no
+    `order_record` yet (see F050 §1: `execute_decision` failing at the broker
+    leaves the decision on APPROVED with a FAILED `agent_run`, but nothing else
+    ever revisits it). Each decision is retried independently, same non-fatal
+    contract as `sweep_expired_hitl_decisions` — one persistently-failing decision
+    (e.g. a delisted symbol) must not block the rest of the sweep. `place_order`'s
+    `client_order_id=decision_id` (F027) makes repeated attempts broker-side safe.
+    """
+    executed = 0
+    with session_factory() as session:
+        stmt = (
+            select(Decision, Persona.name)
+            .join(Portfolio, Decision.portfolio_id == Portfolio.id)
+            .join(Persona, Portfolio.persona_id == Persona.id)
+            .outerjoin(OrderRecord, OrderRecord.decision_id == Decision.id)
+            .where(Decision.status == DecisionStatus.APPROVED, OrderRecord.id.is_(None))
+        )
+        for decision, persona_name in session.execute(stmt).all():
+            broker_adapter = adapter_factory(persona_name)
+            try:
+                execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
+                session.commit()
+                executed += 1
+            except Exception:
+                session.rollback()
+                logger.error(
+                    "failed to retry stuck decision",
+                    exc_info=True,
+                    extra={"decision_id": str(decision.id)},
+                )
+    return executed
 
 
 def _parse_time(value: str) -> tuple[int, int]:

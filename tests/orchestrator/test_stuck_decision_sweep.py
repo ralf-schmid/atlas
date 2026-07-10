@@ -1,0 +1,153 @@
+"""See docs/features/F050-stop-loss-tick-rounding.md §3. Marked integration: needs
+a real, independently-committing session_factory (`retry_stuck_decisions` opens+
+commits its own session per F016 §2 thread-safety convention), same reason
+tests/orchestrator/test_hitl_sweep.py can't use the rolled-back `session` fixture.
+"""
+
+from __future__ import annotations
+
+import datetime
+import uuid
+from decimal import Decimal
+
+import pytest
+from sqlalchemy import select
+
+from src.broker.protocol import OrderResult, OrderSide
+from src.db.base import get_session_factory
+from src.db.models import (
+    Decision,
+    DecisionAction,
+    DecisionStatus,
+    MarketSession,
+    OrderRecord,
+    Persona,
+    Portfolio,
+)
+from src.orchestrator.graph import create_cycle
+from src.orchestrator.scheduler import retry_stuck_decisions
+from src.orchestrator.seed import seed_personas_and_portfolios
+
+pytestmark = pytest.mark.integration
+
+
+class _FakeAdapter:
+    def __init__(self, *, should_fail: bool = False) -> None:
+        self.should_fail = should_fail
+        self.calls: list[dict[str, object]] = []
+
+    def place_order(self, **kwargs: object) -> OrderResult:
+        self.calls.append(kwargs)
+        if self.should_fail:
+            raise RuntimeError("broker rejected the order")
+        return OrderResult(
+            entry_order_id="entry-123",
+            stop_order_id="stop-456",
+            symbol=str(kwargs["symbol"]),
+            qty=float(kwargs["qty"]),  # type: ignore[arg-type]
+            side=OrderSide.BUY,
+            stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+        )
+
+    def cancel_order(self, order_id: str) -> None:
+        raise NotImplementedError
+
+    def get_positions(self) -> list[object]:
+        raise NotImplementedError
+
+    def get_account_balance(self) -> object:
+        raise NotImplementedError
+
+
+def _seed_approved_decision(
+    session_factory, *, stop_loss_price: float = 140.0, with_order_record: bool = False
+) -> uuid.UUID:
+    with session_factory() as session:
+        seed_personas_and_portfolios(session)
+        persona = session.scalar(select(Persona).filter_by(name="VULTURE"))
+        assert persona is not None
+        portfolio = session.scalar(select(Portfolio).filter_by(persona_id=persona.id))
+        assert portfolio is not None
+        cycle = create_cycle(session, datetime.date(2026, 7, 10), 1, MarketSession.US_EQUITY)
+
+        decision = Decision(
+            cycle_id=cycle.id,
+            portfolio_id=portfolio.id,
+            instrument="AAPL",
+            action=DecisionAction.BUY,
+            quantity=Decimal("2"),
+            thesis_text="test",
+            expected_outcome={
+                "entry_price": 150.0,
+                "stop_loss_price": stop_loss_price,
+                "conviction": 0.5,
+            },
+            input_research_ids=[uuid.uuid4()],
+            status=DecisionStatus.APPROVED,
+        )
+        session.add(decision)
+        session.flush()
+
+        if with_order_record:
+            session.add(
+                OrderRecord(
+                    decision_id=decision.id,
+                    broker="alpaca_paper",
+                    broker_order_id="already-placed",
+                    mode=portfolio.mode,
+                    submitted_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+                    fees=Decimal("0"),
+                )
+            )
+
+        session.commit()
+        return decision.id
+
+
+def test_retry_executes_orphaned_approved_decision() -> None:
+    session_factory = get_session_factory()
+    decision_id = _seed_approved_decision(session_factory, stop_loss_price=290.8672)
+    fake_adapter = _FakeAdapter()
+
+    count = retry_stuck_decisions(session_factory, adapter_factory=lambda _persona: fake_adapter)
+
+    assert count == 1
+    # F050: the stale, unrounded stop from before the fix must still reach the
+    # broker rounded, not as the raw 290.8672 that Alpaca originally rejected.
+    (call,) = fake_adapter.calls
+    assert call["stop_loss_price"] == 290.87
+    with session_factory() as session:
+        decision = session.get_one(Decision, decision_id)
+        assert decision.status == DecisionStatus.EXECUTED
+        order_record = session.scalar(
+            select(OrderRecord).where(OrderRecord.decision_id == decision_id)
+        )
+        assert order_record is not None
+
+
+def test_retry_skips_decision_that_already_has_an_order_record() -> None:
+    session_factory = get_session_factory()
+    _seed_approved_decision(session_factory, with_order_record=True)
+    fake_adapter = _FakeAdapter()
+
+    count = retry_stuck_decisions(session_factory, adapter_factory=lambda _persona: fake_adapter)
+
+    assert count == 0
+    assert fake_adapter.calls == []
+
+
+def test_retry_leaves_decision_approved_on_repeated_broker_failure() -> None:
+    session_factory = get_session_factory()
+    decision_id = _seed_approved_decision(session_factory)
+    fake_adapter = _FakeAdapter(should_fail=True)
+
+    count = retry_stuck_decisions(session_factory, adapter_factory=lambda _persona: fake_adapter)
+
+    assert count == 0
+    with session_factory() as session:
+        decision = session.get_one(Decision, decision_id)
+        assert decision.status == DecisionStatus.APPROVED
+        assert (
+            session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision_id))
+            is None
+        )

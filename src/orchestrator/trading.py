@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter, OrderSide
 from src.db.models import Decision, DecisionStatus, OrderRecord, OrderRecordStatus, Portfolio
+from src.orchestrator.decision_sizing import round_to_tick
 
 
 def execute_decision(
@@ -28,12 +29,15 @@ def execute_decision(
     if decision.quantity is None:
         raise ValueError(f"Decision {decision.id} has no quantity")
 
+    # Defensive re-round (F050): `compute_stop_loss_price` already rounds new
+    # decisions, but this also protects decisions persisted before that fix
+    # existed and picked up later by `retry_stuck_decisions`.
     result = broker_adapter.place_order(
         decision_id=decision.id,  # type: ignore[arg-type]
         symbol=decision.instrument,
         qty=float(decision.quantity),
         side=OrderSide.BUY,
-        stop_loss_price=float(stop_loss_price),
+        stop_loss_price=round_to_tick(float(stop_loss_price)),
     )
 
     order_record = OrderRecord(
