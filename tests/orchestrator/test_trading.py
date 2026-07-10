@@ -151,3 +151,37 @@ def test_execute_decision_broker_failure_leaves_decision_approved(session: Sessi
 
     assert decision.status == DecisionStatus.APPROVED
     assert session.scalars(select(OrderRecord)).all() == []
+
+
+def test_execute_decision_rejects_missing_stop_loss_price(session: Session) -> None:
+    # Invariant #4 (mandatory stop-loss): an APPROVED decision that somehow lost
+    # its stop_loss_price must never reach the broker without one.
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+    decision.expected_outcome = {"entry_price": 150.0, "conviction": 0.5}
+    adapter = _FakeAdapter()
+
+    try:
+        execute_decision(session, decision, adapter, "alpaca_paper")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "stop_loss_price" in str(exc)
+
+    assert adapter.calls == []
+    assert session.scalars(select(OrderRecord)).all() == []
+
+
+def test_execute_decision_rejects_missing_quantity(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+    decision.quantity = None
+    adapter = _FakeAdapter()
+
+    try:
+        execute_decision(session, decision, adapter, "alpaca_paper")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "quantity" in str(exc)
+
+    assert adapter.calls == []
+    assert session.scalars(select(OrderRecord)).all() == []
