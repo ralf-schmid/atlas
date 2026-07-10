@@ -1302,6 +1302,33 @@ def test_every_call_writes_exactly_one_agent_run(session: Session) -> None:
     assert runs[0].agent == "persona_analysis"
 
 
+def test_unparseable_llm_response_is_persisted_on_agent_run_for_diagnostics(
+    session: Session,
+) -> None:
+    persona, portfolio = _seed_vulture(session)
+    cycle, _item = _make_cycle_with_research_item(session)
+    content = "Sure, here is my analysis: " + json.dumps({"action": "hold"})
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.rejection_reason == "llm_output_parse_error"
+
+    runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
+    assert len(runs) == 1
+    assert runs[0].error == content
+
+
 def test_native_adapter_never_gets_stop_sweep_called(session: Session) -> None:
     """VULTURE (alpaca_paper) has a broker-side GTC stop — the internal sweep must
     not be attempted against it (it has no check_stop_orders method at all)."""

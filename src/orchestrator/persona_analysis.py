@@ -178,6 +178,10 @@ def analyze_persona_cycle(
             tokens_in=tokens_in,
             tokens_out=tokens_out,
             cost_usd=Decimal(str(cost_usd)),
+            # Diagnostics for llm_output_parse_error (_resolve_decision below): the
+            # raw response is otherwise lost, making repeat failures for one
+            # persona undebuggable.
+            error=response.content if parsed is None else None,
         )
     )
     session.flush()
