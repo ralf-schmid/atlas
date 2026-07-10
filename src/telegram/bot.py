@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import logging
 import uuid
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
@@ -39,6 +40,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 if TYPE_CHECKING:
     from langgraph.graph.state import CompiledStateGraph
+
+logger = logging.getLogger(__name__)
 
 _Handler = Callable[[Update, ContextTypes.DEFAULT_TYPE], Coroutine[Any, Any, None]]
 
@@ -224,10 +227,27 @@ async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     graph = context.application.bot_data.get("graph")
     if graph is not None and thread_id and interrupt_id:
-        await asyncio.to_thread(
-            graph.invoke,
-            Command(resume={interrupt_id: outcome.decision.value}),
-            config={"configurable": {"thread_id": thread_id}},
-        )
+        # F063: apply_hitl_outcome above already committed the DB decision — that
+        # part must not be undone by a resume failure. If the resume itself blows
+        # up (broker hiccup, DB blip, anything other than the already-guarded
+        # execute_decision path in _maybe_execute_decision), the decision is still
+        # correctly APPROVED/REJECTED in the DB; F050's retry_stuck_decisions sweep
+        # picks up any APPROVED decision that never got an order_record. What must
+        # not happen is this handler silently dying here — the user would see no
+        # confirmation and no error, unable to tell whether the click worked at
+        # all. Same non-fatal contract as sweep_expired_hitl_decisions's own
+        # graph.invoke call.
+        try:
+            await asyncio.to_thread(
+                graph.invoke,
+                Command(resume={interrupt_id: outcome.decision.value}),
+                config={"configurable": {"thread_id": thread_id}},
+            )
+        except Exception:
+            logger.error(
+                "failed to resume graph after HITL callback",
+                exc_info=True,
+                extra={"decision_id": str(decision_id)},
+            )
 
     await query.edit_message_text(format_outcome_message(persona_name, instrument, outcome))

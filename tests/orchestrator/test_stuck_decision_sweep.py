@@ -187,3 +187,32 @@ def test_retry_leaves_decision_approved_on_repeated_broker_failure() -> None:
             ).all()
         )
         assert snapshot_count_after == snapshot_count_before
+
+
+def test_retry_keeps_the_order_when_the_post_trade_snapshot_fails() -> None:
+    # F063: execute_decision succeeding and then generate_portfolio_snapshot
+    # failing must not roll back the order that already went through — the two
+    # are committed as separate transactions specifically so a snapshot hiccup
+    # can't undo a real trade.
+    class _SnapshotFailingAdapter(_FakeAdapter):
+        def get_positions(self) -> list[Position]:
+            raise RuntimeError("broker timeout building snapshot")
+
+    session_factory = get_session_factory()
+    decision_id = _seed_approved_decision(session_factory)
+    fake_adapter = _SnapshotFailingAdapter()
+
+    count = retry_stuck_decisions(session_factory, adapter_factory=lambda _persona: fake_adapter)
+
+    # >= 1, not ==: other decisions sharing this module's VULTURE portfolio
+    # (e.g. one permanently stuck by test_retry_leaves_decision_approved_on_
+    # repeated_broker_failure above) may also get swept in the same call —
+    # this test only asserts on its own decision's outcome.
+    assert count >= 1
+    with session_factory() as session:
+        decision = session.get_one(Decision, decision_id)
+        assert decision.status == DecisionStatus.EXECUTED
+        order_record = session.scalar(
+            select(OrderRecord).where(OrderRecord.decision_id == decision_id)
+        )
+        assert order_record is not None

@@ -328,6 +328,50 @@ def test_handle_hitl_callback_resumes_the_paused_graph_run(monkeypatch):
     assert kwargs["config"] == {"configurable": {"thread_id": "t1"}}
 
 
+def test_handle_hitl_callback_still_confirms_when_graph_resume_fails(monkeypatch):
+    # F063: apply_hitl_outcome already committed the decision by the time the
+    # graph resume runs — a resume failure (broker hiccup, DB blip) must not
+    # leave the user staring at the original "Freigabe erforderlich" message
+    # with no idea whether their click had any effect. F050's retry sweep picks
+    # up the DB-side approval either way.
+    request = HitlRequest(
+        decision_id=_DECISION_ID,
+        persona_name="VULTURE",
+        instrument="MSFT",
+        thesis_text="Momentum",
+        amount_usd=1200.0,
+        stop_loss_price=100.0,
+        created_at=_CREATED_AT,
+    )
+    outcome = HitlOutcome(decision=HitlDecision.APPROVED, decided_by="user")
+    fake_decision = MagicMock(instrument="MSFT", hitl={"thread_id": "t1", "interrupt_id": "i1"})
+    fake_session = MagicMock()
+    fake_graph = MagicMock()
+    fake_graph.invoke.side_effect = RuntimeError("checkpointer unavailable")
+
+    monkeypatch.setattr(
+        "src.telegram.bot.load_pending_decision",
+        lambda _session, _decision_id: (fake_decision, MagicMock(), "VULTURE"),
+    )
+    monkeypatch.setattr("src.telegram.bot.decision_to_hitl_request", lambda _d, _c, _p: request)
+    monkeypatch.setattr("src.telegram.bot.process_callback", lambda _r, _d, _n: outcome)
+    monkeypatch.setattr("src.telegram.bot.apply_hitl_outcome", lambda *_args: None)
+
+    update = _mock_callback_update(chat_id=42, callback_data=f"hitl:approve:{_DECISION_ID}")
+    context = MagicMock()
+    context.application.bot_data = {
+        "session_factory": MagicMock(return_value=fake_session),
+        "graph": fake_graph,
+    }
+
+    asyncio.run(_handle_hitl_callback(update, context))
+
+    fake_session.commit.assert_called_once()
+    update.callback_query.edit_message_text.assert_called_once_with(
+        "✅ Freigabe erteilt: VULTURE — MSFT."
+    )
+
+
 def test_handle_hitl_callback_ignores_update_without_callback_data():
     update = MagicMock()
     update.callback_query = None

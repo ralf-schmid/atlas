@@ -358,11 +358,25 @@ def retry_stuck_decisions(
             broker_adapter = adapter_factory(persona_name)
             try:
                 execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
-                # F059: without this, a position bought here is invisible in the
-                # dashboard/Grafana (both read `position_snapshot`, F050's own
-                # retry sweep was the only decision-execution path that didn't
-                # call this) until whatever cycle next runs for this portfolio —
-                # potentially hours away.
+                session.commit()
+                executed += 1
+            except Exception:
+                session.rollback()
+                logger.error(
+                    "failed to retry stuck decision",
+                    exc_info=True,
+                    extra={"decision_id": str(decision.id)},
+                )
+                continue
+
+            # F059: without this, a position bought here is invisible in the
+            # dashboard/Grafana (both read `position_snapshot`, F050's own retry
+            # sweep was the only decision-execution path that didn't call this)
+            # until whatever cycle next runs for this portfolio — potentially
+            # hours away. F063: committed as its own separate transaction, after
+            # the execute_decision commit above — a snapshot failure here must
+            # not roll back the order execution that already succeeded.
+            try:
                 generate_portfolio_snapshot(
                     session,
                     decision.portfolio_id,
@@ -370,11 +384,10 @@ def retry_stuck_decisions(
                     datetime.datetime.now(datetime.UTC),
                 )
                 session.commit()
-                executed += 1
             except Exception:
                 session.rollback()
                 logger.error(
-                    "failed to retry stuck decision",
+                    "failed to generate portfolio snapshot after retrying stuck decision",
                     exc_info=True,
                     extra={"decision_id": str(decision.id)},
                 )

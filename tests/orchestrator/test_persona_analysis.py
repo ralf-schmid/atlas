@@ -603,6 +603,73 @@ def test_buy_response_approved_directly_when_hitl_disabled(
     assert order_record.broker_order_id == "entry-test-1"
 
 
+def test_snapshot_failure_after_a_successful_order_does_not_undo_it(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F063: a broker error while building the post-trade portfolio_snapshot must
+    not raise out of analyze_persona_cycle — that would make the caller's
+    session.commit() (graph.py's _persona_analysis_node) never run, rolling back
+    the order_record this same call just persisted, even though the order is
+    already real at the broker. The failure must be recorded, not silently
+    swallowed and not fatal to the already-successful trade."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike + insider buy filing",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+
+    class _SnapshotFailingAdapter(_FakeAdapter):
+        """get_positions() is called twice before the order ever executes —
+        once building the LLM prompt (_build_messages), once for the risk-gate's
+        portfolio state (read_portfolio_risk_state) — and a third time by
+        generate_portfolio_snapshot after the order is already placed. Only that
+        third call should fail, to reproduce a broker hiccup striking
+        specifically during the post-trade snapshot, not before it."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+            self._get_positions_calls = 0
+
+        def get_positions(self) -> list[Position]:
+            self._get_positions_calls += 1
+            if self._get_positions_calls > 2:
+                raise RuntimeError("broker timeout building snapshot")
+            return super().get_positions()
+
+    adapter = _SnapshotFailingAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.status == DecisionStatus.EXECUTED
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+
+    reporting_run = session.scalar(
+        select(AgentRun).where(AgentRun.cycle_id == cycle.id, AgentRun.agent == "reporting")
+    )
+    assert reporting_run is not None
+    assert reporting_run.status == AgentRunStatus.FAILED
+    assert "broker timeout" in (reporting_run.error or "")
+
+
 def test_hitl_resume_approval_also_executes_the_order(session: Session) -> None:
     """F023 end-to-end: a decision approved via a Telegram-resumed interrupt gets
     executed by the trading module too, not just directly-approved ones."""

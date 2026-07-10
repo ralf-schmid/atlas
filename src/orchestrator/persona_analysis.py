@@ -121,8 +121,8 @@ def analyze_persona_cycle(
         if existing.status == DecisionStatus.HITL_PENDING:
             existing = _await_hitl_outcome(session, existing, persona_name)
         _maybe_execute_decision(session, existing, persona_name, broker_adapter)
-        generate_portfolio_snapshot(
-            session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
+        _safe_generate_portfolio_snapshot(
+            session, cycle_id, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
         )
         return existing
 
@@ -187,8 +187,8 @@ def analyze_persona_cycle(
     session.flush()
 
     _maybe_execute_decision(session, decision, persona_name, broker_adapter)
-    generate_portfolio_snapshot(
-        session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
+    _safe_generate_portfolio_snapshot(
+        session, cycle_id, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
     )
     return decision
 
@@ -234,6 +234,38 @@ def _maybe_execute_decision(
                 cycle_id=decision.cycle_id,
                 portfolio_id=decision.portfolio_id,
                 agent="trading",
+                status=AgentRunStatus.FAILED,
+                error=str(exc),
+            )
+        )
+        session.flush()
+
+
+def _safe_generate_portfolio_snapshot(
+    session: Session,
+    cycle_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    broker_adapter: BrokerAdapter,
+    now: datetime.datetime,
+) -> None:
+    """F063: an *uncaught* failure here (e.g. a broker call timing out while
+    building the snapshot) would raise out of `analyze_persona_cycle`, and the
+    node's `session.commit()` (`graph.py::_persona_analysis_node`) never runs —
+    rolling back everything from this call, including a real order this same
+    session may have just placed and persisted via `_maybe_execute_decision`
+    moments earlier. The order stays real at the broker either way (nothing
+    rolls that back), but its `order_record` would vanish from Postgres until
+    a later retry re-derives it. Same non-fatal contract as
+    `_maybe_execute_decision`/`_sweep_stop_orders` above: report the failure,
+    don't let it undo a successful trade's bookkeeping."""
+    try:
+        generate_portfolio_snapshot(session, portfolio_id, broker_adapter, now)
+    except Exception as exc:
+        session.add(
+            AgentRun(
+                cycle_id=cycle_id,
+                portfolio_id=portfolio_id,
+                agent="reporting",
                 status=AgentRunStatus.FAILED,
                 error=str(exc),
             )
