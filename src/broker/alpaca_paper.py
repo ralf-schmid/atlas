@@ -66,13 +66,23 @@ class AlpacaPaperAdapter:
         # order attaches the stop as a child leg that Alpaca itself only activates once
         # the entry fills, which is also a closer match to Invariant #4 (a stop only
         # makes sense once the position exists).
+        #
+        # Alpaca rejects GTC on the *entry* leg whenever qty is fractional
+        # (`422 "fractional orders must be DAY orders"`, live-confirmed 2026-07-10,
+        # F051) — and this system's position sizing (amount_usd / entry_price)
+        # produces a fractional qty for essentially every real decision. DAY only
+        # affects the entry: a market order fills immediately whenever the market is
+        # open, so this doesn't meaningfully change entry behaviour. The stop-loss
+        # child leg is unaffected by the entry's time_in_force — Alpaca always keeps
+        # bracket exit legs GTC regardless, verified below.
+        entry_time_in_force = TimeInForce.DAY if qty != int(qty) else TimeInForce.GTC
         try:
             entry = self._client.submit_order(
                 order_data=MarketOrderRequest(
                     symbol=symbol,
                     qty=qty,
                     side=_TO_ALPACA_SIDE[side],
-                    time_in_force=TimeInForce.GTC,
+                    time_in_force=entry_time_in_force,
                     order_class=OrderClass.OTO,  # one-triggers-other: stop only, no take_profit
                     stop_loss=StopLossRequest(stop_price=stop_loss_price),
                     client_order_id=client_order_id,

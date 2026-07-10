@@ -130,13 +130,36 @@ def test_place_order_submits_oto_bracket_with_gtc_stop_leg(adapter, mock_client)
     assert entry_request.symbol == "AAPL"
     assert entry_request.qty == 1
     assert entry_request.side.value == "buy"
-    assert entry_request.time_in_force.value == "gtc"  # DAY is rejected for crypto symbols
+    assert entry_request.time_in_force.value == "gtc"  # whole-share qty: GTC stays allowed
     assert entry_request.order_class.value == "oto"
     assert entry_request.stop_loss.stop_price == 150.0
 
     assert result.entry_order_id == "entry-123"
     assert result.stop_order_id == "stop-456"
     assert result.stop_loss_price == 150.0
+
+
+def test_place_order_uses_day_time_in_force_for_fractional_qty(adapter, mock_client):
+    # Live-confirmed 2026-07-10 (F051): Alpaca rejects GTC on the entry leg with
+    # `422 "fractional orders must be DAY orders"` — and this system's position
+    # sizing (amount_usd / entry_price) produces a fractional qty for essentially
+    # every real decision, so this was blocking every buy order.
+    stop_leg = AlpacaOrder.model_construct(id="stop-456")
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(
+        id="entry-123", legs=[stop_leg]
+    )
+
+    adapter.place_order(
+        decision_id=42,
+        symbol="AAPL",
+        qty=0.869813,
+        side=OrderSide.BUY,
+        stop_loss_price=150.0,
+    )
+
+    (call,) = mock_client.submit_order.call_args_list
+    entry_request = call.kwargs["order_data"]
+    assert entry_request.time_in_force.value == "day"
 
 
 def test_place_order_rejects_unexpected_response_type(adapter, mock_client):
