@@ -63,6 +63,9 @@ Optionsübersicht, die Ralf dazu vorgelegt wurde).
   unverändert (Regressionsschutz für bestehende Aufrufer).
 - `test_run_daily_sync_with_lookback_days_backfills_a_rolling_window` —
   `lookback_days=90` fragt exakt `[trading_day - 89 Tage, trading_day]` an.
+- `test_sync_market_bars_chunks_large_batches` — nachträglich ergänzt, siehe
+  §5: der echte Backfill-Lauf auf der Box deckte einen zweiten, unabhängigen
+  Bug auf (Postgres-Bind-Parameter-Limit).
 
 ## 4. Implementierung
 
@@ -76,15 +79,26 @@ Optionsübersicht, die Ralf dazu vorgelegt wurde).
 
 ## 5. Test & Rollout
 
-- `uv run pytest`: 481 passed. `ruff check`/`format --check`, `mypy`: clean.
-- Deployment: scp der drei geänderten Dateien (`market_data_sync.py`,
-  `scheduler.py`, `config/ingestion.yaml`) + `docker compose build scheduler`
-  + `up -d scheduler`.
+- `uv run pytest`: 482 passed (nach dem Chunking-Fix). `ruff check`/`format
+  --check`, `mypy`: clean.
+- Deployment: scp der geänderten Dateien (`market_data_sync.py`,
+  `scheduler.py`, `config/ingestion.yaml`) + `docker compose build api
+  scheduler` + `up -d api scheduler`.
 - **Einmaliger manueller Backfill sofort nach Deploy** (nicht auf den
   nächsten 06:30-ET-Cron warten): `run_daily_sync` manuell mit
-  `lookback_days=90` gegen die echte Box-DB ausgeführt — Ergebnis siehe
-  `docs/deployment.md` (Datum, Bar-Anzahl, erster erfolgreicher
-  `technical_indicator`-Research-Item-Nachweis).
+  `lookback_days=90` gegen die echte Box-DB ausgeführt.
+  - Erster Versuch schlug fehl: `sqlalchemy.exc.OperationalError: number of
+    parameters must be between 0 and 65535` — 188 Symbole × ~90 Tage in
+    einem einzigen Bulk-Upsert überschreitet Postgres' Bind-Parameter-Limit
+    (10 Parameter/Zeile). Live gefunden, sofort mit Test behoben
+    (`_UPSERT_CHUNK_SIZE = 5000`, Commit `789810a`), erneut deployt.
+  - Zweiter Versuch: **11.352 Bars erfolgreich synct.** AAPL/MSFT/SPY je 61
+    Handelstage (13.04.–09.07.2026), 190 von 190 Symbolen mit Historie
+    (Median ~60 Bars).
+  - `compute_indicator_snapshot` direkt gegen die echte DB verifiziert:
+    AAPL/MSFT/SPY liefern jetzt echte SMA20/SMA50/RSI14/MACD-Werte (z. B.
+    AAPL RSI14 = 64,46, MACD-Histogramm = 3,12) — exakt die Signale, deren
+    Fehlen CHARTIST blockierte.
 - **Rollback-Pfad:** `market_data.lookback_days` aus der Config entfernen
   (fällt auf Default `1` zurück) oder auf `1` setzen — kein Schema-Change.
 
