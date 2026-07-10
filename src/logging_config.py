@@ -35,3 +35,10 @@ def configure_logging(level: int = logging.INFO) -> None:
     root = logging.getLogger()
     root.handlers = [handler]
     root.setLevel(level)
+
+    # httpx logs the full request URL at INFO for every call — for the
+    # telegram-bot service that's `https://api.telegram.org/bot<TOKEN>/...`, so
+    # TELEGRAM_BOT_TOKEN ends up in plaintext in container logs on every single
+    # getUpdates poll (live-confirmed 2026-07-10, F056). WARNING still surfaces
+    # real httpx errors, just not the routine per-request line.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
