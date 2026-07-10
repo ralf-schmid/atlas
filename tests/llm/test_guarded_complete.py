@@ -297,3 +297,27 @@ def test_guarded_complete_post_call_recheck_still_records_cost_before_raising(
     rows = session.scalars(select(CostLedger)).all()
     assert len(rows) == 2  # the sibling's row AND this call's own row, not lost
     assert sum(float(r.cost_usd) for r in rows) == pytest.approx(5.10)
+
+
+def test_guarded_complete_blocks_on_post_call_persona_overrun(session: Session) -> None:
+    """F055: the persona cap (1.0 USD/day, much tighter than the 5.0 USD system
+    cap shared across all 6 personas) needs its own post-call recheck — a single
+    call that alone pushes one persona over its cap must not go unnoticed just
+    because the system-wide total stays comfortably under its cap."""
+    seed_personas_and_portfolios(session)
+    vulture_id = _get_persona_id(session, "VULTURE")
+    role = RoleConfig(
+        name="persona_analysis",
+        model="claude-sonnet-5",
+        provider="anthropic",
+        shared=False,
+        prompt_caching=True,
+    )
+    client = _fake_client(cost_usd="1.30")  # alone already exceeds the 1.0 persona cap
+
+    with pytest.raises(BudgetExceededError) as exc_info:
+        guarded_complete(session, client, role, _CAPS, [], persona_id=vulture_id)
+
+    assert exc_info.value.check.spent_usd == pytest.approx(1.30)
+    rows = session.scalars(select(CostLedger)).all()
+    assert len(rows) == 1  # the over-cap call's cost is still recorded, not lost

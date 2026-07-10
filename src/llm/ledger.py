@@ -161,9 +161,27 @@ def guarded_complete(
         # whether this specific call (combined with whatever siblings committed while
         # its LLM round-trip was in flight) tipped the system over the cap.
         post_call_system_check = check_system_budget(sum_system_spend_today(session, now), caps)
+        # F055: the persona cap needs the same post-call recheck as the system cap
+        # above — without it, a single call that pushes one persona over its
+        # (much tighter) daily cap goes unsignaled: the shared system cap is 5x
+        # looser (one system-wide pool vs. six per-persona pools), so it rarely
+        # trips at the same moment a lone persona blows through its own limit.
+        # That persona would then keep spending unchecked until its *next* call,
+        # whenever that is.
+        post_call_persona_check: BudgetCheck | None = None
+        if not role.shared:
+            assert persona_id is not None
+            post_call_persona_check = check_persona_budget(
+                sum_persona_spend_today(session, persona_id, now), caps
+            )
 
     if post_call_system_check.status == BudgetStatus.BLOCKED:
         raise BudgetExceededError(post_call_system_check)
+    if (
+        post_call_persona_check is not None
+        and post_call_persona_check.status == BudgetStatus.BLOCKED
+    ):
+        raise BudgetExceededError(post_call_persona_check)
 
     return GuardedCompletionResult(
         response=response,
