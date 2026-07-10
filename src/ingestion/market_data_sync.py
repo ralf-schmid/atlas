@@ -27,6 +27,13 @@ from src.db.models import MarketBar, MarketBarTimeframe
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 
+# F048: PostgreSQL caps bind parameters at 65535 per statement. Each row here
+# binds 10 (id, symbol, timeframe, ts, open, high, low, close, volume,
+# synced_at) -> max ~6553 rows/statement. A 90-day backfill over the full
+# symbol universe (188 symbols x ~62 trading days, live-hit 2026-07-10) blows
+# well past that in one bulk upsert. Comfortable margin under the hard limit.
+_UPSERT_CHUNK_SIZE = 5000
+
 
 @dataclass(frozen=True, slots=True)
 class Bar:
@@ -124,19 +131,21 @@ def sync_market_bars(
         for bar in bars
     ]
 
-    stmt = insert(MarketBar).values(rows)
-    stmt = stmt.on_conflict_do_update(
-        constraint="uq_market_bar_symbol_timeframe_ts",
-        set_={
-            "open": stmt.excluded.open,
-            "high": stmt.excluded.high,
-            "low": stmt.excluded.low,
-            "close": stmt.excluded.close,
-            "volume": stmt.excluded.volume,
-            "synced_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
-        },
-    )
-    session.execute(stmt)
+    for chunk_start in range(0, len(rows), _UPSERT_CHUNK_SIZE):
+        chunk = rows[chunk_start : chunk_start + _UPSERT_CHUNK_SIZE]
+        stmt = insert(MarketBar).values(chunk)
+        stmt = stmt.on_conflict_do_update(
+            constraint="uq_market_bar_symbol_timeframe_ts",
+            set_={
+                "open": stmt.excluded.open,
+                "high": stmt.excluded.high,
+                "low": stmt.excluded.low,
+                "close": stmt.excluded.close,
+                "volume": stmt.excluded.volume,
+                "synced_at": datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+            },
+        )
+        session.execute(stmt)
     session.flush()
     return len(rows)
 

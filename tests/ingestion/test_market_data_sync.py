@@ -191,6 +191,43 @@ def test_sync_market_bars_upserts_on_rerun_without_duplicates(session):
     assert rows[0].volume == Decimal("1200.000000")
 
 
+def test_sync_market_bars_chunks_large_batches(session):
+    """F048: a 90-day backfill over the full symbol universe (188 symbols × ~62
+    trading days, live-hit 2026-07-10) produces enough rows to blow past
+    PostgreSQL's 65535-bind-parameter-per-statement limit in a single bulk
+    upsert (10 params/row -> ~6553 rows max). Must transparently chunk instead
+    of raising."""
+    many_bars = [
+        Bar(
+            symbol=f"SYM{i}",
+            ts=datetime.datetime(2026, 7, 1),
+            open=Decimal("10"),
+            high=Decimal("11"),
+            low=Decimal("9"),
+            close=Decimal("10.5"),
+            volume=Decimal("1000"),
+        )
+        for i in range(8000)
+    ]
+
+    count = sync_market_bars(
+        session,
+        _FakeProvider(many_bars),
+        [f"SYM{i}" for i in range(8000)],
+        datetime.date(2026, 7, 1),
+        datetime.date(2026, 7, 1),
+    )
+
+    assert count == 8000
+
+    from sqlalchemy import func, select
+
+    from src.db.models import MarketBar
+
+    total = session.scalar(select(func.count()).select_from(MarketBar))
+    assert total == 8000
+
+
 def test_run_daily_sync_reads_config_and_env(session, tmp_path, monkeypatch):
     config_path = tmp_path / "ingestion.yaml"
     config_path.write_text(
