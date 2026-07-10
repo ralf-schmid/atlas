@@ -25,6 +25,7 @@ from src.db.models import (
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
+    Decision,
     EdgarFiling,
     MusterdepotTransaction,
     PublicationArticle,
@@ -83,8 +84,18 @@ def synthesize_research_items(
 
 
 def _resolve_window_start(session: Session, cycle: Cycle) -> datetime.datetime:
+    """F047: a cycle whose research_synthesis ran but whose persona_analysis never
+    produced a single Decision (e.g. an LLM-provider outage — live-hit 2026-07-09,
+    all 6 personas failed for several cycles in a row) must not become the window
+    boundary. Otherwise its whole research batch — nobody ever actually saw it —
+    is permanently skipped by every later cycle, silently starving personas of
+    real, already-qualified candidates (VULTURE-Screener results included). A
+    cycle only counts as "the boundary" once at least one persona actually got a
+    Decision out of it, regardless of that decision's action/status (a REJECT_IDEA
+    still means the data was considered, not lost)."""
     stmt = (
         select(Cycle)
+        .join(Decision, Decision.cycle_id == Cycle.id)
         .where(Cycle.market_session == cycle.market_session, Cycle.started_at < cycle.started_at)
         .order_by(Cycle.started_at.desc())
         .limit(1)

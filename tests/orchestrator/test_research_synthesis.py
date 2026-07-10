@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.db.models import (
@@ -12,13 +13,18 @@ from src.db.models import (
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
+    Decision,
+    DecisionAction,
     EdgarFiling,
     MarketBar,
     MarketBarTimeframe,
     MarketSession,
     MusterdepotTransaction,
+    Persona,
+    Portfolio,
     PublicationArticle,
     RedditPost,
+    ResearchItem,
     ScreenerResult,
 )
 from src.orchestrator.graph import create_cycle
@@ -34,6 +40,44 @@ _AFTER_WINDOW = datetime.datetime(2026, 7, 7, 9, 30, 0)
 def _make_cycle_at(session: Session, started_at: datetime.datetime, seq: int = 1) -> Cycle:
     cycle = create_cycle(session, started_at.date(), seq, MarketSession.US_EQUITY)
     cycle.started_at = started_at
+    session.flush()
+    return cycle
+
+
+def _make_decided_cycle_at(session: Session, started_at: datetime.datetime, seq: int = 1) -> Cycle:
+    """Like `_make_cycle_at`, but also gives it a Decision — the boundary tests
+    below want an ordinary "cycle that happened" (F047 no longer treats a
+    decision-less cycle as a valid window boundary; see
+    test_window_skips_past_a_cycle_with_no_decisions for that behaviour itself)."""
+    from src.orchestrator.seed import seed_personas_and_portfolios
+
+    seed_personas_and_portfolios(session)
+    persona = session.scalar(select(Persona).filter_by(name="VULTURE"))
+    portfolio = session.scalar(select(Portfolio).filter_by(persona_id=persona.id))
+
+    cycle = _make_cycle_at(session, started_at, seq=seq)
+    filler_item = ResearchItem(
+        cycle_id=cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="FILLER",
+        published_at=started_at,
+        summary="filler so the decision has something to cite",
+        instruments=["FILLER"],
+        raw={},
+    )
+    session.add(filler_item)
+    session.flush()
+    session.add(
+        Decision(
+            cycle_id=cycle.id,
+            portfolio_id=portfolio.id,
+            instrument="PORTFOLIO",
+            action=DecisionAction.HOLD,
+            thesis_text="nothing compelling",
+            input_research_ids=[filler_item.id],
+        )
+    )
     session.flush()
     return cycle
 
@@ -117,7 +161,7 @@ def test_synthesizes_one_item_per_source_inside_window(session: Session) -> None
 
 
 def test_excludes_rows_synced_before_window(session: Session) -> None:
-    _make_cycle_at(session, _WINDOW_START, seq=1)
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
     cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
     _seed_all_sources(session, _BEFORE_WINDOW)
 
@@ -330,6 +374,88 @@ def test_previous_cycle_of_other_market_session_is_ignored(session: Session) -> 
     assert items[0].source_ref == "IGNORE_CRYPTO_CYCLE"
 
 
+def test_window_skips_past_a_cycle_with_no_decisions(session: Session) -> None:
+    """F047: 2026-07-09's Anthropic outage — a cycle whose research_synthesis ran
+    fine but whose persona_analysis never produced a single Decision (all 6 LLM
+    calls failed) silently orphaned that cycle's whole research batch: the next
+    cycle's window started right after it, so nobody ever saw it. The window must
+    treat "a cycle nobody actually got a decision out of" the same as "a cycle
+    that never happened" — reach back past it instead of past-only-chronologically."""
+    dead_cycle_time = _WINDOW_START + datetime.timedelta(minutes=30)
+    _make_cycle_at(session, dead_cycle_time, seq=2)  # no Decision attached — "dead"
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=3)
+
+    # Synced strictly after dead_cycle's window start but before dead_cycle's
+    # started_at — would already have been claimed by dead_cycle's own synthesis
+    # window (not re-tested here; what matters is it must still show up for
+    # `cycle` since dead_cycle produced no decision).
+    stranded_time = dead_cycle_time - datetime.timedelta(minutes=5)
+    session.add(
+        ScreenerResult(
+            screened_at=datetime.date(2026, 7, 7),
+            symbol="STRANDED",
+            price=Decimal("2.50"),
+            volume=Decimal("900000"),
+            synced_at=stranded_time,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert "STRANDED" in {item.source_ref for item in items}
+
+
+def test_window_stops_at_a_cycle_that_did_produce_a_decision(session: Session) -> None:
+    from src.orchestrator.seed import seed_personas_and_portfolios
+
+    seed_personas_and_portfolios(session)
+    persona = session.scalar(select(Persona).filter_by(name="VULTURE"))
+    portfolio = session.scalar(select(Portfolio).filter_by(persona_id=persona.id))
+
+    live_cycle_time = _WINDOW_START + datetime.timedelta(minutes=30)
+    live_cycle = _make_cycle_at(session, live_cycle_time, seq=2)
+    seen_item = ResearchItem(
+        cycle_id=live_cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="SEEN",
+        published_at=live_cycle_time,
+        summary="already shown",
+        instruments=["SEEN"],
+        raw={},
+    )
+    session.add(seen_item)
+    session.flush()
+    session.add(
+        Decision(
+            cycle_id=live_cycle.id,
+            portfolio_id=portfolio.id,
+            instrument="PORTFOLIO",
+            action=DecisionAction.HOLD,
+            thesis_text="nothing compelling",
+            input_research_ids=[seen_item.id],
+        )
+    )
+    session.flush()
+
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=3)
+    session.add(
+        ScreenerResult(
+            screened_at=datetime.date(2026, 7, 7),
+            symbol="TOO_OLD",
+            price=Decimal("2.50"),
+            volume=Decimal("900000"),
+            synced_at=live_cycle_time - datetime.timedelta(minutes=5),
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert "TOO_OLD" not in {item.source_ref for item in items}
+
+
 def _seed_market_bars(session: Session, symbol: str, num_bars: int) -> None:
     start = datetime.datetime(2026, 1, 1)
     for i in range(num_bars):
@@ -412,7 +538,7 @@ def test_btc_dominance_item_mapping_inside_window(session: Session) -> None:
 
 
 def test_btc_dominance_item_excluded_outside_window(session: Session) -> None:
-    _make_cycle_at(session, _WINDOW_START, seq=1)
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
     cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
     session.add(
         BtcDominanceSnapshot(
@@ -459,7 +585,7 @@ def test_reddit_post_item_mapping_inside_window_has_no_sentiment_scoring(
 
 
 def test_reddit_post_item_excluded_outside_window(session: Session) -> None:
-    _make_cycle_at(session, _WINDOW_START, seq=1)
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
     cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
     session.add(
         RedditPost(
@@ -508,7 +634,7 @@ def test_aktienfinder_blog_item_mapping_inside_window(session: Session) -> None:
 
 
 def test_aktienfinder_blog_item_excluded_outside_window(session: Session) -> None:
-    _make_cycle_at(session, _WINDOW_START, seq=1)
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
     cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
     session.add(
         AktienfinderBlogPost(

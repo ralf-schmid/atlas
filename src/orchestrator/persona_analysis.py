@@ -55,9 +55,10 @@ _MAX_TOOL_ROUNDS = 2
 # F046: hard bound on prompt size. Groq's free tier caps requests at 12k
 # tokens/min and rejects larger ones outright ("Request too large", live-measured:
 # 145 items ≈ 20.3k tokens); an unbounded payload also inflates Anthropic costs
-# linearly with ingestion volume. Newest items win; everything older in the
-# cycle's pool stays reachable via search_research_pool (F045) and remains
-# citable either way (the id-validation set is the full pool, not this slice).
+# linearly with ingestion volume. Selection is fair-by-source_type, not just
+# newest-overall (see F047 `_select_prompt_items`); everything not selected stays
+# reachable via search_research_pool (F045) and remains citable either way (the
+# id-validation set is the full cycle pool, not this slice).
 _MAX_PROMPT_RESEARCH_ITEMS = 30
 
 _OUTPUT_SCHEMA_INSTRUCTIONS = """\
@@ -610,19 +611,40 @@ def _execute_tool_call(
     return message, found_ids
 
 
+def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> list[ResearchItem]:
+    """F047: newest-first-then-truncate let one high-frequency source_type (EDGAR
+    filings, arriving every few minutes) crowd out slower-cadence-but-relevant
+    ones entirely — live-hit 2026-07-09: VULTURE's prompt was 30/30 EDGAR filings
+    while 185 fresh VULTURE-Screener candidates sat unseen in the same cycle's
+    pool. Round-robins across source_type (newest first within each type) so every
+    type present gets a fair share of the cap. Uniform rule for all personas
+    (Invariant #10); items pushed out stay reachable via the F045 search tool and
+    remain citable regardless (id validation uses the full cycle pool)."""
+    buckets: dict[str, list[ResearchItem]] = {}
+    for item in research_items:
+        buckets.setdefault(item.source_type, []).append(item)
+    for bucket in buckets.values():
+        bucket.sort(key=lambda item: item.published_at or datetime.datetime.min, reverse=True)
+
+    selected: list[ResearchItem] = []
+    round_idx = 0
+    while len(selected) < max_items and any(round_idx < len(bucket) for bucket in buckets.values()):
+        for bucket in buckets.values():
+            if len(selected) >= max_items:
+                break
+            if round_idx < len(bucket):
+                selected.append(bucket[round_idx])
+        round_idx += 1
+    return selected
+
+
 def _build_messages(
     charter: str,
     research_items: list[ResearchItem],
     positions: list[Position],
     reference_time: datetime.datetime,
 ) -> list[dict[str, object]]:
-    # F046: newest first, capped — undated items sort last (they carry the least
-    # recency signal, F033). Uniform rule for all personas (Invariant #10).
-    prompt_items = sorted(
-        research_items,
-        key=lambda item: item.published_at or datetime.datetime.min,
-        reverse=True,
-    )[:_MAX_PROMPT_RESEARCH_ITEMS]
+    prompt_items = _select_prompt_items(research_items, _MAX_PROMPT_RESEARCH_ITEMS)
 
     # age_days is computed here, not left to the LLM, so staleness weighting rests
     # on a real date subtraction rather than the model's own arithmetic over two

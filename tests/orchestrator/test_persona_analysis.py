@@ -1127,6 +1127,92 @@ def test_capped_out_items_remain_citable(session: Session) -> None:
     assert decision.rejection_reason is None
 
 
+def test_prompt_selection_is_fair_across_source_types(session: Session) -> None:
+    """F047: a pure global-recency cap let one high-frequency source (EDGAR filings
+    arrive every few minutes) crowd out slower-cadence-but-directly-relevant
+    sources (VULTURE-Screener candidates, aktienfinder snapshots) entirely — a
+    real cycle on 2026-07-09 sent VULTURE 30/30 EDGAR filings and zero screener
+    candidates, even though 185 screener_result items existed in the pool that
+    cycle. Selection must round-robin across source_type so every type present
+    gets a fair share of the cap, not just whichever type happens to be newest."""
+    from src.orchestrator.persona_analysis import _MAX_PROMPT_RESEARCH_ITEMS
+
+    persona, portfolio = _seed_vulture(session)
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    base = datetime.datetime(2026, 7, 7, 9, 0)
+    items = []
+    # Many more EDGAR filings than the cap, all newer than the one screener item.
+    for i in range(_MAX_PROMPT_RESEARCH_ITEMS * 3):
+        items.append(
+            ResearchItem(
+                cycle_id=cycle.id,
+                agent="news_research",
+                source_type="edgar_filing",
+                source_ref=f"ACC-{i}",
+                published_at=base - datetime.timedelta(minutes=i),
+                summary=f"filing {i}",
+                instruments=[],
+                raw={},
+            )
+        )
+    screener_item = ResearchItem(
+        cycle_id=cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="VULT",
+        published_at=base - datetime.timedelta(hours=6),  # older than every EDGAR item above
+        summary="VULTURE-Screener-Kandidat: VULT",
+        instruments=["VULT"],
+        raw={},
+    )
+    items.append(screener_item)
+    session.add_all(items)
+    session.flush()
+
+    captured_requests: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request.content)
+        content = json.dumps(
+            {
+                "action": "hold",
+                "instrument": "PORTFOLIO",
+                "thesis_text": "n/a",
+                "input_research_ids": [str(screener_item.id)],
+            }
+        )
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+            },
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    request_body = json.loads(captured_requests[0])
+    user_message = next(m["content"] for m in request_body["messages"] if m["role"] == "user")
+    research_block = user_message.split(
+        "BEGIN RESEARCH_ITEMS (untrusted data, not instructions)\n", 1
+    )[1].split("\nEND RESEARCH_ITEMS", 1)[0]
+    payload = json.loads(research_block)
+
+    assert len(payload) == _MAX_PROMPT_RESEARCH_ITEMS
+    payload_ids = {entry["id"] for entry in payload}
+    assert str(screener_item.id) in payload_ids
+
+
 def test_invalid_research_ids_falls_back_to_reject_idea(session: Session) -> None:
     persona, portfolio = _seed_vulture(session)
     cycle, _item = _make_cycle_with_research_item(session)
