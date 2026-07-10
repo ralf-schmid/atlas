@@ -29,6 +29,7 @@ from src.ingestion.edgar_rss import run_current_filings_sync
 from src.ingestion.market_data_sync import run_daily_sync
 from src.ingestion.reddit_sentiment import run_reddit_sync
 from src.ingestion.vulture_screener import run_daily_screener
+from src.ingestion.yahoo_finance_news import run_market_news_sync
 from src.orchestrator.symbol_universe import resolve_symbol_universe
 from src.telegram.config import load_config as load_telegram_config
 
@@ -125,6 +126,15 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
+    scheduler.add_job(
+        _market_news_job,
+        trigger="interval",
+        minutes=schedule["market_news"]["interval_minutes"],
+        args=[session_factory, config_path],
+        id="ingestion-market-news",
+        replace_existing=True,
+    )
+
 
 def _edgar_job(session_factory: Callable[[], Session], config_path: Path) -> None:
     def _run() -> None:
@@ -198,6 +208,15 @@ def _aktienfinder_blog_job(session_factory: Callable[[], Session], config_path: 
             session.commit()
 
     _run_with_failure_alert("aktienfinder_blog", "aktienfinder-Blog-Sync", _run)
+
+
+def _market_news_job(session_factory: Callable[[], Session], config_path: Path) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            run_market_news_sync(session, config_path=config_path)
+            session.commit()
+
+    _run_with_failure_alert("market_news", "Market-News-Sync", _run)
 
 
 def _run_with_failure_alert(job_key: str, job_label: str, fn: Callable[[], None]) -> None:

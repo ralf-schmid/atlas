@@ -496,3 +496,29 @@ class AktienfinderBlogPost(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class MarketNewsHeadline(Base):
+    """A syndicated market-news/analyst-note headline from Yahoo Finance's public
+    top-stories RSS feed, see docs/features/F058-market-news-analyst-source.md.
+
+    reuters.com itself disallows automated access for any crawler not on its
+    named allowlist (`robots.txt`: `User-agent: * / Disallow: /`) and returns
+    401 even for a direct fetch — this is the permitted substitute Ralf chose.
+    The feed already syndicates a substantial share of actual Reuters articles
+    (`source`) alongside analyst price-target/rating notes (Argus Research,
+    Evercore, RBC, ...), title/link/source metadata only, same "no full text"
+    convention as `aktienfinder_blog_post`.
+    """
+
+    __tablename__ = "market_news_headline"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    guid: Mapped[str] = mapped_column(String(300), unique=True)
+    title: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(String(500))
+    source: Mapped[str] = mapped_column(String(200))
+    published_at: Mapped[datetime]
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

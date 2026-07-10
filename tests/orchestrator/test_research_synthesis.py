@@ -18,6 +18,7 @@ from src.db.models import (
     EdgarFiling,
     MarketBar,
     MarketBarTimeframe,
+    MarketNewsHeadline,
     MarketSession,
     MusterdepotTransaction,
     Persona,
@@ -653,3 +654,48 @@ def test_aktienfinder_blog_item_excluded_outside_window(session: Session) -> Non
     items = synthesize_research_items(session, cycle)
 
     assert [item for item in items if item.source_type == "aktienfinder_blog"] == []
+
+
+def test_market_news_headline_item_mapping_inside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketNewsHeadline(
+            guid="evercore-isi-raises-price-target-103815950.html",
+            title="Evercore ISI Raises its Price Target on Twist Bioscience (TWST)",
+            url="https://finance.yahoo.com/markets/stocks/articles/evercore-103815950.html",
+            source="Insider Monkey",
+            published_at=datetime.datetime(2026, 7, 9, 10, 38, 15),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    news_items = [item for item in items if item.source_type == "market_news"]
+    assert len(news_items) == 1
+    assert news_items[0].source_ref == "evercore-isi-raises-price-target-103815950.html"
+    assert "Twist Bioscience" in news_items[0].summary
+    assert "Insider Monkey" in news_items[0].summary
+    assert news_items[0].raw["source"] == "Insider Monkey"
+
+
+def test_market_news_headline_item_excluded_outside_window(session: Session) -> None:
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketNewsHeadline(
+            guid="old-headline",
+            title="Old headline",
+            url="https://finance.yahoo.com/old-headline.html",
+            source="Reuters",
+            published_at=datetime.datetime(2026, 5, 1, 10, 0, 0),
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "market_news"] == []

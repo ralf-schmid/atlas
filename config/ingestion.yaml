@@ -98,6 +98,16 @@ aktienfinder_blog:
     - "https://aktienfinder.net/blog/aktienanalyse/"
     - "https://aktienfinder.net/blog/kaufenswerte-aktien/"
 
+market_news:
+  # F058: Ralfs Auftrag war reuters.com/markets/us/ als Analystenquelle — dessen
+  # robots.txt blockt jeden nicht gelisteten Bot komplett (`User-agent: * /
+  # Disallow: /`), ein direkter Abruf liefert sogar HTTP 401 (CloudFront-
+  # Bot-Schutz, keine reine Konvention). Nach Ralfs Entscheidung (2026-07-10)
+  # stattdessen Yahoo Finance's oeffentliches Top-Stories-RSS: kein Login, per
+  # robots.txt erlaubt, syndiziert echte Reuters-Artikel (`source`) sowie
+  # Analysten-Kursziel-/Rating-Meldungen (Argus Research, Evercore, RBC, ...).
+  feed_url: "https://finance.yahoo.com/news/rssindex"
+
 schedule:
   # Siehe docs/features/F035-ingestion-scheduler-activation.md. America/New_York
   # fuer die aktienbezogenen Jobs (Screener vor Markt-Bar-Sync, beide vor dem
@@ -123,6 +133,8 @@ schedule:
     enabled: false
   aktienfinder_blog:
     time: "05:30"
+  market_news:
+    interval_minutes: 30
 
 publications:
   # Fallback-first (ARCHITECTURE.md §3.5.1): n8n erkennt die Benachrichtigungs-Mail

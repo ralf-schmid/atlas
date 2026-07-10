@@ -27,6 +27,7 @@ from src.db.models import (
     Cycle,
     Decision,
     EdgarFiling,
+    MarketNewsHeadline,
     MusterdepotTransaction,
     PublicationArticle,
     RedditPost,
@@ -77,6 +78,7 @@ def synthesize_research_items(
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
+        *_research_items_from_market_news_headlines(session, cycle.id, window_start, window_end),
     ]
     session.add_all(items)
     session.flush()
@@ -437,4 +439,33 @@ def _research_items_from_aktienfinder_blog_posts(
             raw={"categories": post.categories, "tags": post.tags, "is_premium": post.is_premium},
         )
         for post in posts
+    ]
+
+
+def _research_items_from_market_news_headlines(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """Headline/source/url only — the RSS feed itself never carries article body
+    text (F058)."""
+    stmt = select(MarketNewsHeadline).where(
+        MarketNewsHeadline.synced_at > window_start,
+        MarketNewsHeadline.synced_at <= window_end,
+    )
+    headlines = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="news_research",
+            source_type="market_news",
+            source_ref=headline.guid,
+            url=headline.url,
+            published_at=headline.published_at,
+            summary=f"Marktnews ({headline.source}): {headline.title}",
+            instruments=[],
+            raw={"source": headline.source},
+        )
+        for headline in headlines
     ]
