@@ -137,8 +137,11 @@ atlas/
   (Scheduler seit 07.07.2026 aktiv, siehe `docs/dod/phase-4.md`) — inhaltlich
   weitgehend erledigt, offen sind nur noch die zeitbasierten Nachweise
   (Mehrtage-Dauerlauf ohne unbehandelte Exceptions, Kosten-Cap-Stichprobe,
-  täglicher Digest). Kein Feature aus Phase 5+ vorziehen ohne explizite
-  Anforderung von Ralf. Phasenabschluss = ausgefüllte Checkliste in
+  täglicher Digest). Der Telegram-HITL-Callback-Listener lief bis 10.07.2026
+  nie als Dauerbetrieb-Prozess (F049) — der Mehrtage-Dauerlauf-Zähler wurde
+  danach neu gestartet, siehe `docs/dod/phase-4.md` für die volle
+  Fund-/Fix-Liste (F049–F061). Kein Feature aus Phase 5+ vorziehen ohne
+  explizite Anforderung von Ralf. Phasenabschluss = ausgefüllte Checkliste in
   `docs/dod/phase-N.md` mit Nachweisen.
 - **Feature-Prozess (ARCHITECTURE.md §10) ist verbindlich:** Zieldefinition →
   kritische Betrachtung (Invarianten, Kosten, Fairness) → Testdefinition VOR

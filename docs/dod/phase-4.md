@@ -178,3 +178,69 @@ Nach dem Fix (Verifikations-Zyklus 785adc7a, 10.07.2026): alle 6
 Offen für den formalen DoD-Abschluss: 5 ununterbrochene Handelstage ohne
 unbehandelte Exception (Zähler beginnt jetzt neu), Kosten-Cap-Stichprobe
 gegen die echte LiteLLM-Abrechnung, täglicher Telegram-Digest verifiziert.
+
+**Update (10.07.2026, Abend — HITL-Listener-Lücke gefunden, echte Order zum
+ersten Mal komplett durchgängig verifiziert, F049-F061):** Wichtige
+Korrektur an obigem DoD-Punkt "HITL: Approve, Reject und Timeout alle drei
+end-to-end nachgewiesen" — das galt bislang nur für einen einmaligen
+manuellen Test (F005 §5, 05.07.2026), **nicht für den tatsächlich
+deployten Dauerbetrieb**: `docker-compose.yml` startete nirgends
+`Application.run_polling()` — der Scheduler versendete Freigabe-Anfragen
+per Telegram, aber niemand hörte auf die Button-Klicks. Vier echte,
+risk-approved `buy`-Decisions liefen deshalb am 10.07. in den
+30-Minuten-Timeout und wurden automatisch abgelehnt (fail-closed wie
+vorgesehen, kein Sicherheitsvorfall — aber der Beweis "HITL funktioniert im
+Dauerbetrieb" stand bis dahin faktisch noch aus). [F049](../features/F049-telegram-bot-polling-service.md)
+deployt den Listener endlich als eigenen `telegram-bot`-Service.
+
+Der darauffolgende Sonderlauf deckte auf, dass selbst mit funktionierendem
+Listener **noch keine einzige Order jemals durchgängig bis `EXECUTED`**
+gekommen wäre — drei weitere, bis dahin nie erreichte Bugs im
+Order-Ausführungspfad:
+[F050](../features/F050-stop-loss-tick-rounding.md) (unrundierte
+Stop-Preise, von Alpaca abgelehnt — plus ein zweiter Fund dabei: eine
+fehlgeschlagene Order wurde nie erneut versucht, neuer
+`retry_stuck_decisions`-Sweep),
+[F051](../features/F051-fractional-order-day-tif.md) (fraktionale
+Stückzahl braucht `DAY` statt `GTC`),
+[F052](../features/F052-whole-share-rounding-for-native-orders.md)
+(Alpaca lässt bei fraktionaler Stückzahl gar keinen Bracket-Order mit
+Pflicht-Stop zu — auf Ralfs Entscheidung hin Rundung auf ganze Aktien).
+**Nach allen vier Fixes: erstmals eine echte Order komplett durchgängig
+verifiziert** — zwei echte Telegram-Freigaben (CHARTIST/AAPL,
+VULTURE/ALDX) von Ralf live bestätigt, beide Orders bei Alpaca `FILLED`,
+beide GTC-Stops aktiv. Damit ist der DoD-Punkt "HITL Approve/Reject
+end-to-end" jetzt tatsächlich für den deployten Dauerbetrieb bewiesen, nicht
+mehr nur für einen isolierten Test.
+
+Anschließender Vollständigkeits-Audit (Ralfs Auftrag: "finde jeden Fehler,
+der die Ausführung verhindert") fand + behob sechs weitere reale Lücken:
+`/pause`/`/resume` waren wirkungslose TODO-Stubs
+([F053](../features/F053-telegram-pause-resume-wiring.md)); der
+Ledger-Zustand der drei virtuellen Personas (HYPE/CONTRA/CRYPTOR) war
+nirgends als Docker-Volume gemountet — jeder Container-Rebuild setzte sie
+auf 5.000 USD/0 Positionen zurück, bereits eingetretener, nicht
+rückgängig zu machender Datenverlust
+([F054](../features/F054-ledger-volume-mount.md)); der
+Persona-Kosten-Cap wurde nach dem LLM-Call nicht erneut geprüft
+([F055](../features/F055-persona-budget-post-call-check.md)); der
+Telegram-Bot-Token erschien im Klartext im Container-Log
+([F056](../features/F056-httpx-token-log-leak.md)); die erzwungene
+Tool-Abschlussrunde produzierte leere LLM-Antworten (11 von 17
+`llm_output_parse_error`-Fällen bei HYPE,
+[F057](../features/F057-forced-final-round-tool-choice.md)); und die
+Aktien-Zyklen hatten keine Wochentags-Beschränkung und wären auch am
+Wochenende gefeuert ([F061](../features/F061-stock-cycle-weekday-restriction.md)).
+Dazu zwei von Ralf gemeldete Anzeige-/UX-Lücken behoben: Depot-Käufe waren
+weder im Web-Dashboard noch in Grafana sichtbar
+([F059](../features/F059-dashboard-grafana-position-visibility.md)), und
+Telegram-HITL-Nachrichten nannten nie, welche Persona handelt
+([F060](../features/F060-telegram-persona-name.md)).
+
+**Konsequenz für den Mehrtage-Dauerlauf-Nachweis:** der Zähler beginnt
+erneut bei Null — der Abend brachte mehrere manuelle Container-Rebuilds
+(jeder Rebuild ist eine Unterbrechung des unbeaufsichtigten Betriebs, den
+dieser DoD-Punkt eigentlich nachweisen soll). **Weiterhin offen:**
+Kosten-Cap-Stichprobe gegen die echte LiteLLM-Abrechnung; `/digest` ist
+weiterhin nur ein TODO-Stub (siehe F053 §1 Non-Scope) — der tägliche
+Telegram-Digest ist damit noch nicht nachweisbar.

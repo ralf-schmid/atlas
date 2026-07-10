@@ -79,10 +79,16 @@ Handels-Agent → Reporting) läuft automatisiert seit 07.07.2026
 ([F032](docs/features/F032-scheduler-activation.md)). Alle 6 Personas
 erzeugen echte Decisions inkl. `reject_idea`, Personas können den Research-
 Pool zusätzlich aktiv durchsuchen
-([F045](docs/features/F045-persona-search-tool.md)). Offen für den
-formalen Abschluss: 5 ununterbrochene Handelstage ohne unbehandelte
-Exception, Kosten-Cap-Stichprobe, täglicher Digest — siehe
-`docs/dod/phase-4.md`.
+([F045](docs/features/F045-persona-search-tool.md)). Am 10.07.2026 wurde
+der Telegram-HITL-Callback-Listener nie als Dauerbetrieb-Prozess deployt
+gefunden (Freigabe-Buttons wirkungslos, fail-closed über den
+30-Min-Timeout) und behoben — seither erstmals eine echte Order komplett
+durchgängig bis `EXECUTED` mit aktivem Stop verifiziert
+([F049](docs/features/F049-telegram-bot-polling-service.md) ff., siehe
+`docs/dod/phase-4.md` für die volle Fund-/Fix-Liste F049–F061). Offen für
+den formalen Abschluss: 5 ununterbrochene Handelstage ohne unbehandelte
+Exception (Zähler nach den Fixes neu gestartet), Kosten-Cap-Stichprobe,
+täglicher Digest — siehe `docs/dod/phase-4.md`.
 
 ### Weitere Phasen
 Phase 5 (Review & Wettbewerb-Start), Phase 6 (Live), Phase 7 (Autonomie & Experimente) — siehe ARCHITECTURE.md §8 für vollständige DoD.
@@ -222,5 +228,7 @@ Dieses Projekt entstand in enger Zusammenarbeit mit Claude (Anthropic) für die 
 ---
 
 **Zuletzt aktualisiert:** 10.07.2026  
-**Phase:** 4 (Agenten-Core inhaltlich erledigt, Dauerlauf-Nachweis läuft)  
-**Status:** UGREEN-Stack live, Scheduler automatisiert seit 07.07.2026, CI grün
+**Phase:** 4 (Agenten-Core inhaltlich erledigt, Dauerlauf-Nachweis läuft — Zähler
+seit den F049-F061-Fixes neu gestartet)  
+**Status:** UGREEN-Stack live, Scheduler automatisiert seit 07.07.2026, Telegram-
+HITL-Listener als Dauerbetrieb-Service seit 10.07.2026, CI grün
