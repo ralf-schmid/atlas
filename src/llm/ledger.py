@@ -114,6 +114,7 @@ def guarded_complete(
     *,
     persona_id: uuid.UUID | None = None,
     tools: list[dict[str, object]] | None = None,
+    tool_choice: str | None = None,
 ) -> GuardedCompletionResult:
     if not role.shared and persona_id is None:
         raise ValueError(f"Role {role.name!r} is not shared and requires a persona_id")
@@ -135,7 +136,9 @@ def guarded_complete(
 
     monthly_check = check_monthly_soft_cap(sum_month_spend(session, now), caps)
 
-    response = client.complete(model=role.model, messages=messages, tools=tools)
+    response = client.complete(
+        model=role.model, messages=messages, tools=tools, tool_choice=tool_choice
+    )
 
     # The LLM call above is unlocked and can run in parallel across personas — the
     # checks above may all have read a stale (pre-sibling-insert) total. What must be

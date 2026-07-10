@@ -535,6 +535,18 @@ def _run_llm_with_tools(
     per-call budget check/cost_ledger write (Invariant #7) applies to every round,
     not just the first. Mutates `available_ids` in place with any research_item ids
     the tool surfaces, so `_resolve_decision` accepts citations of them.
+
+    The forced final round (F057) keeps `tools` declared and instead passes
+    `tool_choice="none"` — dropping the `tools` key entirely on that round, while
+    the conversation history still contains this persona's own prior
+    assistant-tool_calls/tool-result messages from earlier rounds, produced
+    empty `message.content` from the proxy on that final call (live-confirmed
+    2026-07-10: every `llm_output_parse_error` decision in the DB has an empty,
+    not malformed, raw response — 11 of 17 hitting HYPE, the persona most likely
+    to use both tool rounds and so most likely to reach the forced round with
+    tool history already in context). Declaring `tools` consistently across all
+    rounds and using `tool_choice` to suppress use on the last one keeps the
+    request shape consistent with the conversation history.
     """
     total_tokens_in = 0
     total_tokens_out = 0
@@ -542,9 +554,16 @@ def _run_llm_with_tools(
     response: LLMResponse | None = None
 
     for round_index in range(_MAX_TOOL_ROUNDS + 1):
-        tools = [SEARCH_RESEARCH_POOL_TOOL] if round_index < _MAX_TOOL_ROUNDS else None
+        forced_final = round_index == _MAX_TOOL_ROUNDS
         result = guarded_complete(
-            session, client, role, caps, messages, persona_id=persona_id, tools=tools
+            session,
+            client,
+            role,
+            caps,
+            messages,
+            persona_id=persona_id,
+            tools=[SEARCH_RESEARCH_POOL_TOOL],
+            tool_choice="none" if forced_final else None,
         )
         response = result.response
         total_tokens_in += response.tokens_in

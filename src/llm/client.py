@@ -54,10 +54,13 @@ class LiteLLMClient:
         model: str,
         messages: list[dict[str, object]],
         tools: list[dict[str, object]] | None = None,
+        tool_choice: str | None = None,
     ) -> LLMResponse:
         body: dict[str, object] = {"model": model, "messages": messages}
         if tools is not None:
             body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
         response = self._http.post(
             f"{self._base_url}/chat/completions",
             json=body,

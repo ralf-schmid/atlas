@@ -914,7 +914,9 @@ def test_tool_call_search_result_can_be_cited_in_final_decision(session: Session
 
 def test_tool_use_loop_is_capped_then_forces_a_final_answer(session: Session) -> None:
     """A persona that keeps calling the tool must not loop forever — after the cap,
-    the next call is made without `tools`, forcing a plain-JSON answer."""
+    the next call still declares `tools` (F057: dropping it while tool-call history
+    is already in the conversation produced empty responses from the proxy) but
+    passes `tool_choice="none"` to force a plain-JSON answer instead."""
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     final_content = json.dumps(
@@ -939,11 +941,14 @@ def test_tool_use_loop_is_capped_then_forces_a_final_answer(session: Session) ->
 
     assert decision is not None
     assert decision.rejection_reason is None
-    # 2 tool-enabled rounds + 1 forced final round without tools
+    # 2 tool-enabled rounds + 1 forced final round with tools declared but disabled
     assert len(call_bodies) == 3
     assert "tools" in call_bodies[0]
+    assert "tool_choice" not in call_bodies[0]
     assert "tools" in call_bodies[1]
-    assert "tools" not in call_bodies[2]
+    assert "tool_choice" not in call_bodies[1]
+    assert "tools" in call_bodies[2]
+    assert call_bodies[2]["tool_choice"] == "none"
 
 
 def test_tool_use_rounds_write_a_single_agent_run_with_summed_cost(session: Session) -> None:

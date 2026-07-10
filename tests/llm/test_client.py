@@ -121,6 +121,56 @@ def test_complete_omits_tools_key_when_not_given():
     assert "tools" not in captured_bodies[0]
 
 
+def test_complete_sends_tool_choice_when_given():
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    captured_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(httpx_json(request))
+        return httpx.Response(200, json=response_json, headers={"x-litellm-response-cost": "0.01"})
+
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tools = [{"type": "function", "function": {"name": "search", "parameters": {}}}]
+
+    client.complete(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "hi"}],
+        tools=tools,
+        tool_choice="none",
+    )
+
+    assert captured_bodies[0]["tool_choice"] == "none"
+
+
+def test_complete_omits_tool_choice_key_when_not_given():
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    captured_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(httpx_json(request))
+        return httpx.Response(200, json=response_json, headers={"x-litellm-response-cost": "0.01"})
+
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+
+    assert "tool_choice" not in captured_bodies[0]
+
+
 def test_complete_parses_tool_calls_from_response():
     response_json = {
         "choices": [
