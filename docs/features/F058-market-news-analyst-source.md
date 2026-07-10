@@ -84,8 +84,15 @@ skipped (unverändert). `uv run ruff check`/`ruff format --check` → sauber.
 lokal gegen echtes Postgres verifiziert (`alembic upgrade head` →
 `4708e243f853`, sauber angewendet nach vorherigem `4a5af5b72b93`).
 
-**Live-Verifikation ausstehend:** manueller Sync-Lauf gegen den echten Feed
-nach Deploy auf der Box, siehe `docs/deployment.md`.
+**Live-Verifikation (2026-07-10, UGREEN):** rsync (voller Sync) + `docker
+compose build api scheduler telegram-bot` + `up -d` + `alembic upgrade head`
+(→ `4708e243f853`, sauber angewendet). Manueller Sync-Lauf gegen den echten
+Yahoo-Finance-Feed → **47 echte Headlines synct**, u. a. mehrere reale
+Argus-Research-Analystenreports ("Analyst Report: Deere & Co", "Analyst
+Report: Monster Beverage Corp", "Technical Assessment: Bullish in the
+Intermediate-Term") sowie Reuters-/TheStreet-Marktnachrichten. Scheduler-Log
+nach Neustart bestätigt `_market_news_job` registriert neben allen
+bestehenden Jobs.
 
 ## 6. Rollback-Pfad
 
