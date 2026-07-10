@@ -128,6 +128,11 @@ def build_scheduler(
         scheduler.add_job(
             _run_cycle_job,
             trigger="cron",
+            # F061: unlike the crypto jobs below, this had no day_of_week filter —
+            # US equity cycles would fire every day including weekends, when the
+            # market is closed (real LLM cost against stale Friday data, no new
+            # signal possible).
+            day_of_week="mon-fri",
             hour=hour,
             minute=minute,
             timezone=cycles_config.stock_timezone,

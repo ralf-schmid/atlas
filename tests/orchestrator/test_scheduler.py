@@ -64,6 +64,19 @@ def test_stock_jobs_use_exchange_timezone_and_crypto_jobs_use_utc() -> None:
     assert _field(stock_job, "minute") == "0"
 
 
+def test_stock_jobs_are_restricted_to_weekdays() -> None:
+    # F061: unlike crypto (day_of_week="mon-fri"/"sat,sun" explicitly set for its
+    # two job groups), stock cycles had no day_of_week filter at all and would
+    # fire on a closed weekend market.
+    config = load_cycles_config()
+
+    scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
+
+    for seq in (1, 2, 3, 4):
+        stock_job = scheduler.get_job(f"stock-c{seq}")
+        assert _field(stock_job, "day_of_week") == "mon-fri"
+
+
 @pytest.fixture(autouse=True)
 def _reset_failure_counters():
     scheduler_module._consecutive_failures.clear()
