@@ -13,7 +13,7 @@ from decimal import Decimal
 import pytest
 from sqlalchemy import select
 
-from src.broker.protocol import OrderResult, OrderSide
+from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 from src.db.base import get_session_factory
 from src.db.models import (
     Decision,
@@ -23,6 +23,7 @@ from src.db.models import (
     OrderRecord,
     Persona,
     Portfolio,
+    PortfolioSnapshot,
 )
 from src.orchestrator.graph import create_cycle
 from src.orchestrator.scheduler import retry_stuck_decisions
@@ -52,11 +53,20 @@ class _FakeAdapter:
     def cancel_order(self, order_id: str) -> None:
         raise NotImplementedError
 
-    def get_positions(self) -> list[object]:
-        raise NotImplementedError
+    def get_positions(self) -> list[Position]:
+        return [
+            Position(
+                symbol="AAPL",
+                qty=2.0,
+                side=OrderSide.BUY,
+                avg_entry_price=150.0,
+                market_value=310.0,
+                unrealized_pl=10.0,
+            )
+        ]
 
-    def get_account_balance(self) -> object:
-        raise NotImplementedError
+    def get_account_balance(self) -> AccountBalance:
+        return AccountBalance(cash=4700.0, equity=5010.0, buying_power=4700.0)
 
 
 def _seed_approved_decision(
@@ -123,6 +133,13 @@ def test_retry_executes_orphaned_approved_decision() -> None:
             select(OrderRecord).where(OrderRecord.decision_id == decision_id)
         )
         assert order_record is not None
+        # F059: without a fresh snapshot right here, the new position stays
+        # invisible in the dashboard/Grafana until whatever cycle next runs for
+        # this portfolio.
+        snapshot = session.scalar(
+            select(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == decision.portfolio_id)
+        )
+        assert snapshot is not None
 
 
 def test_retry_skips_decision_that_already_has_an_order_record() -> None:
@@ -140,6 +157,15 @@ def test_retry_leaves_decision_approved_on_repeated_broker_failure() -> None:
     session_factory = get_session_factory()
     decision_id = _seed_approved_decision(session_factory)
     fake_adapter = _FakeAdapter(should_fail=True)
+    with session_factory() as session:
+        decision = session.get_one(Decision, decision_id)
+        snapshot_count_before = len(
+            session.scalars(
+                select(PortfolioSnapshot).where(
+                    PortfolioSnapshot.portfolio_id == decision.portfolio_id
+                )
+            ).all()
+        )
 
     count = retry_stuck_decisions(session_factory, adapter_factory=lambda _persona: fake_adapter)
 
@@ -151,3 +177,13 @@ def test_retry_leaves_decision_approved_on_repeated_broker_failure() -> None:
             session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision_id))
             is None
         )
+        # F059: a failed execute_decision must not create a snapshot either — the
+        # broker-side state didn't actually change.
+        snapshot_count_after = len(
+            session.scalars(
+                select(PortfolioSnapshot).where(
+                    PortfolioSnapshot.portfolio_id == decision.portfolio_id
+                )
+            ).all()
+        )
+        assert snapshot_count_after == snapshot_count_before

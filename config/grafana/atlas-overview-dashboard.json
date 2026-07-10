@@ -451,11 +451,45 @@
       "type": "table"
     },
     {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "dfr7iupqjs4cgb"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "id": 20,
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "dfr7iupqjs4cgb"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawSql": "SELECT p.name AS persona, psn.instrument, psn.qty, psn.avg_price, psn.market_value, psn.pnl_unrealized, psn.ts AS last_snapshot FROM position_snapshot psn JOIN portfolio pf ON pf.id = psn.portfolio_id JOIN persona p ON p.id = pf.persona_id JOIN (SELECT portfolio_id, MAX(ts) AS max_ts FROM portfolio_snapshot GROUP BY portfolio_id) latest ON latest.portfolio_id = psn.portfolio_id AND latest.max_ts = psn.ts ORDER BY p.name, psn.instrument",
+          "refId": "A"
+        }
+      ],
+      "title": "Aktuelle Positionen (Depot je Persona)",
+      "type": "table"
+    },
+    {
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 31
+        "y": 39
       },
       "id": 103,
       "title": "Ingestion Freshness",
@@ -493,7 +527,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 32
+        "y": 40
       },
       "id": 10,
       "options": {
@@ -541,7 +575,7 @@
         "h": 8,
         "w": 18,
         "x": 6,
-        "y": 32
+        "y": 40
       },
       "id": 11,
       "targets": [
@@ -564,7 +598,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 48
       },
       "id": 104,
       "title": "Decisions",
@@ -583,7 +617,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 41
+        "y": 49
       },
       "id": 12,
       "options": {
@@ -629,7 +663,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 41
+        "y": 49
       },
       "id": 13,
       "options": {
@@ -655,7 +689,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 49
+        "y": 57
       },
       "id": 105,
       "title": "Research-Datenbasis",
@@ -685,7 +719,7 @@
         "h": 4,
         "w": 6,
         "x": 0,
-        "y": 50
+        "y": 58
       },
       "id": 14,
       "options": {
@@ -736,7 +770,7 @@
         "h": 4,
         "w": 6,
         "x": 6,
-        "y": 50
+        "y": 58
       },
       "id": 15,
       "options": {
@@ -787,7 +821,7 @@
         "h": 4,
         "w": 6,
         "x": 12,
-        "y": 50
+        "y": 58
       },
       "id": 16,
       "options": {
@@ -838,7 +872,7 @@
         "h": 4,
         "w": 6,
         "x": 18,
-        "y": 50
+        "y": 58
       },
       "id": 17,
       "options": {
@@ -877,7 +911,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 54
+        "y": 62
       },
       "id": 18,
       "options": {
@@ -923,7 +957,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 54
+        "y": 62
       },
       "id": 19,
       "options": {
@@ -969,5 +1003,5 @@
   "timezone": "browser",
   "title": "ATLAS — Overview",
   "uid": "1947b915-e884-4d0d-a9ac-f4933f876f2c",
-  "version": 1
+  "version": 2
 }

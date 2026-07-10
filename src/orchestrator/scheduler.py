@@ -34,6 +34,7 @@ from src.db.models import (
 )
 from src.orchestrator.cycles_config import CyclesConfig
 from src.orchestrator.graph import CycleState
+from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.trading import execute_decision
 from src.telegram.config import load_config as load_telegram_config
 from src.telegram.hitl import HitlDecision, HitlOutcome
@@ -349,6 +350,17 @@ def retry_stuck_decisions(
             broker_adapter = adapter_factory(persona_name)
             try:
                 execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
+                # F059: without this, a position bought here is invisible in the
+                # dashboard/Grafana (both read `position_snapshot`, F050's own
+                # retry sweep was the only decision-execution path that didn't
+                # call this) until whatever cycle next runs for this portfolio —
+                # potentially hours away.
+                generate_portfolio_snapshot(
+                    session,
+                    decision.portfolio_id,
+                    broker_adapter,
+                    datetime.datetime.now(datetime.UTC),
+                )
                 session.commit()
                 executed += 1
             except Exception:
