@@ -130,6 +130,15 @@ services:
       # F037: screenshot evidence (F012 lineage) — host-persistent across
       # deploys, same convention as the api service's publications volume.
       - ./data/ingest/aktienfinder/screenshots:/data/ingest/aktienfinder/screenshots
+      # F054: JSONLedgerStore's default base dir (src/broker/ledger_store.py)
+      # resolves inside the container filesystem — without this mount, every
+      # rebuild/recreate of this container silently resets HYPE/CONTRA/CRYPTOR
+      # (the internal_ledger personas) back to a fresh $5000, no positions, no
+      # pending stops. Must also be mounted on telegram-bot below at the same
+      # host path — a HITL-resume for one of these personas runs in that
+      # container and needs to see the same ledger state, not a second,
+      # independent empty one.
+      - ./data/ledger:/app/data/ledger
     depends_on:
       postgres:
         condition: service_healthy
@@ -165,6 +174,12 @@ services:
       ALPACA_PAPER_CHARTIST_SECRET_KEY: ${ALPACA_PAPER_CHARTIST_SECRET_KEY}
       ALPACA_MARKET_DATA_KEY_ID: ${ALPACA_MARKET_DATA_KEY_ID}
       ALPACA_MARKET_DATA_SECRET_KEY: ${ALPACA_MARKET_DATA_SECRET_KEY}
+    volumes:
+      # F054: same mount, same host path, as the scheduler service above — a
+      # HITL-resume for an internal_ledger persona (HYPE/CONTRA/CRYPTOR) runs in
+      # this container and must see the same on-disk ledger state, not its own
+      # separate (and otherwise ephemeral) one.
+      - ./data/ledger:/app/data/ledger
     depends_on:
       postgres:
         condition: service_healthy

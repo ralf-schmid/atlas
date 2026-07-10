@@ -1,11 +1,10 @@
-"""Thin python-telegram-bot wiring. All real logic lives in security.py/hitl.py/
+"""Thin python-telegram-bot wiring. Most real logic lives in security.py/hitl.py/
 commands.py/digest.py, which are pure and unit-tested without a live bot — see
 docs/features/F005-telegram-bot.md.
 
-Not started anywhere automatically yet (no orchestrator calls this). Building
-the `Application` here only requires a syntactically-shaped token string, not
-a real one — connecting to Telegram (`run_polling()`) is what would need
-Ralf's real TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID.
+Run as the `telegram-bot` service (F049, `scripts/run_telegram_bot.py`,
+`docker-compose.yml`) — a long-lived `run_polling()` process, not started from
+anywhere in the orchestrator itself.
 """
 
 from __future__ import annotations
@@ -17,9 +16,11 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from langgraph.types import Command
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
+from src.db.models import Persona
 from src.telegram.commands import parse_hitl_command, parse_persona_command
 from src.telegram.config import TelegramConfig
 from src.telegram.hitl import (
@@ -107,6 +108,27 @@ async def _handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.message.reply_text("Status: noch keine Portfolios konfiguriert.")
 
 
+def _set_persona_active(
+    session_factory: sessionmaker[Session], persona_name: str, active: bool
+) -> bool:
+    """Toggles `Persona.active` — the same flag `list_active_portfolios`
+    (`src/orchestrator/graph.py`) filters on for the cycle fan-out, so this is a
+    real pause/resume, not just cosmetic. Returns False if the persona name is
+    unknown (shouldn't happen — `parse_persona_command` already validates against
+    `KNOWN_PERSONAS` — but a DB/seed mismatch must not crash the handler)."""
+    session = session_factory()
+    try:
+        persona = session.scalar(select(Persona).filter_by(name=persona_name))
+        if persona is None:
+            return False
+        persona.active = active
+        session.add(persona)
+        session.commit()
+        return True
+    finally:
+        session.close()
+
+
 async def _handle_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.text:
         return
@@ -115,7 +137,10 @@ async def _handle_pause(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except ValueError as exc:
         await update.message.reply_text(str(exc))
         return
-    # TODO(Folgearbeit): persona.active = False in der DB setzen.
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None or not _set_persona_active(session_factory, persona, False):
+        await update.message.reply_text(f"{persona}: Pausieren fehlgeschlagen (nicht in der DB).")
+        return
     await update.message.reply_text(f"{persona} pausiert.")
 
 
@@ -127,7 +152,10 @@ async def _handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     except ValueError as exc:
         await update.message.reply_text(str(exc))
         return
-    # TODO(Folgearbeit): persona.active = True in der DB setzen.
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None or not _set_persona_active(session_factory, persona, True):
+        await update.message.reply_text(f"{persona}: Fortsetzen fehlgeschlagen (nicht in der DB).")
+        return
     await update.message.reply_text(f"{persona} fortgesetzt.")
 
 

@@ -64,11 +64,23 @@ def test_make_handler_calls_inner_for_authorized_chat():
     inner.assert_called_once()
 
 
-def test_handle_pause_replies_with_persona_name():
+def _mock_context_with_persona(persona: MagicMock | None):
+    fake_session = MagicMock()
+    fake_session.scalar.return_value = persona
+    context = MagicMock()
+    context.application.bot_data = {"session_factory": MagicMock(return_value=fake_session)}
+    return context, fake_session
+
+
+def test_handle_pause_sets_persona_inactive_in_db():
+    persona = MagicMock(active=True)
+    context, fake_session = _mock_context_with_persona(persona)
     update = _mock_update(chat_id=42, text="/pause VULTURE")
 
-    asyncio.run(_handle_pause(update, MagicMock()))
+    asyncio.run(_handle_pause(update, context))
 
+    assert persona.active is False
+    fake_session.commit.assert_called_once()
     update.message.reply_text.assert_called_once_with("VULTURE pausiert.")
 
 
@@ -80,11 +92,26 @@ def test_handle_pause_replies_with_usage_on_invalid_input():
     update.message.reply_text.assert_called_once_with("Usage: /pause <PERSONA>")
 
 
-def test_handle_resume_replies_with_persona_name():
+def test_handle_pause_reports_failure_when_persona_missing_from_db():
+    context, _fake_session = _mock_context_with_persona(None)
+    update = _mock_update(chat_id=42, text="/pause VULTURE")
+
+    asyncio.run(_handle_pause(update, context))
+
+    update.message.reply_text.assert_called_once_with(
+        "VULTURE: Pausieren fehlgeschlagen (nicht in der DB)."
+    )
+
+
+def test_handle_resume_sets_persona_active_in_db():
+    persona = MagicMock(active=False)
+    context, fake_session = _mock_context_with_persona(persona)
     update = _mock_update(chat_id=42, text="/resume GUARDIAN")
 
-    asyncio.run(_handle_resume(update, MagicMock()))
+    asyncio.run(_handle_resume(update, context))
 
+    assert persona.active is True
+    fake_session.commit.assert_called_once()
     update.message.reply_text.assert_called_once_with("GUARDIAN fortgesetzt.")
 
 
