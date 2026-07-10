@@ -61,9 +61,15 @@ pytest -q -m 'not integration'` → 486 passed, 10 deselected. `uv run pytest
 -q -m integration` → 8 passed, 2 skipped (unverändert). `uv run ruff
 check`/`ruff format --check` → sauber. `uv run mypy src/broker` → sauber.
 
-**Live-Verifikation ausstehend:** nächster `retry_stuck_decisions`-Lauf nach
-Deploy sollte die beiden verwaisten Decisions (AAPL, ALDX) endlich bis
-`EXECUTED` bringen — siehe `docs/deployment.md` für das Ergebnis.
+**Live-Verifikation (2026-07-10, UGREEN, echte Alpaca-Paper-Accounts):**
+`retry_stuck_decisions` manuell angestoßen → `retried: 2`. Beide Decisions
+`EXECUTED` mit echtem `order_record`: AAPL (CHARTIST) 1 Aktie, Stop
+742d5a66… @ 290.87 USD; ALDX (VULTURE) 26 Aktien, Stop 42a55d6c… @ 1.72 USD.
+Gegenprobe direkt gegen die echten Alpaca-Accounts: beide Entry-Orders
+`FILLED`, beide Stop-Legs `time_in_force=GTC`, `status=NEW` (aktiv) — bestätigt
+§2s Annahme, dass die Rundung Invariante #4 tatsächlich wieder erreichbar
+macht. VULTUREs `buying_power` sank von 5.000 auf 4.937,20 USD, konsistent
+mit 26 ALDX-Aktien zu ca. 2,29 USD.
 
 ## 6. Rollback-Pfad
 
