@@ -13,7 +13,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import Cycle, Decision, DecisionStatus
+from src.db.models import Cycle, Decision, DecisionStatus, Persona, Portfolio
 from src.telegram.hitl import HitlDecision, HitlOutcome, HitlRequest
 
 _NumericJson = int | float | str | Decimal
@@ -45,21 +45,23 @@ def mark_hitl_pending(
 
 def load_pending_decision(
     session: Session, decision_id: uuid.UUID
-) -> tuple[Decision, Cycle] | None:
+) -> tuple[Decision, Cycle, str] | None:
     row = session.execute(
-        select(Decision, Cycle)
+        select(Decision, Cycle, Persona.name)
         .join(Cycle, Decision.cycle_id == Cycle.id)
+        .join(Portfolio, Decision.portfolio_id == Portfolio.id)
+        .join(Persona, Portfolio.persona_id == Persona.id)
         .where(Decision.id == decision_id)
     ).one_or_none()
     if row is None:
         return None
-    decision, cycle = row
+    decision, cycle, persona_name = row
     if decision.status != DecisionStatus.HITL_PENDING:
         return None
-    return decision, cycle
+    return decision, cycle, persona_name
 
 
-def decision_to_hitl_request(decision: Decision, cycle: Cycle) -> HitlRequest:
+def decision_to_hitl_request(decision: Decision, cycle: Cycle, persona_name: str) -> HitlRequest:
     hitl = decision.hitl or {}
     requested_at_raw = hitl.get("requested_at")
     if isinstance(requested_at_raw, str):
@@ -79,6 +81,7 @@ def decision_to_hitl_request(decision: Decision, cycle: Cycle) -> HitlRequest:
 
     return HitlRequest(
         decision_id=decision.id,
+        persona_name=persona_name,
         instrument=decision.instrument,
         thesis_text=decision.thesis_text,
         amount_usd=amount_usd,

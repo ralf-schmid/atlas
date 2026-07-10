@@ -148,6 +148,7 @@ def test_handle_hitl_callback_without_session_factory():
 def test_handle_hitl_callback_approves_pending_decision(monkeypatch):
     request = HitlRequest(
         decision_id=_DECISION_ID,
+        persona_name="VULTURE",
         instrument="MSFT",
         thesis_text="Momentum",
         amount_usd=1200.0,
@@ -160,9 +161,9 @@ def test_handle_hitl_callback_approves_pending_decision(monkeypatch):
 
     monkeypatch.setattr(
         "src.telegram.bot.load_pending_decision",
-        lambda _session, _decision_id: (fake_decision, MagicMock()),
+        lambda _session, _decision_id: (fake_decision, MagicMock(), "VULTURE"),
     )
-    monkeypatch.setattr("src.telegram.bot.decision_to_hitl_request", lambda _d, _c: request)
+    monkeypatch.setattr("src.telegram.bot.decision_to_hitl_request", lambda _d, _c, _p: request)
     monkeypatch.setattr("src.telegram.bot.process_callback", lambda _r, _d, _n: outcome)
     monkeypatch.setattr("src.telegram.bot.apply_hitl_outcome", lambda *_args: None)
 
@@ -174,4 +175,6 @@ def test_handle_hitl_callback_approves_pending_decision(monkeypatch):
 
     fake_session.commit.assert_called_once()
     fake_session.close.assert_called_once()
-    update.callback_query.edit_message_text.assert_called_once_with("✅ Freigabe erteilt: MSFT.")
+    update.callback_query.edit_message_text.assert_called_once_with(
+        "✅ Freigabe erteilt: VULTURE — MSFT."
+    )

@@ -20,6 +20,7 @@ _CREATED_AT = datetime.datetime(2026, 7, 5, 12, 0, tzinfo=datetime.UTC)
 def request_() -> HitlRequest:
     return HitlRequest(
         decision_id=_DECISION_ID,
+        persona_name="VULTURE",
         instrument="AAPL",
         thesis_text="Fair-Value-Abschlag > 15%",
         amount_usd=1500.0,
@@ -103,6 +104,7 @@ def test_format_outcome_message_approve():
     outcome = process_callback(
         HitlRequest(
             decision_id=_DECISION_ID,
+            persona_name="VULTURE",
             instrument="AAPL",
             thesis_text="x",
             amount_usd=1.0,
@@ -112,13 +114,16 @@ def test_format_outcome_message_approve():
         f"hitl:approve:{_DECISION_ID}",
         _CREATED_AT,
     )
-    assert "Freigabe erteilt" in format_outcome_message("AAPL", outcome)
+    message = format_outcome_message("VULTURE", "AAPL", outcome)
+    assert "Freigabe erteilt" in message
+    assert "VULTURE" in message
 
 
 def test_format_outcome_message_timeout():
     outcome = process_callback(
         HitlRequest(
             decision_id=_DECISION_ID,
+            persona_name="VULTURE",
             instrument="AAPL",
             thesis_text="x",
             amount_usd=1.0,
@@ -128,12 +133,15 @@ def test_format_outcome_message_timeout():
         f"hitl:approve:{_DECISION_ID}",
         _CREATED_AT + datetime.timedelta(minutes=31),
     )
-    assert "Timeout" in format_outcome_message("AAPL", outcome)
+    message = format_outcome_message("VULTURE", "AAPL", outcome)
+    assert "Timeout" in message
+    assert "VULTURE" in message
 
 
 def test_format_approval_message_contains_key_fields(request_):
     message = format_approval_message(request_)
 
+    assert "VULTURE" in message
     assert "AAPL" in message
     assert "Fair-Value-Abschlag > 15%" in message
     assert "1,500.00" in message

@@ -23,6 +23,7 @@ class HitlDecision(enum.Enum):
 @dataclass(frozen=True, slots=True)
 class HitlRequest:
     decision_id: uuid.UUID
+    persona_name: str
     instrument: str
     thesis_text: str
     amount_usd: float
@@ -76,17 +77,17 @@ def process_callback(
     return HitlOutcome(decision=HitlDecision.REJECTED, decided_by="user")
 
 
-def format_outcome_message(instrument: str, outcome: HitlOutcome) -> str:
+def format_outcome_message(persona_name: str, instrument: str, outcome: HitlOutcome) -> str:
     if outcome.decision == HitlDecision.APPROVED:
-        return f"✅ Freigabe erteilt: {instrument}."
+        return f"✅ Freigabe erteilt: {persona_name} — {instrument}."
     if outcome.decided_by == "timeout":
-        return f"⏱ Timeout — automatisch abgelehnt: {instrument}."
-    return f"❌ Abgelehnt: {instrument}."
+        return f"⏱ Timeout — automatisch abgelehnt: {persona_name} — {instrument}."
+    return f"❌ Abgelehnt: {persona_name} — {instrument}."
 
 
 def format_approval_message(request: HitlRequest) -> str:
     return (
-        f"\U0001f514 Freigabe erforderlich: {request.instrument}\n\n"
+        f"\U0001f514 Freigabe erforderlich: {request.persona_name} — {request.instrument}\n\n"
         f"These: {request.thesis_text}\n"
         f"Betrag: ${request.amount_usd:,.2f}\n"
         f"Stop-Loss: ${request.stop_loss_price:,.2f}\n\n"

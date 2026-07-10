@@ -104,6 +104,7 @@ def notify_pending_hitl_decisions(
 
             request = HitlRequest(
                 decision_id=decision_id,
+                persona_name=payload["persona_name"],
                 instrument=payload["instrument"],
                 thesis_text=payload["thesis_text"],
                 amount_usd=float(payload.get("amount_usd") or 0.0),
@@ -281,13 +282,15 @@ def sweep_expired_hitl_decisions(
 
     with session_factory() as session:
         rows = session.execute(
-            select(Decision, Cycle)
+            select(Decision, Cycle, Persona.name)
             .join(Cycle, Decision.cycle_id == Cycle.id)
+            .join(Portfolio, Decision.portfolio_id == Portfolio.id)
+            .join(Persona, Portfolio.persona_id == Persona.id)
             .where(Decision.status == DecisionStatus.HITL_PENDING)
         ).all()
 
-        for decision, cycle in rows:
-            request = decision_to_hitl_request(decision, cycle)
+        for decision, cycle, persona_name in rows:
+            request = decision_to_hitl_request(decision, cycle, persona_name)
             if not request.is_expired(now):
                 continue
             outcome = HitlOutcome(decision=HitlDecision.REJECTED, decided_by="timeout")

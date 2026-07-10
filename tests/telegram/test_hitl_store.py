@@ -36,10 +36,11 @@ def test_mark_hitl_pending_and_load(session):
 
     loaded = load_pending_decision(session, decision.id)
     assert loaded is not None
-    loaded_decision, loaded_cycle = loaded
+    loaded_decision, loaded_cycle, loaded_persona_name = loaded
     assert loaded_decision.id == decision.id
     assert loaded_decision.status == DecisionStatus.HITL_PENDING
     assert loaded_cycle.id == cycle.id
+    assert loaded_persona_name == "VULTURE"
 
 
 def test_load_pending_decision_returns_none_for_wrong_status(session):
@@ -60,9 +61,10 @@ def test_decision_to_hitl_request_uses_hitl_metadata(session):
     decision = make_decision(session, cycle, portfolio, research)
     mark_hitl_pending(session, decision, amount_usd=1500.0, requested_at=_REQUESTED_AT)
 
-    request = decision_to_hitl_request(decision, cycle)
+    request = decision_to_hitl_request(decision, cycle, "GUARDIAN")
 
     assert request.decision_id == decision.id
+    assert request.persona_name == "GUARDIAN"
     assert request.instrument == "AAPL"
     assert request.amount_usd == 1500.0
     assert request.stop_loss_price == 140.0
@@ -76,7 +78,7 @@ def test_apply_hitl_outcome_persists_approve(session):
     research = make_research_item(session, cycle)
     decision = make_decision(session, cycle, portfolio, research)
     mark_hitl_pending(session, decision, amount_usd=900.0, requested_at=_REQUESTED_AT)
-    request = decision_to_hitl_request(decision, cycle)
+    request = decision_to_hitl_request(decision, cycle, "CHARTIST")
     now = _REQUESTED_AT + datetime.timedelta(minutes=5)
     outcome = process_callback(request, f"hitl:approve:{decision.id}", now)
 
@@ -96,7 +98,7 @@ def test_apply_hitl_outcome_persists_timeout_reject(session):
     research = make_research_item(session, cycle)
     decision = make_decision(session, cycle, portfolio, research)
     mark_hitl_pending(session, decision, amount_usd=900.0, requested_at=_REQUESTED_AT)
-    request = decision_to_hitl_request(decision, cycle)
+    request = decision_to_hitl_request(decision, cycle, "CONTRA")
     now = _REQUESTED_AT + datetime.timedelta(minutes=31)
     outcome = process_callback(request, f"hitl:approve:{decision.id}", now)
 

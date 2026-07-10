@@ -119,7 +119,7 @@ def analyze_persona_cycle(
     existing = _find_hitl_decision(session, cycle_id, portfolio_id)
     if existing is not None:
         if existing.status == DecisionStatus.HITL_PENDING:
-            existing = _await_hitl_outcome(session, existing)
+            existing = _await_hitl_outcome(session, existing, persona_name)
         _maybe_execute_decision(session, existing, persona_name, broker_adapter)
         generate_portfolio_snapshot(
             session, portfolio_id, broker_adapter, datetime.datetime.now(datetime.UTC)
@@ -426,7 +426,7 @@ def _resolve_buy_decision(
         if is_hitl_required(portfolio.mode):
             mark_hitl_pending(session, decision, amount_usd=position_value_usd)
             session.commit()
-            return _await_hitl_outcome(session, decision)
+            return _await_hitl_outcome(session, decision, persona_name)
 
     return decision
 
@@ -454,7 +454,7 @@ def _find_hitl_decision(
     return session.scalar(stmt)
 
 
-def _await_hitl_outcome(session: Session, decision: Decision) -> Decision:
+def _await_hitl_outcome(session: Session, decision: Decision, persona_name: str) -> Decision:
     """Pauses this Send-task via LangGraph's interrupt() (see F022 §2) until a
     Telegram callback resumes it with Command(resume={interrupt_id: "approved" |
     "rejected"}). On the first call this raises GraphInterrupt and never returns;
@@ -463,6 +463,7 @@ def _await_hitl_outcome(session: Session, decision: Decision) -> Decision:
     outcome = interrupt(
         {
             "decision_id": str(decision.id),
+            "persona_name": persona_name,
             "instrument": decision.instrument,
             "thesis_text": decision.thesis_text,
             "amount_usd": hitl.get("amount_usd"),

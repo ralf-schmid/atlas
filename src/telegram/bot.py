@@ -205,8 +205,8 @@ async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TY
             await query.edit_message_text("Unbekannte oder bereits bearbeitete Anfrage.")
             return
 
-        decision, cycle = loaded
-        request = decision_to_hitl_request(decision, cycle)
+        decision, cycle, persona_name = loaded
+        request = decision_to_hitl_request(decision, cycle, persona_name)
         try:
             outcome = process_callback(request, query.data, now)
         except ValueError:
@@ -230,4 +230,4 @@ async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TY
             config={"configurable": {"thread_id": thread_id}},
         )
 
-    await query.edit_message_text(format_outcome_message(instrument, outcome))
+    await query.edit_message_text(format_outcome_message(persona_name, instrument, outcome))
