@@ -39,7 +39,9 @@ def test_register_ingestion_jobs_registers_six_jobs_reddit_disabled() -> None:
     assert job_ids == {
         "ingestion-edgar",
         "ingestion-vulture-screener",
+        "ingestion-aktienfinder-screener-discovery",
         "ingestion-market-data",
+        "ingestion-crypto-market-data",
         "ingestion-aktienfinder",
         "ingestion-coingecko",
         "ingestion-aktienfinder-blog",
@@ -125,6 +127,56 @@ def test_market_data_job_resets_failure_streak_on_success(monkeypatch) -> None:
     scheduler_module._market_data_job(lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH)
 
     assert scheduler_module._consecutive_failures["market_data_sync"] == 0
+
+
+def test_crypto_market_data_job_alerts_on_second_consecutive_failure(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("api unreachable")
+
+    monkeypatch.setattr(scheduler_module, "run_daily_crypto_sync", _raise)
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    scheduler_module._crypto_market_data_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+    scheduler_module._crypto_market_data_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+
+    assert len(sent) == 1
+    assert "Krypto-Markt-Bar-Sync" in sent[0]
+
+
+def test_aktienfinder_screener_discovery_job_alerts_on_second_consecutive_failure(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("login failed")
+
+    monkeypatch.setattr(scheduler_module, "run_screener_discovery_configured", _raise)
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    scheduler_module._aktienfinder_screener_discovery_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+    scheduler_module._aktienfinder_screener_discovery_job(
+        lambda: _FakeSession(), scheduler_module._DEFAULT_CONFIG_PATH
+    )
+
+    assert len(sent) == 1
+    assert "aktienfinder-Screener-Discovery" in sent[0]
 
 
 def test_aktienfinder_job_alerts_on_second_consecutive_failure(

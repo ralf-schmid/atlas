@@ -52,6 +52,15 @@ _INSTRUMENT_HOLD_SENTINEL = "PORTFOLIO"
 # calls max per persona per cycle, vs. 1 before this feature.
 _MAX_TOOL_ROUNDS = 2
 
+# F065: every observed `llm_output_parse_error` (17/17, see docs/features/F057
+# and F065) was an empty completion, not malformed JSON — a single bad LLM
+# turn from a bounded, retriable failure mode should not permanently reject a
+# real trading idea. One bounded retry (fresh message history, not the failed
+# attempt's tool-call history — avoids re-triggering the same F057 mismatch)
+# before falling back to reject_idea. Each attempt still goes through
+# guarded_complete's per-call budget check (Invariant #7) unchanged.
+_MAX_PARSE_RETRIES = 1
+
 # F046: hard bound on prompt size. Groq's free tier caps requests at 12k
 # tokens/min and rejects larger ones outright ("Request too large", live-measured:
 # 145 items ≈ 20.3k tokens); an unbounded payload also inflates Anthropic costs
@@ -140,7 +149,7 @@ def analyze_persona_cycle(
     available_ids = {str(item.id) for item in research_items}
 
     try:
-        response, tokens_in, tokens_out, cost_usd = _run_llm_with_tools(
+        response, parsed, tokens_in, tokens_out, cost_usd = _run_llm_with_parse_retry(
             session, client, role, llm_config.caps, messages, persona_id, cycle, available_ids
         )
     except BudgetExceededError as exc:
@@ -155,8 +164,6 @@ def analyze_persona_cycle(
         )
         session.flush()
         raise
-
-    parsed = parse_llm_decision(response.content)
 
     decision = _resolve_decision(
         session,
@@ -550,6 +557,47 @@ def _persist_decision(
 
 def _serialize_risk_check(risk_check: RiskCheckResult) -> dict[str, object]:
     return dict(asdict(risk_check))
+
+
+def _run_llm_with_parse_retry(
+    session: Session,
+    client: LiteLLMClient,
+    role: RoleConfig,
+    caps: CostCaps,
+    messages: list[dict[str, object]],
+    persona_id: uuid.UUID,
+    cycle: Cycle,
+    available_ids: set[str],
+) -> tuple[LLMResponse, PersonaDecisionOutput | None, int, int, float]:
+    """Calls `_run_llm_with_tools`, retrying up to `_MAX_PARSE_RETRIES` times if
+    the response doesn't parse (F065). Each attempt starts from a fresh copy of
+    `messages` — `_run_llm_with_tools` appends tool-call turns onto whatever list
+    it's given, and replaying a failed attempt's tool-call history into the retry
+    would risk reproducing the exact tools/tool_choice history mismatch F057
+    already fixed once. `available_ids` is shared and grows across attempts
+    (already-found search results stay valid). Tokens/cost are summed across
+    every attempt so exactly one `AgentRun` row still covers the whole call,
+    matching the existing per-cycle `AgentRun` contract (F045).
+    """
+    total_tokens_in = 0
+    total_tokens_out = 0
+    total_cost_usd = 0.0
+    response: LLMResponse | None = None
+    parsed: PersonaDecisionOutput | None = None
+
+    for _attempt in range(_MAX_PARSE_RETRIES + 1):
+        response, tokens_in, tokens_out, cost_usd = _run_llm_with_tools(
+            session, client, role, caps, list(messages), persona_id, cycle, available_ids
+        )
+        total_tokens_in += tokens_in
+        total_tokens_out += tokens_out
+        total_cost_usd += cost_usd
+        parsed = parse_llm_decision(response.content)
+        if parsed is not None:
+            break
+
+    assert response is not None  # loop always runs at least once (range >= 1)
+    return response, parsed, total_tokens_in, total_tokens_out, total_cost_usd
 
 
 def _run_llm_with_tools(

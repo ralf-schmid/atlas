@@ -7,8 +7,8 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from src.db.models import ScreenerResult
-from src.orchestrator.symbol_universe import resolve_symbol_universe
+from src.db.models import AktienfinderScreenerCandidate, ScreenerResult
+from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
 from tests.db.factories import make_persona, make_portfolio, make_position_snapshot
 
 
@@ -24,6 +24,22 @@ def _make_screener_result(
     session.add(result)
     session.flush()
     return result
+
+
+def _make_aktienfinder_candidate(
+    session: Session, ticker: str, discovered_at: datetime.date
+) -> AktienfinderScreenerCandidate:
+    candidate = AktienfinderScreenerCandidate(
+        isin=f"US{ticker}",
+        ticker=ticker,
+        name=ticker,
+        region="Nordamerika",
+        discovered_at=discovered_at,
+        fields={},
+    )
+    session.add(candidate)
+    session.flush()
+    return candidate
 
 
 def test_empty_db_returns_only_seed_watchlist(session: Session) -> None:
@@ -66,6 +82,16 @@ def test_includes_latest_screener_symbols_only(session: Session) -> None:
     assert universe == ["ABC"]
 
 
+def test_includes_latest_aktienfinder_screener_tickers_only(session: Session) -> None:
+    """F068: same "latest discovery batch only" contract as VULTURE's screener."""
+    _make_aktienfinder_candidate(session, "OLD", datetime.date(2026, 7, 7))
+    _make_aktienfinder_candidate(session, "NEW", datetime.date(2026, 7, 8))
+
+    universe = resolve_symbol_universe(session, [])
+
+    assert universe == ["NEW"]
+
+
 def test_deduplicates_across_sources(session: Session) -> None:
     persona = make_persona(session, name="VULTURE")
     portfolio = make_portfolio(session, persona)
@@ -75,3 +101,37 @@ def test_deduplicates_across_sources(session: Session) -> None:
     universe = resolve_symbol_universe(session, ["AAPL"])
 
     assert universe == ["AAPL"]
+
+
+def test_resolve_stock_seed_watchlist_merges_market_data_and_aktienfinder_tickers() -> None:
+    config = {
+        "market_data": {"watchlist": ["AAPL", "MSFT"]},
+        "aktienfinder": {"ticker_by_isin": {"DE0007164600": "SAP", "US7427181091": "PG"}},
+    }
+
+    seed = resolve_stock_seed_watchlist(config)
+
+    assert seed == ["AAPL", "MSFT", "PG", "SAP"]
+
+
+def test_resolve_stock_seed_watchlist_deduplicates_overlap() -> None:
+    """F067: an ISIN mapped to a ticker already in market_data.watchlist (e.g.
+    Apple -> AAPL) must not produce a duplicate entry."""
+    config = {
+        "market_data": {"watchlist": ["AAPL"]},
+        "aktienfinder": {"ticker_by_isin": {"US0378331005": "AAPL"}},
+    }
+
+    seed = resolve_stock_seed_watchlist(config)
+
+    assert seed == ["AAPL"]
+
+
+def test_resolve_stock_seed_watchlist_without_aktienfinder_section() -> None:
+    """Backward-compatible: a config without an `aktienfinder` section (or
+    without `ticker_by_isin`) falls back to just the stock watchlist."""
+    config: dict[str, object] = {"market_data": {"watchlist": ["AAPL"]}}
+
+    seed = resolve_stock_seed_watchlist(config)
+
+    assert seed == ["AAPL"]

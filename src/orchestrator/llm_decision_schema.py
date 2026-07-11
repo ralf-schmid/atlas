@@ -22,11 +22,18 @@ class PersonaDecisionOutput(BaseModel):
     input_research_ids: list[str] = []
 
 
-_CODE_FENCE_RE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
+# F065: not anchored (`^...$`) and case-insensitive — the original pattern
+# missed a code fence with an uppercase language tag (```JSON) and broke on
+# any trailing prose after the closing fence (e.g. a sign-off sentence),
+# because `.match()` requires the whole stripped string to be exactly one
+# fenced block. `.search()` finds the fenced block wherever it sits and
+# ignores text before/after it, which is what "one JSON object, ignore
+# everything else the model added" actually means.
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
 
 
 def parse_llm_decision(raw_content: str) -> PersonaDecisionOutput | None:
-    match = _CODE_FENCE_RE.match(raw_content.strip())
+    match = _CODE_FENCE_RE.search(raw_content.strip())
     json_text = match.group(1) if match else raw_content.strip()
 
     try:

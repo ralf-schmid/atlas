@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from src.db.models import (
     AktienfinderBlogPost,
+    AktienfinderScreenerCandidate,
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
@@ -494,6 +495,26 @@ def test_technical_indicator_item_emitted_for_seed_watchlist_symbol_with_enough_
     assert "RSI14" in indicator_items[0].summary
 
 
+def test_technical_indicator_item_emitted_for_crypto_watchlist_symbol_with_enough_bars(
+    session: Session,
+) -> None:
+    """F064: BTC/USD is part of config/ingestion.yaml's crypto_market_data.watchlist
+    (separate seed from market_data.watchlist, merged before resolve_symbol_universe) —
+    CRYPTOR's charter-promised "Momentum/Trend (code-berechnet)" signal, computed by
+    the exact same symbol-agnostic indicator pipeline as any stock (F036)."""
+    _seed_market_bars(session, "BTC/USD", 50)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+
+    items = synthesize_research_items(session, cycle)
+
+    indicator_items = [item for item in items if item.source_type == "technical_indicator"]
+    assert len(indicator_items) == 1
+    assert indicator_items[0].source_ref == "BTC/USD"
+    assert indicator_items[0].instruments == ["BTC/USD"]
+    assert "SMA20" in indicator_items[0].summary
+    assert "RSI14" in indicator_items[0].summary
+
+
 def test_no_technical_indicator_item_when_no_market_bars_exist(session: Session) -> None:
     cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
 
@@ -654,6 +675,60 @@ def test_aktienfinder_blog_item_excluded_outside_window(session: Session) -> Non
     items = synthesize_research_items(session, cycle)
 
     assert [item for item in items if item.source_type == "aktienfinder_blog"] == []
+
+
+def test_aktienfinder_screener_item_mapping_inside_window(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        AktienfinderScreenerCandidate(
+            isin="US0378331005",
+            ticker="AAPL",
+            name="Apple",
+            region="Nordamerika",
+            discovered_at=datetime.date(2026, 7, 7),
+            fields={
+                "price": "200",
+                "price_target": "220",
+                "price_target_upside_pct": "10 %",
+                "quality_score_earnings_stability": "0.9",
+            },
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    screener_items = [item for item in items if item.source_type == "aktienfinder_screener"]
+    assert len(screener_items) == 1
+    assert screener_items[0].source_ref == "AAPL/2026-07-07"
+    # ticker, not ISIN — must resolve against market_bar/order placement like any
+    # other symbol (F067/F068 fix the pre-existing ISIN-vs-ticker mismatch).
+    assert screener_items[0].instruments == ["AAPL"]
+    assert "AAPL" in screener_items[0].summary
+    assert screener_items[0].raw["isin"] == "US0378331005"
+
+
+def test_aktienfinder_screener_item_excluded_outside_window(session: Session) -> None:
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        AktienfinderScreenerCandidate(
+            isin="US0378331005",
+            ticker="AAPL",
+            name="Apple",
+            region="Nordamerika",
+            discovered_at=datetime.date(2026, 7, 1),
+            fields={},
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "aktienfinder_screener"] == []
 
 
 def test_market_news_headline_item_mapping_inside_window(session: Session) -> None:

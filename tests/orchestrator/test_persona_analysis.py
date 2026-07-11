@@ -1401,6 +1401,67 @@ def test_unparseable_llm_response_is_persisted_on_agent_run_for_diagnostics(
     assert runs[0].error == content
 
 
+def test_empty_completion_is_retried_then_succeeds(session: Session) -> None:
+    """F065: the confirmed production failure mode (F057) is an empty completion,
+    not malformed JSON. A single empty turn must not permanently reject a real
+    idea — one retry with a fresh (non-tool-history-carrying) message list should
+    recover it."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    valid_content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "nothing new",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    client, call_bodies = _sequenced_client([_final_response(""), _final_response(valid_content)])
+
+    decision = analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    assert len(call_bodies) == 2
+    assert decision is not None
+    assert decision.rejection_reason is None
+    assert decision.action == DecisionAction.HOLD
+
+    runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
+    assert len(runs) == 1
+    assert runs[0].error is None
+    # tokens/cost summed across both attempts, not just the successful one
+    assert runs[0].tokens_in == 300 + 300
+    assert runs[0].tokens_out == 40 + 40
+
+
+def test_two_empty_completions_in_a_row_still_reject_with_diagnostics(
+    session: Session,
+) -> None:
+    """F065's retry is bounded (1 retry, 2 attempts total) — a persistently
+    broken LLM/proxy must still fall back to the existing reject_idea path
+    rather than loop or silently drop the cycle."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, _item = _make_cycle_with_research_item(session)
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    client, call_bodies = _sequenced_client([_final_response(""), _final_response("")])
+
+    decision = analyze_persona_cycle(
+        session, client, _llm_config(), cycle.id, portfolio.id, persona.id, "VULTURE", adapter
+    )
+
+    assert len(call_bodies) == 2  # bounded — no unbounded retry loop
+    assert decision is not None
+    assert decision.rejection_reason == "llm_output_parse_error"
+
+    runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
+    assert len(runs) == 1
+    assert runs[0].error == ""
+
+
 def test_native_adapter_never_gets_stop_sweep_called(session: Session) -> None:
     """VULTURE (alpaca_paper) has a broker-side GTC stop — the internal sweep must
     not be attempted against it (it has no check_stop_orders method at all)."""

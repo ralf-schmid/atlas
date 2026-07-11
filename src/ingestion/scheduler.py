@@ -24,13 +24,15 @@ from sqlalchemy.orm import Session
 
 from src.ingestion.aktienfinder_blog import run_aktienfinder_blog_sync
 from src.ingestion.aktienfinder_grabbing import run_daily_grab_configured
+from src.ingestion.aktienfinder_screener import run_screener_discovery_configured
 from src.ingestion.coingecko_global import run_coingecko_sync
+from src.ingestion.crypto_market_data_sync import run_daily_crypto_sync
 from src.ingestion.edgar_rss import run_current_filings_sync
 from src.ingestion.market_data_sync import run_daily_sync
 from src.ingestion.reddit_sentiment import run_reddit_sync
 from src.ingestion.vulture_screener import run_daily_screener
 from src.ingestion.yahoo_finance_news import run_market_news_sync
-from src.orchestrator.symbol_universe import resolve_symbol_universe
+from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
 from src.telegram.config import load_config as load_telegram_config
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,18 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
+    hour, minute = _parse_time(schedule["aktienfinder_screener_discovery"]["time"])
+    scheduler.add_job(
+        _aktienfinder_screener_discovery_job,
+        trigger="cron",
+        hour=hour,
+        minute=minute,
+        timezone=timezone,
+        args=[session_factory, config_path],
+        id="ingestion-aktienfinder-screener-discovery",
+        replace_existing=True,
+    )
+
     hour, minute = _parse_time(schedule["market_data_sync"]["time"])
     scheduler.add_job(
         _market_data_job,
@@ -80,6 +94,15 @@ def register_ingestion_jobs(
         timezone=timezone,
         args=[session_factory, config_path],
         id="ingestion-market-data",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        _crypto_market_data_job,
+        trigger="interval",
+        minutes=schedule["crypto_market_data_sync"]["interval_minutes"],
+        args=[session_factory, config_path],
+        id="ingestion-crypto-market-data",
         replace_existing=True,
     )
 
@@ -159,7 +182,9 @@ def _market_data_job(session_factory: Callable[[], Session], config_path: Path) 
         with session_factory() as session:
             config = yaml.safe_load(config_path.read_text())
             market_data_config = config["market_data"]
-            seed_watchlist: list[str] = market_data_config["watchlist"]
+            # F067: includes aktienfinder-candidate tickers, not just the static
+            # market_data.watchlist — see resolve_stock_seed_watchlist.
+            seed_watchlist = resolve_stock_seed_watchlist(config)
             lookback_days: int = market_data_config.get("lookback_days", 1)
             watchlist = resolve_symbol_universe(session, seed_watchlist)
             run_daily_sync(
@@ -172,6 +197,37 @@ def _market_data_job(session_factory: Callable[[], Session], config_path: Path) 
             session.commit()
 
     _run_with_failure_alert("market_data_sync", "Markt-Bar-Sync", _run)
+
+
+def _crypto_market_data_job(session_factory: Callable[[], Session], config_path: Path) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            config = yaml.safe_load(config_path.read_text())
+            lookback_days: int = config["crypto_market_data"].get("lookback_days", 90)
+            run_daily_crypto_sync(
+                session,
+                datetime.date.today(),
+                config_path=config_path,
+                lookback_days=lookback_days,
+            )
+            session.commit()
+
+    _run_with_failure_alert("crypto_market_data_sync", "Krypto-Markt-Bar-Sync", _run)
+
+
+def _aktienfinder_screener_discovery_job(
+    session_factory: Callable[[], Session], config_path: Path
+) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            run_screener_discovery_configured(
+                session, datetime.date.today(), config_path=config_path
+            )
+            session.commit()
+
+    _run_with_failure_alert(
+        "aktienfinder_screener_discovery", "aktienfinder-Screener-Discovery", _run
+    )
 
 
 def _aktienfinder_job(session_factory: Callable[[], Session], config_path: Path) -> None:

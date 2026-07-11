@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from src.db.models import (
     AktienfinderBlogPost,
+    AktienfinderScreenerCandidate,
     AktienfinderSnapshot,
     BtcDominanceSnapshot,
     Cycle,
@@ -39,7 +40,7 @@ from src.orchestrator.indicators import (
     IndicatorSnapshot,
     compute_indicator_snapshot,
 )
-from src.orchestrator.symbol_universe import resolve_symbol_universe
+from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
 
 _BOOTSTRAP_WINDOW = datetime.timedelta(days=7)
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
@@ -65,14 +66,26 @@ def synthesize_research_items(
     window_end = cycle.started_at
 
     config = yaml.safe_load(config_path.read_text())
-    seed_watchlist: list[str] = config["market_data"]["watchlist"]
-    symbols = resolve_symbol_universe(session, seed_watchlist)
+    # F067: market_data.watchlist merged with any Alpaca-tradable ticker mapped
+    # from an aktienfinder candidate ISIN — see resolve_stock_seed_watchlist.
+    seed_watchlist = resolve_stock_seed_watchlist(config)
+    # F064: crypto_market_data.watchlist (BTC/USD, ETH/USD, SOL/USD) is a
+    # separate seed from the stock watchlist (its own sync job/provider,
+    # config/ingestion.yaml), but technical-indicator computation itself is
+    # symbol-agnostic (F036) — merging both seeds here is the only change
+    # needed for CRYPTOR to get the same code-computed momentum/trend
+    # research items every other persona gets, via the same shared pool.
+    crypto_watchlist: list[str] = config.get("crypto_market_data", {}).get("watchlist", [])
+    symbols = resolve_symbol_universe(session, seed_watchlist + crypto_watchlist)
 
     items = [
         *_research_items_from_edgar_filings(session, cycle.id, window_start, window_end),
         *_research_items_from_screener_results(session, cycle.id, window_start, window_end),
         *_research_items_from_publication_articles(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_snapshots(session, cycle.id, window_start, window_end),
+        *_research_items_from_aktienfinder_screener_candidates(
+            session, cycle.id, window_start, window_end
+        ),
         *_research_items_from_musterdepot_transactions(session, cycle.id, window_start, window_end),
         *_research_items_from_technical_indicators(session, cycle.id, symbols, cycle.started_at),
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
@@ -228,6 +241,44 @@ def _research_items_from_aktienfinder_snapshots(
             raw={**snapshot.fields, "screenshot_path": snapshot.screenshot_path},
         )
         for snapshot in snapshots
+    ]
+
+
+def _research_items_from_aktienfinder_screener_candidates(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """F068: the Screener-Tool grid discovery batch, windowed by `synced_at` like
+    every other snapshot-style source. `instruments=[candidate.ticker]` — not
+    `.isin` — so citations resolve against `market_bar`/order placement the same
+    way as any other symbol (the pre-existing per-ISIN deep-grab path, F012,
+    stores ISIN as `symbol`; deliberately not repeated here, see F068 §2)."""
+    stmt = select(AktienfinderScreenerCandidate).where(
+        AktienfinderScreenerCandidate.synced_at > window_start,
+        AktienfinderScreenerCandidate.synced_at <= window_end,
+    )
+    candidates = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="market_research",
+            source_type="aktienfinder_screener",
+            source_ref=f"{candidate.ticker}/{candidate.discovered_at}",
+            url=None,
+            published_at=_as_datetime(candidate.discovered_at),
+            summary=(
+                f"aktienfinder-Screener {candidate.ticker} ({candidate.name}): "
+                f"Kurs {candidate.fields.get('price')}, "
+                f"Kursziel {candidate.fields.get('price_target')} "
+                f"({candidate.fields.get('price_target_upside_pct')}), "
+                f"Stabilität Gewinn {candidate.fields.get('quality_score_earnings_stability')}"
+            ),
+            instruments=[candidate.ticker],
+            raw={**candidate.fields, "isin": candidate.isin, "region": candidate.region},
+        )
+        for candidate in candidates
     ]
 
 

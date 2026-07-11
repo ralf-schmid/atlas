@@ -4,17 +4,66 @@
 market_data:
   key_id_env: ALPACA_MARKET_DATA_KEY_ID
   secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
-  # Seed-Watchlist fuer P3: Symbole, die schon heute in einem Portfolio/Decision-Kontext
-  # vorkommen koennten. Wird in P4 durch eine dynamische Liste (offene Positionen +
-  # Screener-Kandidaten) ersetzt, siehe F008 Kritische Betrachtung Punkt 2.
+  # F066: die P3-Seed-Liste (nur AAPL/MSFT/SPY) blockierte CHARTIST strukturell —
+  # resolve_symbol_universe() (F035) vereinigt diese Liste mit offenen Positionen
+  # und VULTUREs Screener-Kandidaten (die per Charter/Config hart auf price < 5$
+  # gefiltert sind, config/ingestion.yaml vulture_screener.max_price), sodass fuer
+  # CHARTISTs Universumskriterium (price > 10$, config/personas/chartist.yaml
+  # universe_screen) faktisch nur AAPL uebrig blieb. Diese 16-Namen-Liste war
+  # F066s ERSTER Fix (handverlesener Large-Cap-Korb) — reicht allein weiterhin
+  # nicht fuer "mindestens 100 moegliche Werte" (Ralfs Auftrag, F069). Die
+  # eigentliche Breite kommt seit F068/F069 aus der taeglichen
+  # aktienfinder-Screener-Discovery (aktienfinder.screener_discovery unten,
+  # ~250 Zielkandidaten, live verifiziert 128+ davon mit echtem Alpaca-USD-Kurs
+  # > 10$, siehe F069 §5) — resolve_symbol_universe() vereinigt beide Quellen,
+  # diese 16 sind nur noch ein minimaler, redundanzfreier Zusatz-Seed
+  # (bekannte Index-Anker), nicht mehr "die" CHARTIST-Basis. Hinweis: der
+  # Alpaca-Marktdaten-Key hat nur IEX-Feed-Entitlement (kein SIP, siehe
+  # market_data_sync.py) - IEX bildet nur einen Teil des konsolidierten
+  # Handelsvolumens ab, das gemessene Volumen liegt daher strukturell unter dem
+  # tatsaechlichen Markt-Gesamtvolumen (gleicher Vorbehalt wie bei
+  # vulture_screener.min_volume: Datenqualitaets-, kein Verbotsfilter).
   watchlist:
     - AAPL
     - MSFT
     - SPY
+    - GOOGL
+    - AMZN
+    - NVDA
+    - META
+    - JPM
+    - HD
+    - DIS
+    - KO
+    - XOM
+    - QQQ
+    - IWM
+    - TSLA
+    - JNJ
   # F048: technisches Indikatoren brauchen 15-90 Tages-Bars Historie je Symbol
   # (src/orchestrator/indicators.py) - ein reiner 1-Tages-Sync akkumuliert das nie.
   # Rollierendes Fenster statt Einzeltag, idempotent (Upsert), damit auch ein
   # ausgefallener Tag (Container-Restart, Ausfall) automatisch nachgeholt wird.
+  lookback_days: 90
+
+crypto_market_data:
+  # F064: CRYPTORs Charter verspricht "Momentum/Trend (code-berechnet)" fuer
+  # BTC/ETH/SOL — bis hierhin gab es dafuer keine OHLCV-Quelle (nur die
+  # BTC-Dominanz als Regime-Filter, siehe coingecko unten). Gleicher
+  # Paper-Market-Data-Key wie market_data, kein separates Krypto-Entitlement
+  # noetig (live verifiziert). Eigene Sektion statt Erweiterung von
+  # market_data.watchlist, weil der Stock-Sync-Job (AlpacaBarsProvider,
+  # StockHistoricalDataClient) fuer Krypto-Symbole fehlschlagen wuerde — ein
+  # eigener Provider (src/ingestion/crypto_market_data_sync.py) braucht einen
+  # eigenen Watchlist-Eintrag. research_synthesis.py vereinigt beide Listen vor
+  # resolve_symbol_universe, damit technische Indikatoren fuer Krypto genau wie
+  # fuer Aktien generisch berechnet werden (F036 ist bereits symbol-agnostisch).
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  watchlist:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
   lookback_days: 90
 
 edgar:
@@ -59,10 +108,13 @@ aktienfinder:
   username_env: AKTIENFINDER_USERNAME
   password_env: AKTIENFINDER_PASSWORD
   screenshot_dir_env: AKTIENFINDER_SCREENSHOT_DIR
-  # GUARDIANs Kandidatenliste (F037) — bewusst statisch, Ralf pflegt sie manuell.
-  # Kein Fundamental-Screener: dafuer bräuchte es einen kostenpflichtigen
-  # Datenanbieter (P/E, Payout-Ratio, Dividenden-Streak flächendeckend), siehe
-  # docs/features/F037-aktienfinder-candidate-list-and-scheduling.md §2.
+  # GUARDIANs urspruengliche Kandidatenliste (F037) — bewusst statisch, Ralf
+  # pflegt sie manuell. F037s Begruendung ("kein Fundamental-Screener ohne
+  # kostenpflichtigen Datenanbieter") ist seit F068 ueberholt (Ralf hat ein
+  # kostenpflichtiges aktienfinder-Abo) — der echte Screener laeuft jetzt
+  # zusaetzlich ueber `screener_discovery` unten. Diese 6er-Liste bleibt fuer
+  # den tieferen Profilseiten-Grab (Dividenden-Historie, Screenshot-Beleg)
+  # bestehen, siehe docs/features/F068-aktienfinder-screener-discovery.md §2.
   candidate_isins:
     - DE0007164600 # SAP
     - US0378331005 # Apple
@@ -70,6 +122,26 @@ aktienfinder:
     - DE0008430026 # Munich Re
     - US4781601046 # Johnson & Johnson
     - US7427181091 # Procter & Gamble
+  # F067: aktienfinders Preisziel-/Qualitäts-Scores existierten bisher nur als
+  # isolierte Snapshot-Research-Items, ohne dass fuer dieselben Unternehmen je
+  # market_bar-Preisdaten gesynct wurden (get_latest_price lieferte None, ein
+  # Kauf waere nie sizebar gewesen). Diese Zuordnung speist
+  # resolve_stock_seed_watchlist (src/orchestrator/symbol_universe.py), die
+  # sowohl den taeglichen Markt-Bar-Sync als auch die technische-Indikator-
+  # Berechnung mit denselben Tickern versorgt. Nur ISINs mit echtem, live
+  # bestaetigtem Alpaca-Handelsplatz UND tatsaechlichen Kursdaten sind hier
+  # aufgenommen — SAP ist trotz DE-ISIN als NYSE-ADR handelbar (live
+  # bestaetigt), Munich Re dagegen nur als duenn gehandeltes OTC-Papier
+  # (MURGY) ohne verwertbare Kursdaten im IEX-Feed und bleibt daher hier
+  # bewusst aussen vor (weiterhin nur als Snapshot-Research-Item vertreten).
+  ticker_by_isin:
+    DE0007164600: SAP # SAP — NYSE-ADR, live bestaetigt (F067)
+    US0378331005: AAPL # Apple
+    US5949181045: MSFT # Microsoft
+    US4781601046: JNJ # Johnson & Johnson
+    US7427181091: PG # Procter & Gamble
+    # DE0008430026 (Munich Re): kein liquide handelbarer Alpaca-Ticker,
+    # bewusst nicht gemappt (siehe Kommentar oben).
   field_selectors:
     price: "li.stockprofile-tiles__list-item:has-text('Aktienkurs') span:not(.stockprofile-tiles__fixed-width-span)"
     isin: "li.stockprofile-tiles__list-item:has-text('ISIN') span:not(.stockprofile-tiles__fixed-width-span)"
@@ -82,11 +154,42 @@ aktienfinder:
   # Screener-Tool (/aktienfinder, DataTables-Grid). Werte-Namen -> exakte
   # Spalten-Ueberschrift, per ISIN-Suche + Header-Text-Match ausgelesen (kein fester
   # Spalten-Index, siehe extract_screener_row), robust gegen Spalten-Umsortierung.
+  # F068: field_labels fuer BEIDE Screener-Interaktionen — die per-ISIN-Suche
+  # (extract_screener_row, F043) UND die neue paginierte Grid-Discovery
+  # (aktienfinder_screener.py) lesen dieselbe Spalten-Zuordnung, ein Header-Text
+  # -> ein friendly name. price/dividend_yield/quality_score_dividend_stability/
+  # pe_ratio neu (F068) — direkt aus der Grid-Spaltenliste live geprueft
+  # (67 Spalten, siehe F068 §5), keine geratenen Header-Texte.
   screener_fields:
+    price: "Kurs"
+    dividend_yield: "Dividende Rendite"
     price_target: "Kursziel"
     price_target_upside_pct: "Kursziel Rendite"
+    quality_score_dividend_stability: "Stabilität Dividende"
     quality_score_earnings_stability: "Stabilität Gewinn"
     quality_score_cashflow_stability: "Stabilität CashFlow"
+    pe_ratio: "KGV Ber."
+  # F068: dynamische Kandidaten-Discovery ueber das Screener-Tool-Grid
+  # (/aktienfinder, ~7800 getrackte Werte auf 78 Seiten a 100, live geprueft
+  # 2026-07-11) statt der 6er-Liste oben — reversiert F037s "kein
+  # Fundamental-Screener"-Entscheidung, siehe
+  # docs/adr/0006-aktienfinder-screener-instead-of-static-list.md.
+  # target_candidates/max_pages sind bewusst konfigurierbar, nicht hart codiert
+  # ("eigentlich moechte ich gar keine Einschraenkung" — Ralf kann beides ohne
+  # Code-Aenderung hochsetzen). "Nordamerika" ist nur ein Vorfilter (weniger
+  # Seiten zu scrapen); die eigentliche Freigabe ist Alpacas echtes
+  # Tradable-Asset-Verzeichnis (aktienfinder_screener.py, gleiches Prinzip wie
+  # F067 "nicht annehmen, live pruefen").
+  # F069: 150 lieferte live 164 Kandidaten, davon 128 mit echtem Alpaca-USD-
+  # Kurs > 10 $ (CHARTISTs Universumskriterium) — bereits deutlich ueber
+  # Ralfs Mindestanforderung von 100. target_candidates auf 250 angehoben
+  # (Marge fuer Tagesschwankungen bei Kurs/Handelbarkeit), weiterhin nur
+  # 2-3 Grid-Seiten von 78 verfuegbaren, siehe F069 §5.
+  screener_discovery:
+    target_candidates: 250
+    max_pages: 10
+    regions:
+      - "Nordamerika"
 
 aktienfinder_blog:
   # F041: oeffentliche Blog-/Analyse-/Empfehlungs-Archivseiten, kein Login, kein
@@ -118,8 +221,18 @@ schedule:
     interval_minutes: 30
   vulture_screener:
     time: "06:00"
+  aktienfinder_screener_discovery:
+    # F068: vor market_data_sync (06:30), damit dessen resolve_symbol_universe
+    # noch am selben Tag die frisch entdeckten Ticker sieht.
+    time: "06:15"
   market_data_sync:
     time: "06:30"
+  crypto_market_data_sync:
+    # F064: kein Boersenschluss (CRYPTOR handelt 24/7, config/cycles.yaml
+    # crypto.weekday_times/weekend_times), daher Intervall statt fixer
+    # ET-Zeit — vor jedem der 4 taeglichen Krypto-Zyklen (00/06/12/18 UTC)
+    # mindestens einmal frisch synct.
+    interval_minutes: 60
   aktienfinder:
     time: "07:00"
   coingecko:

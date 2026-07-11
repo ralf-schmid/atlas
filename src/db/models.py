@@ -395,6 +395,40 @@ class AktienfinderSnapshot(Base):
     )
 
 
+class AktienfinderScreenerCandidate(Base):
+    """One row discovered via aktienfinder.net's Screener-Tool grid
+    (`/aktienfinder`, DataTables, ~7800 tracked securities as of 2026-07-11),
+    see docs/features/F068-aktienfinder-screener-discovery.md.
+
+    Distinct from `AktienfinderSnapshot` (per-ISIN profile-page deep-grab, F012,
+    still used for the small Ralf-curated `candidate_isins` list): this table
+    holds a much broader, code-discovered candidate set, entirely from the grid
+    itself (ISIN + ticker + region + quality/valuation fields are all visible
+    columns there — no per-symbol profile-page navigation needed). `ticker`
+    (not `isin`) is the citable instrument symbol, consistent with `market_bar`/
+    order placement (F067 found the deep-grab path stores ISIN as `symbol`,
+    inconsistent with the rest of the system — deliberately not repeated here).
+    """
+
+    __tablename__ = "aktienfinder_screener_candidate"
+    __table_args__ = (
+        UniqueConstraint(
+            "isin", "discovered_at", name="uq_aktienfinder_screener_candidate_isin_date"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    isin: Mapped[str] = mapped_column(String(20))
+    ticker: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(String(200))
+    region: Mapped[str] = mapped_column(String(50))
+    discovered_at: Mapped[date]
+    fields: Mapped[dict[str, object]] = mapped_column(JSONB, default=dict)
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
+
+
 class MusterdepotTransaction(Base):
     """A buy/sell posted from DER AKTIONÄR's own real-money model portfolio
     ("Musterdepot"), see docs/features/F014-musterdepot-transactions.md.
