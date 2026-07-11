@@ -7,6 +7,7 @@ from src.db.models import CostLedgerScope, OrderRecordStatus
 from src.telegram.digest import (
     DigestData,
     PersonaDigest,
+    _format_cost_de,
     _format_currency_de,
     build_digest_data,
     render_daily_digest,
@@ -52,9 +53,10 @@ def test_render_daily_digest_contains_all_required_fields():
     assert "05.07.2026" in digest
     assert "VULTURE:\n4 Trades" in digest
     assert "Depotwert $5.200,00" in digest
+    assert "LLM-Kosten $0,3500" in digest
     assert "GUARDIAN:\n0 Trades" in digest
     assert "Gesamt: $10.180,00" in digest
-    assert "LLM-Kosten gesamt: $0,45" in digest
+    assert "LLM-Kosten gesamt: $0,4500" in digest
 
 
 def test_format_currency_de_uses_period_thousands_and_comma_decimal():
@@ -62,6 +64,11 @@ def test_format_currency_de_uses_period_thousands_and_comma_decimal():
     assert _format_currency_de(0.05) == "0,05"
     assert _format_currency_de(-50.5) == "-50,50"
     assert _format_currency_de(1000.0) == "1.000,00"
+
+
+def test_format_cost_de_uses_four_decimal_places():
+    assert _format_cost_de(0.0405) == "0,0405"
+    assert _format_cost_de(1234.5) == "1.234,5000"
 
 
 def test_digest_totals_are_computed_properties():

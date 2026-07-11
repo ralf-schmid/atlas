@@ -29,29 +29,40 @@ _TEMPLATE_SOURCE = """\
 Depotwert ${{ format_currency(p.portfolio_value_usd) }}
 Cash ${{ format_currency(p.cash_usd) }}
 {{ p.open_positions }} offene Positionen
-LLM-Kosten ${{ format_currency(p.llm_cost_usd) }}
+LLM-Kosten ${{ format_cost(p.llm_cost_usd) }}
 
 {% endfor %}
 Gesamt: ${{ format_currency(total_portfolio_value_usd) }}
-LLM-Kosten gesamt: ${{ format_currency(total_llm_cost_usd) }}\
+LLM-Kosten gesamt: ${{ format_cost(total_llm_cost_usd) }}\
 """
 
 _env = Environment(autoescape=False)  # noqa: S701 — plain text digest, not HTML, no untrusted input
 _template = _env.from_string(_TEMPLATE_SOURCE)
 
 
-def _format_currency_de(value: float) -> str:
+def _format_number_de(value: float, decimals: int) -> str:
     """German-style grouping (`.` as thousands separator, `,` as decimal
     separator), e.g. 1234.5 -> "1.234,50". Deliberately no `locale` module —
     `locale.setlocale(LC_ALL, "de_DE.UTF-8")` requires that locale to be
     installed on the OS, which crashed the whole app at import time wherever it
     wasn't (GitHub Actions CI runners, and potentially other environments too) —
     plain string manipulation has no such runtime dependency, everywhere, always."""
-    formatted = f"{value:,.2f}"  # e.g. "1,234.50" (US grouping)
+    formatted = f"{value:,.{decimals}f}"  # e.g. "1,234.50" (US grouping)
     # `str.translate` swaps both characters in one pass (unlike chained
     # `.replace()` calls, where the second replace would re-touch what the
     # first one just wrote) — maps "," -> "." and "." -> "," simultaneously.
     return formatted.translate(str.maketrans(",.", ".,"))
+
+
+def _format_currency_de(value: float) -> str:
+    return _format_number_de(value, decimals=2)
+
+
+def _format_cost_de(value: float) -> str:
+    """4 decimal places — LLM costs are routinely fractions of a cent
+    (e.g. $0.0405); 2 decimals would round several personas' daily spend down
+    to the same $0,0X and lose the distinction the digest is meant to show."""
+    return _format_number_de(value, decimals=4)
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +96,7 @@ def render_daily_digest(data: DigestData) -> str:
         total_portfolio_value_usd=data.total_portfolio_value_usd,
         total_llm_cost_usd=data.total_llm_cost_usd,
         format_currency=_format_currency_de,
+        format_cost=_format_cost_de,
     )
 
 
