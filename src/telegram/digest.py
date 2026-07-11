@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import locale
 from dataclasses import dataclass
 
 from jinja2 import Environment
@@ -21,27 +20,38 @@ from src.db.models import (
 )
 from src.llm.ledger import sum_persona_spend_today
 
-# 1. Syntaxfehler behoben (Klammer zu)
-locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
-
 _TEMPLATE_SOURCE = """\
 \U0001f4ca Tagesdigest {{ trading_day.strftime('%d.%m.%Y') }}
 
 {% for p in personas -%}
-{{ p.name }}: 
+{{ p.name }}:
 {{ p.trades_today }} Trades
-Depotwert {{ format_currency(p.portfolio_value_usd) }}
-Cash {{ format_currency(p.cash_usd) }}
+Depotwert ${{ format_currency(p.portfolio_value_usd) }}
+Cash ${{ format_currency(p.cash_usd) }}
 {{ p.open_positions }} offene Positionen
-LLM-Kosten {{ format_currency(p.llm_cost_usd) }}
+LLM-Kosten ${{ format_currency(p.llm_cost_usd) }}
 
 {% endfor %}
-Gesamt: {{ format_currency(total_portfolio_value_usd) }}
-LLM-Kosten gesamt: {{ format_currency(total_llm_cost_usd) }}\
+Gesamt: ${{ format_currency(total_portfolio_value_usd) }}
+LLM-Kosten gesamt: ${{ format_currency(total_llm_cost_usd) }}\
 """
 
-_env = Environment(autoescape=False)
+_env = Environment(autoescape=False)  # noqa: S701 — plain text digest, not HTML, no untrusted input
 _template = _env.from_string(_TEMPLATE_SOURCE)
+
+
+def _format_currency_de(value: float) -> str:
+    """German-style grouping (`.` as thousands separator, `,` as decimal
+    separator), e.g. 1234.5 -> "1.234,50". Deliberately no `locale` module —
+    `locale.setlocale(LC_ALL, "de_DE.UTF-8")` requires that locale to be
+    installed on the OS, which crashed the whole app at import time wherever it
+    wasn't (GitHub Actions CI runners, and potentially other environments too) —
+    plain string manipulation has no such runtime dependency, everywhere, always."""
+    formatted = f"{value:,.2f}"  # e.g. "1,234.50" (US grouping)
+    # `str.translate` swaps both characters in one pass (unlike chained
+    # `.replace()` calls, where the second replace would re-touch what the
+    # first one just wrote) — maps "," -> "." and "." -> "," simultaneously.
+    return formatted.translate(str.maketrans(",.", ".,"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,15 +79,12 @@ class DigestData:
 
 
 def render_daily_digest(data: DigestData) -> str:
-    def format_currency(val: float) -> str:
-        return locale.currency(val, symbol=False, grouping=True).strip()
-
     return _template.render(
         trading_day=data.trading_day,
         personas=data.personas,
         total_portfolio_value_usd=data.total_portfolio_value_usd,
         total_llm_cost_usd=data.total_llm_cost_usd,
-        format_currency=format_currency,
+        format_currency=_format_currency_de,
     )
 
 

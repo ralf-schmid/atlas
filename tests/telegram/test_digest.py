@@ -4,7 +4,13 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 
 from src.db.models import CostLedgerScope, OrderRecordStatus
-from src.telegram.digest import DigestData, PersonaDigest, build_digest_data, render_daily_digest
+from src.telegram.digest import (
+    DigestData,
+    PersonaDigest,
+    _format_currency_de,
+    build_digest_data,
+    render_daily_digest,
+)
 from tests.db.factories import (
     make_cost_ledger_entry,
     make_cycle,
@@ -44,11 +50,18 @@ def test_render_daily_digest_contains_all_required_fields():
     digest = render_daily_digest(data)
 
     assert "05.07.2026" in digest
-    assert "VULTURE: 4 Trades" in digest
-    assert "$5200.00" in digest.replace(",", "")
-    assert "GUARDIAN: 0 Trades" in digest
-    assert "Gesamt: $10180.00" in digest.replace(",", "")
-    assert "LLM-Kosten gesamt: $0.4500" in digest
+    assert "VULTURE:\n4 Trades" in digest
+    assert "Depotwert $5.200,00" in digest
+    assert "GUARDIAN:\n0 Trades" in digest
+    assert "Gesamt: $10.180,00" in digest
+    assert "LLM-Kosten gesamt: $0,45" in digest
+
+
+def test_format_currency_de_uses_period_thousands_and_comma_decimal():
+    assert _format_currency_de(1234567.89) == "1.234.567,89"
+    assert _format_currency_de(0.05) == "0,05"
+    assert _format_currency_de(-50.5) == "-50,50"
+    assert _format_currency_de(1000.0) == "1.000,00"
 
 
 def test_digest_totals_are_computed_properties():
