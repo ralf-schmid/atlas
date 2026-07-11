@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime
+import locale
 from dataclasses import dataclass
 
 from jinja2 import Environment
@@ -20,19 +21,26 @@ from src.db.models import (
 )
 from src.llm.ledger import sum_persona_spend_today
 
+# 1. Syntaxfehler behoben (Klammer zu)
+locale.setlocale(locale.LC_ALL, "de_DE.UTF-8")
+
 _TEMPLATE_SOURCE = """\
 \U0001f4ca Tagesdigest {{ trading_day.strftime('%d.%m.%Y') }}
 
 {% for p in personas -%}
-{{ p.name }}: {{ p.trades_today }} Trades, Depotwert ${{ '%.2f'|format(p.portfolio_value_usd) }}, \
-Cash ${{ '%.2f'|format(p.cash_usd) }}, {{ p.open_positions }} offene Positionen, \
-LLM-Kosten ${{ '%.4f'|format(p.llm_cost_usd) }}
+{{ p.name }}: 
+{{ p.trades_today }} Trades
+Depotwert {{ format_currency(p.portfolio_value_usd) }}
+Cash {{ format_currency(p.cash_usd) }}
+{{ p.open_positions }} offene Positionen
+LLM-Kosten {{ format_currency(p.llm_cost_usd) }}
+
 {% endfor %}
-Gesamt: ${{ '%.2f'|format(total_portfolio_value_usd) }} | \
-LLM-Kosten gesamt: ${{ '%.4f'|format(total_llm_cost_usd) }}\
+Gesamt: {{ format_currency(total_portfolio_value_usd) }}
+LLM-Kosten gesamt: {{ format_currency(total_llm_cost_usd) }}\
 """
 
-_env = Environment(autoescape=False)  # noqa: S701 — plain text digest, not HTML, no untrusted input
+_env = Environment(autoescape=False)
 _template = _env.from_string(_TEMPLATE_SOURCE)
 
 
@@ -61,11 +69,15 @@ class DigestData:
 
 
 def render_daily_digest(data: DigestData) -> str:
+    def format_currency(val: float) -> str:
+        return locale.currency(val, symbol=False, grouping=True).strip()
+
     return _template.render(
         trading_day=data.trading_day,
         personas=data.personas,
         total_portfolio_value_usd=data.total_portfolio_value_usd,
         total_llm_cost_usd=data.total_llm_cost_usd,
+        format_currency=format_currency,
     )
 
 
