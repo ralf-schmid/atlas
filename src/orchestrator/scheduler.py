@@ -37,6 +37,7 @@ from src.orchestrator.graph import CycleState
 from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.trading import execute_decision
 from src.telegram.config import load_config as load_telegram_config
+from src.telegram.digest import build_digest_data, render_daily_digest
 from src.telegram.hitl import HitlDecision, HitlOutcome
 from src.telegram.hitl_store import apply_hitl_outcome, decision_to_hitl_request
 
@@ -204,6 +205,23 @@ def build_scheduler(
         replace_existing=True,
     )
 
+    # F070: ARCHITECTURE.md §6.4 Punkt 3 — daily push digest (Trades/Depotwert/
+    # Cash/offene Positionen/LLM-Kosten je Persona), not just the on-demand
+    # `/digest` command (src/telegram/bot.py). Fires every day, not just
+    # weekdays — CRYPTOR trades weekends too, config/cycles.yaml crypto section.
+    # Timed after the last stock cycle C4 (15:15 ET) with a reporting buffer.
+    hour, minute = _parse_time(cycles_config.digest_time)
+    scheduler.add_job(
+        _daily_digest_job,
+        trigger="cron",
+        hour=hour,
+        minute=minute,
+        timezone=cycles_config.stock_timezone,
+        args=[session_factory],
+        id="daily-digest",
+        replace_existing=True,
+    )
+
     return scheduler
 
 
@@ -252,6 +270,28 @@ def _send_cycle_failure_alert(job_key: str, failure_count: int) -> None:
         asyncio.run(send_alert(telegram_config, text))
     except Exception:
         logger.error("failed to send cycle-failure Telegram alert", exc_info=True)
+
+
+def _daily_digest_job(session_factory: Callable[[], Session]) -> None:
+    """F070: builds today's `DigestData` (portfolio_snapshot/order_record/
+    position_snapshot/cost_ledger, only active personas) and pushes it as an
+    unsolicited Telegram message — same primitive (`send_alert`) as every other
+    alert here, no running bot `Application` needed. Non-fatal: a failed send
+    (Telegram outage, DB hiccup) must not take down the scheduler thread; unlike
+    the cycle/ingestion jobs there's no consecutive-failure counter — a once-daily
+    job's next attempt is tomorrow regardless, and re-alerting "digest failed
+    again" would just be one more Telegram message about the exact same outage
+    the missing digest already signals by its absence."""
+    from src.telegram.alerts import send_alert
+
+    try:
+        with session_factory() as session:
+            data = build_digest_data(session, datetime.date.today())
+        text = render_daily_digest(data)
+        telegram_config = load_telegram_config()
+        asyncio.run(send_alert(telegram_config, text))
+    except Exception:
+        logger.error("failed to send daily Telegram digest", exc_info=True)
 
 
 def _sweep_expired_hitl_job(

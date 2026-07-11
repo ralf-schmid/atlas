@@ -108,14 +108,45 @@ def test_handle_status_replies_with_placeholder():
     update.message.reply_text.assert_called_once_with("Status: noch keine Portfolios konfiguriert.")
 
 
-def test_handle_digest_replies_with_placeholder():
+def test_handle_digest_reports_failure_without_session_factory():
     update = _mock_update(chat_id=42, text="/digest")
+    context = MagicMock()
+    context.application.bot_data = {}
+
+    asyncio.run(_handle_digest(update, context))
+
+    update.message.reply_text.assert_called_once_with("Digest: Datenbank nicht konfiguriert.")
+
+
+def test_handle_digest_sends_the_rendered_digest(monkeypatch):
+    update = _mock_update(chat_id=42, text="/digest")
+    fake_session = MagicMock()
+    context = MagicMock()
+    context.application.bot_data = {"session_factory": MagicMock(return_value=fake_session)}
+
+    sentinel_data = object()
+    build_calls = []
+    monkeypatch.setattr(
+        "src.telegram.bot.build_digest_data",
+        lambda session, trading_day: build_calls.append((session, trading_day)) or sentinel_data,
+    )
+    monkeypatch.setattr(
+        "src.telegram.bot.render_daily_digest",
+        lambda data: "rendered" if data is sentinel_data else "wrong data",
+    )
+
+    asyncio.run(_handle_digest(update, context))
+
+    assert build_calls == [(fake_session, datetime.date.today())]
+    fake_session.close.assert_called_once()
+    update.message.reply_text.assert_called_once_with("rendered")
+
+
+def test_handle_digest_does_nothing_without_message():
+    update = _mock_update(chat_id=42, text="/digest")
+    update.message = None
 
     asyncio.run(_handle_digest(update, MagicMock()))
-
-    update.message.reply_text.assert_called_once_with(
-        "Digest: noch keine Snapshot-Daten verfügbar."
-    )
 
 
 def _mock_context_with_persona(persona: MagicMock | None):

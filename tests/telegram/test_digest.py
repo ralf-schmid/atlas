@@ -1,6 +1,21 @@
 import datetime
+from decimal import Decimal
 
-from src.telegram.digest import DigestData, PersonaDigest, render_daily_digest
+from sqlalchemy.orm import Session
+
+from src.db.models import CostLedgerScope, OrderRecordStatus
+from src.telegram.digest import DigestData, PersonaDigest, build_digest_data, render_daily_digest
+from tests.db.factories import (
+    make_cost_ledger_entry,
+    make_cycle,
+    make_decision,
+    make_order_record,
+    make_persona,
+    make_portfolio,
+    make_portfolio_snapshot,
+    make_position_snapshot,
+    make_research_item,
+)
 
 
 def test_render_daily_digest_contains_all_required_fields():
@@ -53,3 +68,142 @@ def test_digest_totals_are_computed_properties():
 
     assert data.total_portfolio_value_usd == 100.0
     assert data.total_llm_cost_usd == 0.01
+
+
+def test_build_digest_data_excludes_inactive_personas(session: Session) -> None:
+    active = make_persona(session, name="VULTURE")
+    inactive = make_persona(session, name="GUARDIAN")
+    inactive.active = False
+    session.flush()
+    make_portfolio(session, active)
+    make_portfolio(session, inactive)
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert [p.name for p in data.personas] == ["VULTURE"]
+
+
+def test_build_digest_data_counts_only_filled_orders_within_the_day(session: Session) -> None:
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    decision = make_decision(session, cycle, portfolio, research_item)
+    make_order_record(
+        session,
+        decision,
+        status=OrderRecordStatus.FILLED,
+        submitted_at=datetime.datetime(2026, 7, 4, 9, 1),
+    )
+    # not filled -> doesn't count as a trade that happened
+    make_order_record(
+        session,
+        decision,
+        status=OrderRecordStatus.CANCELED,
+        submitted_at=datetime.datetime(2026, 7, 4, 10, 0),
+    )
+    # filled, but a different day -> doesn't count for 2026-07-04
+    make_order_record(
+        session,
+        decision,
+        status=OrderRecordStatus.FILLED,
+        submitted_at=datetime.datetime(2026, 7, 3, 9, 1),
+    )
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas[0].trades_today == 1
+
+
+def test_build_digest_data_uses_latest_portfolio_snapshot_regardless_of_date(
+    session: Session,
+) -> None:
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(
+        session,
+        portfolio,
+        ts=datetime.datetime(2026, 7, 3, 16, 0),
+        total_value=Decimal("4900.00"),
+        cash=Decimal("3000.00"),
+    )
+    make_portfolio_snapshot(
+        session,
+        portfolio,
+        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        total_value=Decimal("5100.00"),
+        cash=Decimal("3200.00"),
+    )
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas[0].portfolio_value_usd == 5100.00
+    assert data.personas[0].cash_usd == 3200.00
+
+
+def test_build_digest_data_counts_only_nonzero_positions_at_the_latest_snapshot(
+    session: Session,
+) -> None:
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    # stale snapshot from an earlier ts -> must not be counted
+    make_position_snapshot(
+        session, portfolio, ts=datetime.datetime(2026, 7, 3, 16, 0), instrument="OLD"
+    )
+    make_position_snapshot(
+        session, portfolio, ts=datetime.datetime(2026, 7, 4, 16, 0), instrument="AAPL"
+    )
+    make_position_snapshot(
+        session,
+        portfolio,
+        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        instrument="MSFT",
+        qty=Decimal("0"),
+    )
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas[0].open_positions == 1
+
+
+def test_build_digest_data_sums_persona_scope_cost_for_the_day(session: Session) -> None:
+    persona = make_persona(session, name="VULTURE")
+    make_portfolio(session, persona)
+    make_cost_ledger_entry(
+        session,
+        persona_id=persona.id,
+        ts=datetime.datetime(2026, 7, 4, 9, 0),
+        cost_usd=Decimal("0.10"),
+    )
+    make_cost_ledger_entry(
+        session,
+        persona_id=persona.id,
+        ts=datetime.datetime(2026, 7, 4, 14, 0),
+        cost_usd=Decimal("0.05"),
+    )
+    # system-scope cost must not be attributed to a persona
+    make_cost_ledger_entry(
+        session,
+        persona_id=None,
+        scope=CostLedgerScope.SYSTEM,
+        ts=datetime.datetime(2026, 7, 4, 9, 0),
+        cost_usd=Decimal("1.00"),
+    )
+    # a different day must not count towards 2026-07-04
+    make_cost_ledger_entry(
+        session,
+        persona_id=persona.id,
+        ts=datetime.datetime(2026, 7, 3, 9, 0),
+        cost_usd=Decimal("0.50"),
+    )
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas[0].llm_cost_usd == 0.15
+
+
+def test_build_digest_data_empty_when_no_active_personas(session: Session) -> None:
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas == []
+    assert data.total_portfolio_value_usd == 0.0

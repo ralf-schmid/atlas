@@ -26,6 +26,7 @@ class CyclesConfig:
     crypto_timezone: str
     crypto_weekday_times: list[str]
     crypto_weekend_times: list[str]
+    digest_time: str  # "HH:MM", America/New_York (stock_timezone) — F070
 
 
 def load_cycles_config(path: Path = _DEFAULT_CONFIG_PATH) -> CyclesConfig:
@@ -40,4 +41,5 @@ def load_cycles_config(path: Path = _DEFAULT_CONFIG_PATH) -> CyclesConfig:
         crypto_timezone=crypto["timezone"],
         crypto_weekday_times=crypto["weekday_times"],
         crypto_weekend_times=crypto["weekend_times"],
+        digest_time=raw["digest"]["time"],
     )

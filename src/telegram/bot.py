@@ -24,6 +24,7 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 from src.db.models import Persona
 from src.telegram.commands import parse_hitl_command, parse_persona_command
 from src.telegram.config import TelegramConfig
+from src.telegram.digest import build_digest_data, render_daily_digest
 from src.telegram.hitl import (
     format_outcome_message,
     make_callback_data,
@@ -175,11 +176,18 @@ async def _handle_hitl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def _handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    # TODO(Folgearbeit): DigestData aus portfolio_snapshot/order_record/cost_ledger
-    # zusammenstellen, sobald diese Snapshot-Jobs existieren. digest.render_daily_digest()
-    # ist bereits fertig und getestet.
-    if update.message:
-        await update.message.reply_text("Digest: noch keine Snapshot-Daten verfügbar.")
+    if not update.message:
+        return
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None:
+        await update.message.reply_text("Digest: Datenbank nicht konfiguriert.")
+        return
+    session = session_factory()
+    try:
+        data = build_digest_data(session, datetime.date.today())
+    finally:
+        session.close()
+    await update.message.reply_text(render_daily_digest(data))
 
 
 async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

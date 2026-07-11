@@ -21,3 +21,10 @@ crypto:
   timezone: UTC
   weekday_times: ["00:00", "06:00", "12:00", "18:00"]
   weekend_times: ["06:00", "18:00"]
+
+# F070: taeglicher Telegram-Digest (ARCHITECTURE.md §6.4 Punkt 3). 16:30 ET, nach
+# dem letzten Aktien-Zyklus C4 (15:15 ET) inkl. Puffer fuer Fill/Snapshot-Reporting
+# -- "taeglich nach US-Close" (ARCHITECTURE.md §5.2). Feuert jeden Tag, nicht nur
+# werktags (CRYPTOR handelt auch am Wochenende, config/cycles.yaml crypto oben).
+digest:
+  time: "16:30"

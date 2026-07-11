@@ -20,3 +20,9 @@ def test_loads_crypto_weekday_and_weekend_times() -> None:
     assert config.crypto_timezone == "UTC"
     assert config.crypto_weekday_times == ["00:00", "06:00", "12:00", "18:00"]
     assert config.crypto_weekend_times == ["06:00", "18:00"]
+
+
+def test_loads_digest_time() -> None:
+    config = load_cycles_config()
+
+    assert config.digest_time == "16:30"

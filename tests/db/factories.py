@@ -148,7 +148,7 @@ def make_position_snapshot(
         ts=overrides.get("ts", datetime.datetime(2026, 7, 4, 16, 0)),
         portfolio_id=portfolio.id,
         instrument=overrides.get("instrument", "AAPL"),
-        qty=Decimal("10"),
+        qty=overrides.get("qty", Decimal("10")),
         avg_price=Decimal("150.00"),
         market_value=Decimal("1550.00"),
         pnl_unrealized=Decimal("50.00"),
@@ -162,10 +162,10 @@ def make_portfolio_snapshot(
     session: Session, portfolio: Portfolio, **overrides: object
 ) -> PortfolioSnapshot:
     snapshot = PortfolioSnapshot(
-        ts=datetime.datetime(2026, 7, 4, 16, 0),
+        ts=overrides.get("ts", datetime.datetime(2026, 7, 4, 16, 0)),
         portfolio_id=portfolio.id,
-        total_value=Decimal("5050.00"),
-        cash=Decimal("3500.00"),
+        total_value=overrides.get("total_value", Decimal("5050.00")),
+        cash=overrides.get("cash", Decimal("3500.00")),
         pnl_realized=Decimal("0.00"),
         pnl_unrealized=Decimal("50.00"),
         benchmark_value=overrides.get("benchmark_value"),
@@ -194,14 +194,14 @@ def make_review(session: Session, decision: Decision, **overrides: object) -> Re
 
 def make_cost_ledger_entry(session: Session, **overrides: object) -> CostLedger:
     entry = CostLedger(
-        ts=datetime.datetime(2026, 7, 4, 9, 0),
+        ts=overrides.get("ts", datetime.datetime(2026, 7, 4, 9, 0)),
         scope=overrides.get("scope", CostLedgerScope.PERSONA),
         persona_id=overrides.get("persona_id"),
         provider="anthropic",
         model="claude-sonnet-5",
         tokens_in=1000,
         tokens_out=200,
-        cost_usd=Decimal("0.05"),
+        cost_usd=overrides.get("cost_usd", Decimal("0.05")),
     )
     session.add(entry)
     session.flush()

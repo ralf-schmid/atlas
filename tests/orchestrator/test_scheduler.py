@@ -9,7 +9,7 @@ import pytest
 from src.db.models import MarketSession
 from src.orchestrator import scheduler as scheduler_module
 from src.orchestrator.cycles_config import CyclesConfig, StockCycle, load_cycles_config
-from src.orchestrator.scheduler import _run_cycle_job, build_scheduler
+from src.orchestrator.scheduler import _daily_digest_job, _run_cycle_job, build_scheduler
 from src.telegram.config import TelegramConfig
 
 
@@ -42,6 +42,7 @@ def test_build_scheduler_skips_inactive_stock_cycle() -> None:
         crypto_timezone="UTC",
         crypto_weekday_times=["00:00"],
         crypto_weekend_times=["06:00"],
+        digest_time="16:30",
     )
 
     scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
@@ -75,6 +76,21 @@ def test_stock_jobs_are_restricted_to_weekdays() -> None:
     for seq in (1, 2, 3, 4):
         stock_job = scheduler.get_job(f"stock-c{seq}")
         assert _field(stock_job, "day_of_week") == "mon-fri"
+
+
+def test_daily_digest_job_is_registered_at_the_configured_time_every_day() -> None:
+    config = load_cycles_config()
+
+    scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
+
+    job = scheduler.get_job("daily-digest")
+    assert job is not None
+    assert str(job.trigger.timezone) == "America/New_York"
+    assert _field(job, "hour") == "16"
+    assert _field(job, "minute") == "30"
+    # fires every day (not "mon-fri" like the stock cycles) — CRYPTOR trades
+    # weekends too, config/cycles.yaml crypto section.
+    assert _field(job, "day_of_week") == "*"
 
 
 @pytest.fixture(autouse=True)
@@ -164,3 +180,46 @@ def test_run_cycle_job_resets_failure_streak_on_success(monkeypatch, _fake_teleg
     _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
 
     assert scheduler_module._consecutive_failures["us_equity-1"] == 0
+
+
+class _FakeDigestSession:
+    def __enter__(self) -> _FakeDigestSession:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+
+def test_daily_digest_job_sends_the_rendered_digest(monkeypatch, _fake_telegram_config) -> None:
+    sentinel_data = object()
+    monkeypatch.setattr(
+        scheduler_module, "build_digest_data", lambda session, trading_day: sentinel_data
+    )
+    monkeypatch.setattr(
+        scheduler_module,
+        "render_daily_digest",
+        lambda data: "rendered digest" if data is sentinel_data else "wrong data",
+    )
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    _daily_digest_job(lambda: _FakeDigestSession())  # type: ignore[arg-type]
+
+    assert sent == ["rendered digest"]
+
+
+def test_daily_digest_job_logs_and_does_not_raise_on_failure(monkeypatch) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("db unreachable")
+
+    monkeypatch.setattr(scheduler_module, "build_digest_data", _raise)
+    calls = []
+    monkeypatch.setattr(scheduler_module.logger, "error", lambda *a, **k: calls.append((a, k)))
+
+    _daily_digest_job(lambda: _FakeDigestSession())  # type: ignore[arg-type]
+
+    assert calls  # did not propagate the exception
