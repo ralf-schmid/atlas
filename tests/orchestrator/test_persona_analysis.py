@@ -603,6 +603,119 @@ def test_buy_response_approved_directly_when_hitl_disabled(
     assert order_record.broker_order_id == "entry-test-1"
 
 
+def test_buy_sizing_tops_up_existing_position_instead_of_stacking_full_size(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F071: a persona proposing `buy` on a symbol it already holds (changed
+    probabilities, a new impulse) must only buy the remaining gap up to its
+    conviction-sized target, not the full target again — otherwise repeated buys
+    of the same instrument silently overshoot max_position_pct."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "new impulse, already holding some AAPL",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    # VULTURE max_position_pct=0.03, equity=5000 -> target = 0.5*0.03*5000 = 75.0.
+    # Already holding 30.0 worth -> only 45.0 (= 11.25 shares @ 4.00 close) should
+    # be bought, not a fresh 75.0.
+    existing_position = Position(
+        symbol="AAPL",
+        qty=7.5,
+        side=OrderSide.BUY,
+        avg_entry_price=4.0,
+        market_value=30.0,
+        unrealized_pl=0.0,
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=5000, equity=5000, buying_power=5000), positions=[existing_position]
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.status == DecisionStatus.EXECUTED
+    assert decision.quantity is not None
+    assert float(decision.quantity) == pytest.approx(11.25)
+    assert decision.expected_outcome["existing_position_value_usd"] == pytest.approx(30.0)
+    assert decision.expected_outcome["target_position_value_usd"] == pytest.approx(75.0)
+    assert decision.risk_check is not None
+    assert decision.risk_check["rules_evaluated"]["max_position_pct"][
+        "total_position_value_usd"
+    ] == pytest.approx(75.0)
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+    assert order_record.raw["qty"] == pytest.approx(11.25)
+
+
+def test_buy_rejected_as_idea_when_already_at_target_position_size(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F071: if the existing position already meets or exceeds the conviction-sized
+    target (e.g. price appreciation since the last buy), there is nothing left to
+    buy — must fall back to reject_idea instead of placing a zero-size order."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "new impulse but already fully sized",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    # target = 0.5*0.03*5000 = 75.0; already holding 80.0 worth -> nothing to buy.
+    existing_position = Position(
+        symbol="AAPL",
+        qty=20.0,
+        side=OrderSide.BUY,
+        avg_entry_price=4.0,
+        market_value=80.0,
+        unrealized_pl=0.0,
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=5000, equity=5000, buying_power=5000), positions=[existing_position]
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.REJECT_IDEA
+    assert decision.rejection_reason == "position_already_at_target_size"
+    assert decision.status == DecisionStatus.RECORDED
+    assert decision.quantity is None
+    assert not adapter.placed_orders
+
+
 def test_snapshot_failure_after_a_successful_order_does_not_undo_it(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

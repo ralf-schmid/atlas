@@ -21,6 +21,7 @@ def evaluate_decision(
     *,
     action: TradeAction,
     position_value_usd: float,
+    existing_position_value_usd: float = 0.0,
     entry_price: float,
     stop_loss_price: float | None,
     atr14: float | None,
@@ -58,6 +59,7 @@ def evaluate_decision(
     if action == TradeAction.BUY:
         _evaluate_buy_only_rules(
             position_value_usd=position_value_usd,
+            existing_position_value_usd=existing_position_value_usd,
             entry_price=entry_price,
             stop_loss_price=stop_loss_price,
             atr14=atr14,
@@ -78,6 +80,7 @@ def evaluate_decision(
 def _evaluate_buy_only_rules(
     *,
     position_value_usd: float,
+    existing_position_value_usd: float,
     entry_price: float,
     stop_loss_price: float | None,
     atr14: float | None,
@@ -98,12 +101,24 @@ def _evaluate_buy_only_rules(
     if not margin_ok:
         reasons.append("insufficient_cash_no_margin")
 
+    # F071: the cap is on total exposure to one instrument, not on this single
+    # order in isolation — a persona that already holds part of a position and
+    # buys more of the same instrument (new conviction, new impulse) must be
+    # checked against existing_position_value_usd + position_value_usd, or
+    # repeated buys of the same symbol could silently stack past the intended
+    # per-instrument ceiling.
     max_position_pct = min(persona.max_position_pct, system.max_position_pct_ceiling)
+    total_position_value_usd = existing_position_value_usd + position_value_usd
     position_pct = (
-        position_value_usd / portfolio_equity_usd if portfolio_equity_usd > 0 else float("inf")
+        total_position_value_usd / portfolio_equity_usd
+        if portfolio_equity_usd > 0
+        else float("inf")
     )
     position_size_ok = position_pct <= max_position_pct
     rules["max_position_pct"] = {
+        "existing_position_value_usd": existing_position_value_usd,
+        "new_position_value_usd": position_value_usd,
+        "total_position_value_usd": total_position_value_usd,
         "position_pct": position_pct,
         "limit": max_position_pct,
         "ok": position_size_ok,

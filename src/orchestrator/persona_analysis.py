@@ -30,7 +30,11 @@ from src.db.models import (
 from src.llm.client import LiteLLMClient, LLMResponse, ToolCall
 from src.llm.config import CostCaps, LlmConfig, RoleConfig
 from src.llm.ledger import BudgetExceededError, guarded_complete
-from src.orchestrator.decision_sizing import compute_position_value_usd, compute_stop_loss_price
+from src.orchestrator.decision_sizing import (
+    compute_incremental_buy_value_usd,
+    compute_position_value_usd,
+    compute_stop_loss_price,
+)
 from src.orchestrator.hitl_config import is_hitl_required
 from src.orchestrator.llm_decision_schema import PersonaDecisionOutput, parse_llm_decision
 from src.orchestrator.market_pricing import compute_atr14, get_latest_price
@@ -420,14 +424,37 @@ def _resolve_buy_decision(
     risk_state = read_portfolio_risk_state(session, broker_adapter, portfolio_id, cycle_id)
     system_guardrails = load_system_guardrails()
 
-    position_value_usd = compute_position_value_usd(
+    # F071: a persona proposing `buy` on an instrument it already holds (new
+    # conviction, new impulse) must only top up to its target size, not stack a
+    # fresh full-size order on top of what's already there.
+    existing_position_value_usd = next(
+        (p.market_value for p in risk_state.positions if p.symbol == parsed.instrument), 0.0
+    )
+    target_position_value_usd = compute_position_value_usd(
         conviction, persona_guardrails.max_position_pct, risk_state.equity_usd
     )
+    position_value_usd = compute_incremental_buy_value_usd(
+        target_position_value_usd, existing_position_value_usd
+    )
+
+    if position_value_usd <= 0:
+        return _persist_decision(
+            session,
+            cycle_id=cycle_id,
+            portfolio_id=portfolio_id,
+            instrument=parsed.instrument,
+            action=DecisionAction.REJECT_IDEA,
+            thesis_text=parsed.thesis_text,
+            rejection_reason="position_already_at_target_size",
+            input_research_ids=cited_ids,
+        )
+
     quantity = position_value_usd / entry_price if entry_price > 0 else 0.0
 
     risk_check = evaluate_decision(
         action=TradeAction.BUY,
         position_value_usd=position_value_usd,
+        existing_position_value_usd=existing_position_value_usd,
         entry_price=entry_price,
         stop_loss_price=stop_loss_price,
         atr14=atr14,
@@ -454,6 +481,8 @@ def _resolve_buy_decision(
             "entry_price": entry_price,
             "stop_loss_price": stop_loss_price,
             "conviction": conviction,
+            "existing_position_value_usd": existing_position_value_usd,
+            "target_position_value_usd": target_position_value_usd,
         },
         input_research_ids=cited_ids,
         risk_check=_serialize_risk_check(risk_check),

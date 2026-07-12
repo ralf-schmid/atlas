@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from src.broker.protocol import BrokerAdapter
+from src.broker.protocol import BrokerAdapter, Position
 from src.db.models import Cycle, Decision, MarketSession, OrderRecord, PortfolioSnapshot
 from src.orchestrator.cycles_config import load_cycles_config
 
@@ -25,6 +25,11 @@ class PortfolioRiskState:
     peak_equity_usd: float
     open_positions_count: int
     trades_today_count: int
+    # F071: exposed so callers can look up an instrument's already-held market
+    # value (e.g. sizing a `buy` on a symbol the portfolio already holds) —
+    # reuses the single get_positions() call below instead of a second broker
+    # round-trip.
+    positions: list[Position]
 
 
 def read_portfolio_risk_state(
@@ -51,6 +56,7 @@ def read_portfolio_risk_state(
         peak_equity_usd=peak_equity_usd,
         open_positions_count=len(positions),
         trades_today_count=trades_today_count,
+        positions=positions,
     )
 
 
