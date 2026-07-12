@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from src.orchestrator.decision_sizing import compute_position_value_usd, compute_stop_loss_price
+from src.orchestrator.decision_sizing import (
+    compute_incremental_buy_value_usd,
+    compute_position_value_usd,
+    compute_stop_loss_price,
+)
 from src.risk.models import StopLossPolicy, StopLossPolicyType
 
 
@@ -20,6 +24,32 @@ def test_compute_position_value_usd_half_conviction() -> None:
     value = compute_position_value_usd(0.5, 0.03, 5000.0)
 
     assert value == pytest.approx(75.0)
+
+
+def test_compute_incremental_buy_value_usd_with_no_existing_position() -> None:
+    value = compute_incremental_buy_value_usd(150.0, 0.0)
+
+    assert value == pytest.approx(150.0)
+
+
+def test_compute_incremental_buy_value_usd_tops_up_the_remaining_gap() -> None:
+    # already holding 50 of a 150 target -> only the missing 100 should be bought
+    value = compute_incremental_buy_value_usd(150.0, 50.0)
+
+    assert value == pytest.approx(100.0)
+
+
+def test_compute_incremental_buy_value_usd_floors_at_zero_when_already_at_target() -> None:
+    value = compute_incremental_buy_value_usd(150.0, 150.0)
+
+    assert value == 0.0
+
+
+def test_compute_incremental_buy_value_usd_floors_at_zero_when_above_target() -> None:
+    # e.g. price appreciation pushed the existing position above the current target
+    value = compute_incremental_buy_value_usd(150.0, 200.0)
+
+    assert value == 0.0
 
 
 def test_compute_stop_loss_price_fixed_policy() -> None:

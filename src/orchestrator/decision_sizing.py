@@ -18,6 +18,21 @@ def compute_position_value_usd(
     return clamped * max_position_pct * equity_usd
 
 
+def compute_incremental_buy_value_usd(
+    target_position_value_usd: float, existing_position_value_usd: float
+) -> float:
+    """F071: `compute_position_value_usd` returns the *total* position value a
+    persona's conviction should reach (F021 §1: "conviction=1.0 -> exakt die
+    persona-eigene Obergrenze ausgeschöpft, nie mehr") — it says nothing about
+    what's already held. A persona that repeatedly proposes `buy` on an
+    instrument it already holds (changed probabilities, a new impulse) must
+    only buy the remaining gap up to that target, never the full target again,
+    or the position silently overshoots the intended size. Floored at 0: an
+    existing position already at or above the target means nothing to buy.
+    """
+    return max(0.0, target_position_value_usd - existing_position_value_usd)
+
+
 def round_to_tick(price: float) -> float:
     """Alpaca rejects stop/limit prices that don't fulfil its sub-penny rule: at or
     above $1.00 the price must be a $0.01 increment, below $1.00 a $0.0001 increment

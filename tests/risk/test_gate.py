@@ -1,5 +1,7 @@
 import dataclasses
 
+import pytest
+
 from src.risk.gate import evaluate_decision
 from src.risk.models import TradeAction
 
@@ -181,6 +183,54 @@ def test_position_pct_is_infinite_when_equity_is_zero(system, persona_fixed, bas
 
     assert result.rules_evaluated["max_position_pct"]["position_pct"] == float("inf")
     assert "max_position_pct_exceeded" in result.rejection_reasons
+
+
+# --- Position size accounts for an already-held position (F071) ----------------
+
+
+def test_existing_position_plus_new_order_exceeding_limit_is_rejected(
+    system, persona_fixed, base_buy_kwargs
+):
+    # persona_fixed.max_position_pct == 0.03 -> 3% of 50_000 == 1_500. The new
+    # order alone (1_000) is within limits, but 1_000 already held + 1_000 more
+    # would total 2_000 > 1_500.
+    result = _evaluate(
+        system,
+        persona_fixed,
+        base_buy_kwargs,
+        position_value_usd=1_000.0,
+        existing_position_value_usd=1_000.0,
+    )
+
+    assert "max_position_pct_exceeded" in result.rejection_reasons
+    assert result.rules_evaluated["max_position_pct"]["total_position_value_usd"] == pytest.approx(
+        2_000.0
+    )
+
+
+def test_existing_position_plus_new_order_exactly_at_limit_is_allowed(
+    system, persona_fixed, base_buy_kwargs
+):
+    result = _evaluate(
+        system,
+        persona_fixed,
+        base_buy_kwargs,
+        position_value_usd=500.0,
+        existing_position_value_usd=1_000.0,
+    )
+
+    assert "max_position_pct_exceeded" not in result.rejection_reasons
+
+
+def test_existing_position_value_defaults_to_zero_when_not_supplied(
+    system, persona_fixed, base_buy_kwargs
+):
+    # Backward-compatible default: a caller that doesn't know about existing
+    # holdings still gets the pre-F071 behaviour (new order value only).
+    result = _evaluate(system, persona_fixed, base_buy_kwargs, position_value_usd=1_500.0)
+
+    assert result.rules_evaluated["max_position_pct"]["existing_position_value_usd"] == 0.0
+    assert "max_position_pct_exceeded" not in result.rejection_reasons
 
 
 # --- Open positions ------------------------------------------------------------
