@@ -118,3 +118,42 @@ src/db` → alle sauber.
 Reiner Code-Fix ohne Schema-/Config-Änderung. Rollback = Commit zurücknehmen —
 `existing_position_value_usd` fällt auf den Default `0.0` zurück (Vor-F071-
 Verhalten), keine Migration nötig.
+
+## 7. Nachtrag (12.07.2026): Test-Coverage- und Doku-Audit
+
+Auf Ralfs Auftrag geprüft: sind die neuen Funktionen vollständig testabgedeckt,
+und bildet die Dokumentation die Realität ab?
+
+**Test-Coverage** (`--cov-branch`, echte lokale Postgres-Instanz):
+- `src/orchestrator/decision_sizing.py` (inkl. neuer
+  `compute_incremental_buy_value_usd`): **100 % Line + Branch**.
+- `src/risk/gate.py` (inkl. neuem `existing_position_value_usd`-Pfad): **100 %
+  Line + Branch** — deckt sich mit dem Pflicht-Kriterium für `src/risk` aus
+  CLAUDE.md.
+- `src/orchestrator/risk_inputs.py` (neues `PortfolioRiskState.positions`-Feld):
+  **95 %** — die einzige fehlende Zeile (`_market_timezone`, CRYPTO-Zweig) ist
+  vorbestehend und nicht Teil dieser Änderung.
+- `src/orchestrator/persona_analysis.py`: **93 %** — alle Zeilen der F071-Änderung
+  selbst (Bestandsabgleich, Top-up-Sizing, `position_already_at_target_size`-
+  Fallback, Persistenz der neuen `expected_outcome`-Felder) sind durch die zwei
+  neuen Integrationstests abgedeckt; die verbleibenden Lücken (`BudgetExceededError`-
+  Handler, `unsupported_action`-Fallback u. Ä.) sind vorbestehend und nicht Teil
+  dieser Änderung (`src/orchestrator` unterliegt laut CLAUDE.md keiner
+  Pflicht-Coverage-Schwelle wie `src/risk`/`src/broker`).
+
+**Doku-Konsistenz:** `ARCHITECTURE.md` §3.6 (ER-Übersicht) listete für
+`decision.expected_outcome` ein Beispielschema (`{target_price, horizon_days,
+stop_loss, confidence}`), das schon vor F071 nicht mit dem tatsächlich
+persistierten JSONB übereinstimmte (Code seit F021: `entry_price`,
+`stop_loss_price`, `conviction`) — und durch F071s zwei neue Felder
+(`existing_position_value_usd`, `target_position_value_usd`) noch weiter
+divergiert wäre. Korrigiert auf die tatsächlichen Feldnamen. Alle übrigen
+Fundstellen von `position_value_usd`/`Sizing-Formel`/`max_position_pct` in
+`docs/features/` (F004, F018, F021, F033, F051, F052) beschreiben entweder
+unverändertes Verhalten (`compute_position_value_usd` selbst, das
+Risk-Gate-Timing relativ zur Rundung) oder sind — wie in diesem Projekt üblich
+(siehe F031 vs. F020) — bewusst unangetastete historische Snapshots, auf die
+dieses Dokument verweist, statt sie rückwirkend zu überschreiben. `CLAUDE.md`
+enthält keine Sizing-Formel-Aussage, die zu korrigieren wäre.
+`docs/dod/phase-4.md` bekam einen kurzen Nachtrag (siehe dort) analog zum
+bestehenden F049–F061-Muster für live gemeldete Korrekturen.

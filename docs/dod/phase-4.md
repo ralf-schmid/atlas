@@ -244,3 +244,22 @@ dieser DoD-Punkt eigentlich nachweisen soll). **Weiterhin offen:**
 Kosten-Cap-Stichprobe gegen die echte LiteLLM-Abrechnung; `/digest` ist
 weiterhin nur ein TODO-Stub (siehe F053 §1 Non-Scope) — der tägliche
 Telegram-Digest ist damit noch nicht nachweisbar.
+
+**Update (12.07.2026, von Ralf gemeldet):** Personas kamen über mehrere Zyklen
+hinweg wiederholt auf dasselbe, bereits gehaltene Instrument — legitim (neue
+Impulse/Wahrscheinlichkeiten), aber die Positionsgrößen-Berechnung
+(`compute_position_value_usd` in `persona_analysis._resolve_buy_decision`)
+berechnete jede `buy`-Order komplett neu aus `conviction × max_position_pct ×
+equity`, ohne einen bereits gehaltenen Bestand im selben Instrument
+abzuziehen — und das Risk-Gate prüfte `max_position_pct` nur gegen die neue
+Order, nicht gegen den Gesamtbestand danach. Wiederholte Käufe desselben
+Symbols konnten dadurch die persona-eigene Positionsgrößen-Obergrenze
+kumulativ überschreiten (Fehlallokation in der Höhe). Die eigentliche
+Bestandsbuchung beim Broker/Ledger war bereits korrekt (Bestand + Neukauf
+bzw. Bestand − Teilverkauf); der Fehler saß ausschließlich in der
+Sizing-/Risk-Gate-Schicht davor. Behoben in
+[F071](../features/F071-position-sizing-accounts-for-existing-holdings.md):
+Sizing toppt jetzt nur noch die Differenz zum Ziel-Gesamtwert auf (bereits
+am/über Ziel → `reject_idea` statt Nullmengen-Order), und das Risk-Gate prüft
+`existing_position_value_usd + position_value_usd` gegen die Obergrenze als
+unabhängiges Sicherheitsnetz.
