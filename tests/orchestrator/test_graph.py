@@ -237,11 +237,16 @@ def _mixed_hold_and_buy_client() -> LiteLLMClient:
     )
 
 
-def test_multiple_simultaneous_hitl_interrupts_resume_independently() -> None:
-    """See docs/features/F022-hitl-flow.md §3, test 5."""
+def test_multiple_simultaneous_hitl_interrupts_resume_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """See docs/features/F022-hitl-flow.md §3, test 5. `config/hitl.yaml` has HITL
+    off for paper since F072 — force the HITL-required branch explicitly so this
+    interrupt-based flow stays covered."""
     if not os.environ.get("DATABASE_URL"):
         pytest.skip("DATABASE_URL not set — needs a real local Postgres, see F016 §5")
 
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: True)
     session_factory = get_session_factory()
     with session_factory() as seed_session:
         seed_personas_and_portfolios(seed_session)

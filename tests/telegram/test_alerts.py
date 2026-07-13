@@ -10,7 +10,11 @@ import datetime
 import uuid
 from unittest.mock import AsyncMock, patch
 
-from src.telegram.alerts import send_alert, send_hitl_approval_request
+from src.telegram.alerts import (
+    format_trade_executed_message,
+    send_alert,
+    send_hitl_approval_request,
+)
 from src.telegram.config import TelegramConfig
 from src.telegram.hitl import HitlRequest
 
@@ -60,3 +64,20 @@ def test_send_hitl_approval_request_sends_message_with_inline_buttons():
             f"hitl:approve:{decision_id}",
             f"hitl:reject:{decision_id}",
         }
+
+
+def test_format_trade_executed_message_includes_persona_instrument_and_stop() -> None:
+    text = format_trade_executed_message(
+        persona_name="VULTURE", instrument="AAPL", qty=1.5, stop_loss_price=290.87
+    )
+    assert "VULTURE" in text
+    assert "AAPL" in text
+    assert "1.5" in text
+    assert "290.87" in text
+
+
+def test_format_trade_executed_message_omits_stop_line_when_absent() -> None:
+    text = format_trade_executed_message(
+        persona_name="VULTURE", instrument="AAPL", qty=1.5, stop_loss_price=None
+    )
+    assert "Stop-Loss" not in text

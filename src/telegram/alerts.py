@@ -18,6 +18,17 @@ async def send_alert(config: TelegramConfig, text: str) -> None:
     await bot.send_message(chat_id=config.allowed_chat_id, text=text)
 
 
+def format_trade_executed_message(
+    persona_name: str, instrument: str, qty: float, stop_loss_price: float | None
+) -> str:
+    """F072: HITL is off in paper mode — this is Ralf's only remaining signal that
+    a persona traded, so it goes out via `send_alert` right after the order commits."""
+    text = f"✅ {persona_name} hat gehandelt: {qty:g} {instrument}"
+    if stop_loss_price is not None:
+        text += f"\nStop-Loss: ${stop_loss_price:,.2f}"
+    return text
+
+
 async def send_hitl_approval_request(config: TelegramConfig, request: HitlRequest) -> None:
     bot = Bot(token=config.bot_token)
     await bot.send_message(

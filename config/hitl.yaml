@@ -1,7 +1,9 @@
-# HITL-Schaltung je mode, ARCHITECTURE.md §5.3. Aktueller Stand: Einschwingphase vor
-# Wettbewerbsstart (Phase 5) -> HITL an fuer Paper. Aenderung ausschliesslich hier
-# oder per /hitl-Telegram-Kommando (das diese Datei aktualisiert) -- nie eine hart
-# codierte Umgehung im Code.
+# HITL-Schaltung je mode, ARCHITECTURE.md §5.3. Aktueller Stand (F072, 2026-07-13):
+# HITL fuer Paper aus -- Personas handeln autonom, Ralf bekommt nur noch eine
+# Info-Nachricht nach Ausfuehrung (kein Freigabe-Button mehr). Aenderung
+# ausschliesslich hier oder per /hitl-Telegram-Kommando (das diese Datei
+# aktualisiert) -- nie eine hart codierte Umgehung im Code. Live bleibt an, bis
+# Phase 6 das explizit neu entscheidet (Invariante #5).
 
-paper: true
+paper: false
 live: true

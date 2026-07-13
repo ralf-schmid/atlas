@@ -4,6 +4,7 @@ See docs/features/F021-persona-analysis-agent.md.
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import uuid
@@ -24,6 +25,7 @@ from src.db.models import (
     Decision,
     DecisionAction,
     DecisionStatus,
+    OrderRecord,
     Portfolio,
     ResearchItem,
 )
@@ -238,13 +240,58 @@ def _maybe_execute_decision(
         return
 
     try:
-        execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
+        order_record = execute_decision(
+            session, decision, broker_adapter, get_adapter_type(persona_name)
+        )
     except Exception as exc:  # must not crash the cycle for other personas; recorded, not swallowed
         session.add(
             AgentRun(
                 cycle_id=decision.cycle_id,
                 portfolio_id=decision.portfolio_id,
                 agent="trading",
+                status=AgentRunStatus.FAILED,
+                error=str(exc),
+            )
+        )
+        session.flush()
+        return
+
+    _notify_trade_executed(session, decision, order_record, persona_name)
+
+
+def _notify_trade_executed(
+    session: Session, decision: Decision, order_record: OrderRecord, persona_name: str
+) -> None:
+    """F072: with HITL off in paper mode, this is Ralf's only remaining signal that
+    a persona traded. Best-effort — a Telegram outage must not undo or block the
+    order that already executed and committed above (same non-fatal contract as
+    the rest of this module)."""
+    try:
+        from src.telegram.alerts import format_trade_executed_message, send_alert
+        from src.telegram.config import load_config as load_telegram_config
+
+        raw = order_record.raw or {}
+        qty = raw.get("qty")
+        if not isinstance(qty, int | float):
+            raise ValueError(f"order_record {order_record.id} has no numeric qty in raw")
+        stop_loss_price = raw.get("stop_loss_price")
+
+        config = load_telegram_config()
+        text = format_trade_executed_message(
+            persona_name=persona_name,
+            instrument=decision.instrument,
+            qty=float(qty),
+            stop_loss_price=(
+                float(stop_loss_price) if isinstance(stop_loss_price, int | float) else None
+            ),
+        )
+        asyncio.run(send_alert(config, text))
+    except Exception as exc:
+        session.add(
+            AgentRun(
+                cycle_id=decision.cycle_id,
+                portfolio_id=decision.portfolio_id,
+                agent="telegram_notify",
                 status=AgentRunStatus.FAILED,
                 error=str(exc),
             )

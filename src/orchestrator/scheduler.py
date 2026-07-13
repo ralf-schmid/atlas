@@ -397,7 +397,9 @@ def retry_stuck_decisions(
         for decision, persona_name in session.execute(stmt).all():
             broker_adapter = adapter_factory(persona_name)
             try:
-                execute_decision(session, decision, broker_adapter, get_adapter_type(persona_name))
+                order_record = execute_decision(
+                    session, decision, broker_adapter, get_adapter_type(persona_name)
+                )
                 session.commit()
                 executed += 1
             except Exception:
@@ -408,6 +410,35 @@ def retry_stuck_decisions(
                     extra={"decision_id": str(decision.id)},
                 )
                 continue
+
+            # F072: same best-effort trade notification as the primary execution
+            # path (persona_analysis._notify_trade_executed) — a decision executed
+            # here (after an earlier broker-side failure) is just as much "a
+            # persona traded" as one executed inline during the cycle.
+            try:
+                from src.telegram.alerts import format_trade_executed_message, send_alert
+
+                raw = order_record.raw or {}
+                qty = raw.get("qty")
+                if not isinstance(qty, int | float):
+                    raise ValueError(f"order_record {order_record.id} has no numeric qty in raw")
+                stop_loss_price = raw.get("stop_loss_price")
+
+                text = format_trade_executed_message(
+                    persona_name=persona_name,
+                    instrument=decision.instrument,
+                    qty=float(qty),
+                    stop_loss_price=(
+                        float(stop_loss_price) if isinstance(stop_loss_price, int | float) else None
+                    ),
+                )
+                asyncio.run(send_alert(load_telegram_config(), text))
+            except Exception:
+                logger.error(
+                    "failed to send trade-executed telegram alert",
+                    exc_info=True,
+                    extra={"decision_id": str(decision.id)},
+                )
 
             # F059: without this, a position bought here is invisible in the
             # dashboard/Grafana (both read `position_snapshot`, F050's own retry

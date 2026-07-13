@@ -7,6 +7,7 @@ import json
 import uuid
 from decimal import Decimal
 from typing import TypedDict
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -462,11 +463,13 @@ def _build_single_persona_graph(
 
 
 def test_buy_risk_approved_with_hitl_required_persists_pending_and_interrupts(
-    session: Session,
+    session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """See docs/features/F022-hitl-flow.md §3, test 2. `config/hitl.yaml` defaults
-    `paper: true`, so a risk-approved buy for a PAPER portfolio must pause via
-    interrupt(), not go straight to APPROVED."""
+    """See docs/features/F022-hitl-flow.md §3, test 2. `config/hitl.yaml` has HITL
+    off for paper since F072, so this forces the HITL-required branch explicitly to
+    keep covering it — a risk-approved buy must pause via interrupt(), not go
+    straight to APPROVED, whenever HITL *is* required."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: True)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     _seed_market_bars(session, "AAPL")
@@ -498,8 +501,11 @@ def test_buy_risk_approved_with_hitl_required_persists_pending_and_interrupts(
     assert decision.risk_check["approved"] is True
 
 
-def test_hitl_resume_approves_decision_without_second_llm_call(session: Session) -> None:
+def test_hitl_resume_approves_decision_without_second_llm_call(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """See docs/features/F022-hitl-flow.md §3, test 3."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: True)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     _seed_market_bars(session, "AAPL")
@@ -601,6 +607,102 @@ def test_buy_response_approved_directly_when_hitl_disabled(
     assert order_record is not None
     assert order_record.broker == "alpaca_paper"
     assert order_record.broker_order_id == "entry-test-1"
+
+
+def test_buy_executed_with_hitl_disabled_sends_a_telegram_trade_alert(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F072: HITL is off for paper — a trade that goes straight through must still
+    tell Ralf it happened, since there's no more approval message to double as one."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:dummy-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike + insider buy filing",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    with patch("src.telegram.alerts.Bot") as mock_bot_cls:
+        mock_bot = mock_bot_cls.return_value
+        mock_bot.send_message = AsyncMock()
+
+        decision = analyze_persona_cycle(
+            session,
+            _fake_client(content),
+            _llm_config(),
+            cycle.id,
+            portfolio.id,
+            persona.id,
+            "VULTURE",
+            adapter,
+        )
+
+    assert decision is not None
+    assert decision.status == DecisionStatus.EXECUTED
+    mock_bot.send_message.assert_called_once()
+    call = mock_bot.send_message.call_args
+    assert call.kwargs["chat_id"] == 42
+    assert "VULTURE" in call.kwargs["text"]
+    assert "AAPL" in call.kwargs["text"]
+    # No telegram_notify AgentRun on the happy path — only a real send failure
+    # (mismatched/missing config, Telegram outage) should ever record one.
+    notify_runs = session.scalars(
+        select(AgentRun).where(AgentRun.cycle_id == cycle.id, AgentRun.agent == "telegram_notify")
+    ).all()
+    assert notify_runs == []
+
+
+def test_buy_executed_with_hitl_disabled_survives_a_telegram_outage(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed trade-alert send must not undo the already-committed trade — same
+    non-fatal contract as the rest of this module (F063 et al.)."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
+    monkeypatch.delenv("TELEGRAM_CHAT_ID", raising=False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "volume spike + insider buy filing",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.status == DecisionStatus.EXECUTED
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+    notify_run = session.scalar(
+        select(AgentRun).where(AgentRun.cycle_id == cycle.id, AgentRun.agent == "telegram_notify")
+    )
+    assert notify_run is not None
+    assert notify_run.status == AgentRunStatus.FAILED
 
 
 def test_buy_sizing_tops_up_existing_position_instead_of_stacking_full_size(
@@ -783,9 +885,12 @@ def test_snapshot_failure_after_a_successful_order_does_not_undo_it(
     assert "broker timeout" in (reporting_run.error or "")
 
 
-def test_hitl_resume_approval_also_executes_the_order(session: Session) -> None:
+def test_hitl_resume_approval_also_executes_the_order(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """F023 end-to-end: a decision approved via a Telegram-resumed interrupt gets
     executed by the trading module too, not just directly-approved ones."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: True)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     _seed_market_bars(session, "AAPL")
@@ -820,7 +925,9 @@ def test_hitl_resume_approval_also_executes_the_order(session: Session) -> None:
     assert adapter.placed_orders
 
 
-def test_hitl_resume_after_bot_applied_outcome_does_not_rerun_llm(session: Session) -> None:
+def test_hitl_resume_after_bot_applied_outcome_does_not_rerun_llm(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Regression for the real Telegram flow: bot.py `_handle_hitl_callback` sets the
     decision to APPROVED via `apply_hitl_outcome` and commits *before* resuming the
     graph. The node replay must recognise that already-resolved decision — no second
@@ -828,6 +935,7 @@ def test_hitl_resume_after_bot_applied_outcome_does_not_rerun_llm(session: Sessi
     from src.telegram.hitl import HitlDecision, HitlOutcome
     from src.telegram.hitl_store import apply_hitl_outcome
 
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: True)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     _seed_market_bars(session, "AAPL")

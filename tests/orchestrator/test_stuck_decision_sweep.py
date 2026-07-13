@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from decimal import Decimal
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from sqlalchemy import select
@@ -140,6 +141,30 @@ def test_retry_executes_orphaned_approved_decision() -> None:
             select(PortfolioSnapshot).where(PortfolioSnapshot.portfolio_id == decision.portfolio_id)
         )
         assert snapshot is not None
+
+
+def test_retry_sends_a_telegram_trade_alert(monkeypatch: pytest.MonkeyPatch) -> None:
+    """F072: a decision executed via the stuck-decision retry sweep is just as much
+    "a persona traded" as one executed inline during the cycle — same notification."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:dummy-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    session_factory = get_session_factory()
+    _seed_approved_decision(session_factory, stop_loss_price=140.0)
+    fake_adapter = _FakeAdapter()
+
+    with patch("src.telegram.alerts.Bot") as mock_bot_cls:
+        mock_bot = mock_bot_cls.return_value
+        mock_bot.send_message = AsyncMock()
+
+        count = retry_stuck_decisions(
+            session_factory, adapter_factory=lambda _persona: fake_adapter
+        )
+
+    assert count == 1
+    mock_bot.send_message.assert_called_once()
+    call = mock_bot.send_message.call_args
+    assert call.kwargs["chat_id"] == 42
+    assert "AAPL" in call.kwargs["text"]
 
 
 def test_retry_skips_decision_that_already_has_an_order_record() -> None:
