@@ -1,5 +1,6 @@
 import datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -7,6 +8,7 @@ from src.db.models import DecisionAction, PortfolioMode
 from tests.db.factories import (
     make_cycle,
     make_decision,
+    make_market_bar,
     make_order_record,
     make_persona,
     make_portfolio,
@@ -191,6 +193,196 @@ def test_get_persona_holdings_without_snapshot_returns_empty_list(client: TestCl
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_get_persona_holding_chart_returns_bars_and_fill_markers(client: TestClient, session):
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio)  # AAPL
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    buy = make_decision(
+        session, cycle, portfolio, research_item, instrument="AAPL", action=DecisionAction.BUY
+    )
+    make_order_record(
+        session,
+        buy,
+        filled_at=datetime.datetime(2026, 7, 4, 10, 0),
+        fill_price=Decimal("149.50"),
+    )
+    sell = make_decision(
+        session,
+        cycle,
+        portfolio,
+        research_item,
+        instrument="AAPL",
+        action=DecisionAction.SELL,
+        quantity=Decimal("4"),
+    )
+    make_order_record(
+        session,
+        sell,
+        filled_at=datetime.datetime(2026, 7, 5, 10, 0),
+        fill_price=Decimal("152.00"),
+    )
+    # Bars already cover [chart_start, today] — the fast DB-only path applies.
+    make_market_bar(session, symbol="AAPL", ts=datetime.datetime(2026, 7, 2, 0, 0))
+    make_market_bar(session, symbol="AAPL", ts=datetime.datetime(2026, 7, 4, 0, 0))
+    session.flush()
+
+    with (
+        patch("src.api.routes.build_default_provider") as mock_backfill_provider,
+        patch("src.api.routes.build_market_data_provider") as mock_live_provider,
+    ):
+        mock_live_provider.return_value.get_last_price.return_value = 153.25
+        response = client.get("/api/personas/VULTURE/chart?instrument=AAPL")
+
+    assert response.status_code == 200
+    mock_backfill_provider.assert_not_called()  # bars already covered the range
+    body = response.json()
+    assert body["instrument"] == "AAPL"
+    assert body["start"] == "2026-07-02"  # first fill (07-04) minus 2 days
+    assert [bar["ts"] for bar in body["bars"]] == ["2026-07-02", "2026-07-04"]
+    assert len(body["fills"]) == 2
+    assert body["fills"][0]["action"] == "buy"
+    assert body["fills"][0]["price"] == 149.50
+    assert body["fills"][1]["action"] == "sell"
+    assert body["fills"][1]["price"] == 152.00
+    assert body["live_price"] == {"ts": body["live_price"]["ts"], "price": 153.25}
+
+
+def test_get_persona_holding_chart_without_fills_falls_back_to_30_day_window(
+    client: TestClient, session
+):
+    persona = make_persona(session, name="GUARDIAN")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio)  # demo-style position, no OrderRecord
+    session.flush()
+
+    with (
+        patch("src.api.routes.build_default_provider", side_effect=RuntimeError("no bars")),
+        patch("src.api.routes.build_market_data_provider") as mock_live_provider,
+    ):
+        mock_live_provider.return_value.get_last_price.side_effect = RuntimeError("no quote")
+        response = client.get("/api/personas/GUARDIAN/chart?instrument=AAPL")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["start"] == str(datetime.date.today() - datetime.timedelta(days=30))
+    assert body["bars"] == []
+    assert body["fills"] == []
+    assert body["live_price"] is None  # live fetch failure degrades gracefully
+
+
+def test_get_persona_holding_chart_triggers_backfill_when_bars_incomplete(
+    client: TestClient, session
+):
+    from src.ingestion.market_data_sync import Bar
+
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio)  # AAPL
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    buy = make_decision(
+        session, cycle, portfolio, research_item, instrument="AAPL", action=DecisionAction.BUY
+    )
+    make_order_record(
+        session,
+        buy,
+        filled_at=datetime.datetime(2026, 7, 4, 10, 0),
+        fill_price=Decimal("149.50"),
+    )
+    # No pre-existing market_bar rows at all — forces the backfill path.
+    session.flush()
+
+    fake_bar = Bar(
+        symbol="AAPL",
+        ts=datetime.datetime(2026, 7, 2, 0, 0),
+        open=Decimal("148"),
+        high=Decimal("150"),
+        low=Decimal("147"),
+        close=Decimal("149"),
+        volume=Decimal("1000"),
+    )
+    with (
+        patch("src.api.routes.build_default_provider") as mock_backfill_provider,
+        patch("src.api.routes.build_market_data_provider") as mock_live_provider,
+    ):
+        mock_backfill_provider.return_value.get_daily_bars.return_value = [fake_bar]
+        mock_live_provider.return_value.get_last_price.return_value = 150.0
+        response = client.get("/api/personas/VULTURE/chart?instrument=AAPL")
+
+    assert response.status_code == 200
+    mock_backfill_provider.return_value.get_daily_bars.assert_called_once()
+    body = response.json()
+    assert [bar["ts"] for bar in body["bars"]] == ["2026-07-02"]
+
+
+def test_get_persona_holding_chart_backfill_failure_degrades_gracefully(
+    client: TestClient, session
+):
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio)  # AAPL
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    buy = make_decision(
+        session, cycle, portfolio, research_item, instrument="AAPL", action=DecisionAction.BUY
+    )
+    make_order_record(
+        session,
+        buy,
+        filled_at=datetime.datetime(2026, 7, 4, 10, 0),
+        fill_price=Decimal("149.50"),
+    )
+    session.flush()
+
+    with (
+        patch("src.api.routes.build_default_provider", side_effect=RuntimeError("Alpaca down")),
+        patch("src.api.routes.build_market_data_provider", side_effect=RuntimeError("down")),
+    ):
+        response = client.get("/api/personas/VULTURE/chart?instrument=AAPL")
+
+    assert response.status_code == 200  # no 500 despite both external calls failing
+    body = response.json()
+    assert body["bars"] == []
+    assert body["live_price"] is None
+
+
+def test_get_persona_holding_chart_unknown_instrument_returns_404(client: TestClient, session):
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio)  # AAPL only
+    session.flush()
+
+    response = client.get("/api/personas/VULTURE/chart?instrument=MSFT")
+
+    assert response.status_code == 404
+
+
+def test_get_persona_holding_chart_crypto_symbol_query_param_works(client: TestClient, session):
+    persona = make_persona(session, name="CRYPTOR")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio)
+    make_position_snapshot(session, portfolio, instrument="BTC/USD")
+    make_market_bar(session, symbol="BTC/USD", ts=datetime.datetime(2026, 7, 4, 0, 0))
+    session.flush()
+
+    with patch("src.api.routes.build_market_data_provider") as mock_live_provider:
+        mock_live_provider.return_value.get_last_price.return_value = 65000.0
+        response = client.get("/api/personas/CRYPTOR/chart?instrument=BTC/USD")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["instrument"] == "BTC/USD"
+    # crypto -> the "market" arg passed to build_market_data_provider must be "crypto"
+    assert mock_live_provider.call_args[0][0] == "crypto"
 
 
 def test_get_persona_transactions_orders_newest_first(client: TestClient, session):

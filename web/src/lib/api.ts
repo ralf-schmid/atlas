@@ -50,6 +50,31 @@ export interface Transaction {
   thesis_text: string;
 }
 
+export interface ChartBar {
+  ts: string;
+  close: number;
+}
+
+export interface ChartFillMarker {
+  ts: string;
+  price: number;
+  qty: number;
+  action: "buy" | "sell";
+}
+
+export interface ChartLivePrice {
+  ts: string;
+  price: number;
+}
+
+export interface HoldingChart {
+  instrument: string;
+  start: string;
+  bars: ChartBar[];
+  fills: ChartFillMarker[];
+  live_price: ChartLivePrice | null;
+}
+
 export interface ResearchRef {
   id: string;
   source_type: string;
@@ -113,4 +138,13 @@ export async function getPersonaDecisions(
   persona: string,
 ): Promise<Decision[]> {
   return (await getJson<Decision[]>(`/api/personas/${persona}/decisions`)) ?? [];
+}
+
+export async function getHoldingChart(
+  persona: string,
+  instrument: string,
+): Promise<HoldingChart | null> {
+  return getJson<HoldingChart>(
+    `/api/personas/${persona}/chart?instrument=${encodeURIComponent(instrument)}`,
+  );
 }

@@ -17,6 +17,8 @@ from src.db.models import (
     Cycle,
     Decision,
     DecisionAction,
+    MarketBar,
+    MarketBarTimeframe,
     MarketSession,
     OrderRecord,
     OrderRecordStatus,
@@ -156,6 +158,22 @@ def make_position_snapshot(
     session.add(snapshot)
     session.flush()
     return snapshot
+
+
+def make_market_bar(session: Session, **overrides: object) -> MarketBar:
+    bar = MarketBar(
+        symbol=overrides.get("symbol", "AAPL"),
+        timeframe=overrides.get("timeframe", MarketBarTimeframe.DAY),
+        ts=overrides.get("ts", datetime.datetime(2026, 7, 4, 0, 0)),
+        open=overrides.get("open", Decimal("149.00")),
+        high=overrides.get("high", Decimal("151.00")),
+        low=overrides.get("low", Decimal("148.00")),
+        close=overrides.get("close", Decimal("150.00")),
+        volume=overrides.get("volume", Decimal("1000000")),
+    )
+    session.add(bar)
+    session.flush()
+    return bar
 
 
 def make_portfolio_snapshot(

@@ -48,6 +48,31 @@ class HoldingOut(BaseModel):
     last_buy_at: datetime.datetime | None
 
 
+class ChartBarOut(BaseModel):
+    ts: datetime.date
+    close: float
+
+
+class ChartFillMarkerOut(BaseModel):
+    ts: datetime.datetime
+    price: float
+    qty: float
+    action: str  # "buy" | "sell"
+
+
+class ChartLivePriceOut(BaseModel):
+    ts: datetime.datetime
+    price: float
+
+
+class HoldingChartOut(BaseModel):
+    instrument: str
+    start: datetime.date
+    bars: list[ChartBarOut]
+    fills: list[ChartFillMarkerOut]
+    live_price: ChartLivePriceOut | None
+
+
 class TransactionOut(BaseModel):
     decision_id: uuid.UUID
     instrument: str

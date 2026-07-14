@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
+  getHoldingChart,
   getPersonaDecisions,
   getPersonaHoldings,
   getPersonaProfile,
   getPersonaTransactions,
+  type Holding,
+  type HoldingChart,
 } from "@/lib/api";
 import {
   actionLabel,
@@ -13,6 +16,7 @@ import {
   orderStatusLabel,
   sourceTypeLabel,
 } from "@/lib/labels";
+import PriceChart from "@/components/PriceChart";
 
 const currency = new Intl.NumberFormat("de-DE", {
   style: "currency",
@@ -26,6 +30,19 @@ const dateTime = new Intl.DateTimeFormat("de-DE", {
 
 function formatDate(value: string | null): string {
   return value === null ? "–" : dateTime.format(new Date(value));
+}
+
+async function loadHoldingCharts(
+  persona: string,
+  holdings: Holding[],
+): Promise<Record<string, HoldingChart | null>> {
+  const entries = await Promise.all(
+    holdings.map(async (holding) => [
+      holding.instrument,
+      await getHoldingChart(persona, holding.instrument),
+    ] as const),
+  );
+  return Object.fromEntries(entries);
 }
 
 function pnlClass(value: number): string {
@@ -49,6 +66,8 @@ export default async function PersonaDetailPage({
   if (profile === null) {
     notFound();
   }
+
+  const charts = await loadHoldingCharts(persona, holdings);
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-4">
@@ -119,6 +138,9 @@ export default async function PersonaDetailPage({
                     {formatDate(holding.last_buy_at)}
                   </dd>
                 </dl>
+                {charts[holding.instrument] && (
+                  <PriceChart chart={charts[holding.instrument]!} />
+                )}
               </li>
             ))}
           </ul>

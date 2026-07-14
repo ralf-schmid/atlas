@@ -6,9 +6,18 @@
       "runtimeExecutable": "sh",
       "runtimeArgs": [
         "-c",
-        "cd web && API_URL=http://localhost:8000 npm run dev"
+        "cd web && PATH=/opt/homebrew/bin:$PATH API_URL=http://localhost:8000 npm run dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "DATABASE_URL=postgresql+psycopg://atlas:atlas@localhost:5432/atlas uv run uvicorn src.api.app:app --port 8000"
+      ],
+      "port": 8000
     }
   ]
 }

@@ -5,6 +5,7 @@ transactions/decisions (F034). All read-only, no LLM, no broker access.
 from __future__ import annotations
 
 import datetime
+import logging
 from collections.abc import Generator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,7 +13,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.schemas import (
+    ChartBarOut,
+    ChartFillMarkerOut,
+    ChartLivePriceOut,
     DecisionOut,
+    HoldingChartOut,
     HoldingOut,
     PersonaProfileOut,
     PortfolioSnapshotOut,
@@ -20,11 +25,14 @@ from src.api.schemas import (
     ResearchRefOut,
     TransactionOut,
 )
+from src.broker.registry import build_market_data_provider, load_market_data_config
 from src.db.base import get_session_factory
 from src.db.models import (
     Cycle,
     Decision,
     DecisionAction,
+    MarketBar,
+    MarketBarTimeframe,
     OrderRecord,
     Persona,
     Portfolio,
@@ -33,8 +41,11 @@ from src.db.models import (
     PositionSnapshot,
     ResearchItem,
 )
+from src.ingestion.market_data_sync import build_default_provider, sync_market_bars
 from src.orchestrator.persona_analysis import compute_age_days
 from src.personas.charters import get_persona_profile
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api")
 
@@ -201,6 +212,134 @@ def get_persona_holdings(
             )
         )
     return holdings
+
+
+@router.get("/personas/{name}/chart", response_model=HoldingChartOut)
+def get_persona_holding_chart(
+    name: str,
+    instrument: str,
+    mode: PortfolioMode = PortfolioMode.PAPER,
+    session: Session = Depends(get_session),
+) -> HoldingChartOut:
+    """F074: price-chart data for one current holding — daily closes from 2 days
+    before the first fill to today (`market_bar`), every filled buy/sell marked,
+    plus a best-effort live quote. `instrument` is a query param, not a path
+    segment, because crypto symbols contain "/" (e.g. "BTC/USD"), which would
+    break path routing.
+    """
+    _persona, portfolio = _get_persona_and_portfolio(session, name, mode)
+
+    latest_snapshot = session.scalar(
+        select(PortfolioSnapshot)
+        .where(PortfolioSnapshot.portfolio_id == portfolio.id)
+        .order_by(PortfolioSnapshot.ts.desc())
+        .limit(1)
+    )
+    is_current_holding = latest_snapshot is not None and (
+        session.scalar(
+            select(PositionSnapshot.id).where(
+                PositionSnapshot.portfolio_id == portfolio.id,
+                PositionSnapshot.ts == latest_snapshot.ts,
+                PositionSnapshot.instrument == instrument,
+            )
+        )
+        is not None
+    )
+    if not is_current_holding:
+        raise HTTPException(
+            status_code=404,
+            detail=f"{instrument!r} is not a current holding of {name!r}",
+        )
+
+    fill_rows = session.execute(
+        select(OrderRecord.filled_at, OrderRecord.fill_price, Decision.quantity, Decision.action)
+        .join(Decision, OrderRecord.decision_id == Decision.id)
+        .where(
+            Decision.portfolio_id == portfolio.id,
+            Decision.instrument == instrument,
+            OrderRecord.filled_at.isnot(None),
+            OrderRecord.fill_price.isnot(None),
+            Decision.quantity.isnot(None),
+        )
+        .order_by(OrderRecord.filled_at.asc())
+    ).all()
+
+    if fill_rows:
+        first_fill_at = min(filled_at for filled_at, _, _, _ in fill_rows)
+        chart_start = first_fill_at.date() - datetime.timedelta(days=2)
+    else:
+        # F074: demo/seed positions (scripts/seed_demo_snapshot.py) have no backing
+        # OrderRecord — fall back to a fixed recent window instead of erroring.
+        chart_start = datetime.date.today() - datetime.timedelta(days=30)
+
+    fills = [
+        ChartFillMarkerOut(
+            ts=filled_at,
+            price=float(fill_price),
+            qty=float(qty),
+            action="buy" if action == DecisionAction.BUY else "sell",
+        )
+        for filled_at, fill_price, qty, action in fill_rows
+    ]
+
+    bars = _read_market_bars(session, instrument, chart_start)
+    if not bars or bars[0].ts.date() > chart_start:
+        _try_backfill(session, instrument, chart_start)
+        bars = _read_market_bars(session, instrument, chart_start)
+
+    return HoldingChartOut(
+        instrument=instrument,
+        start=chart_start,
+        bars=[ChartBarOut(ts=bar.ts.date(), close=float(bar.close)) for bar in bars],
+        fills=fills,
+        live_price=_try_live_price(instrument),
+    )
+
+
+def _read_market_bars(
+    session: Session, instrument: str, chart_start: datetime.date
+) -> list[MarketBar]:
+    return list(
+        session.scalars(
+            select(MarketBar)
+            .where(
+                MarketBar.symbol == instrument,
+                MarketBar.timeframe == MarketBarTimeframe.DAY,
+                MarketBar.ts >= datetime.datetime.combine(chart_start, datetime.time.min),
+            )
+            .order_by(MarketBar.ts.asc())
+        ).all()
+    )
+
+
+def _try_backfill(session: Session, instrument: str, chart_start: datetime.date) -> None:
+    """Best-effort: a symbol only just added to the watchlist on its purchase day
+    won't have bars for the 2 days before yet. Stock-only — crypto symbols contain
+    "/" and need a different Alpaca data client; F064's crypto watchlist already
+    includes open positions, so this gap is not expected to matter in practice.
+    Swallows failures: an Alpaca outage must degrade to an incomplete chart, not a
+    500 on the whole holdings page (this endpoint is otherwise a pure DB read, like
+    the rest of this module)."""
+    if "/" in instrument:
+        return
+    try:
+        provider = build_default_provider()
+        sync_market_bars(session, provider, [instrument], chart_start, datetime.date.today())
+    except Exception:
+        logger.exception("F074: on-demand market_bar backfill failed for %s", instrument)
+
+
+def _try_live_price(instrument: str) -> ChartLivePriceOut | None:
+    try:
+        market = "crypto" if "/" in instrument else "stock"
+        provider = build_market_data_provider(market, load_market_data_config())
+        price = provider.get_last_price(instrument)
+    except Exception:
+        logger.exception("F074: live price fetch failed for %s", instrument)
+        return None
+    return ChartLivePriceOut(
+        ts=datetime.datetime.now(datetime.UTC).replace(tzinfo=None), price=price
+    )
 
 
 @router.get("/personas/{name}/transactions", response_model=list[TransactionOut])

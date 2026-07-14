@@ -40,7 +40,7 @@ def get_adapter(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> Broke
         return AlpacaPaperAdapter(api_key=key_id, secret_key=secret_key)
 
     if adapter_type == "internal_ledger":
-        market_data = _build_market_data_provider(entry["market"], config["market_data"])
+        market_data = build_market_data_provider(entry["market"], config["market_data"])
         return InternalLedgerAdapter(
             persona=persona,
             market_data=market_data,
@@ -61,7 +61,15 @@ def get_adapter_type(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> 
     return str(personas[persona]["adapter"])
 
 
-def _build_market_data_provider(
+def load_market_data_config(config_path: Path = _DEFAULT_CONFIG_PATH) -> dict[str, str]:
+    """F074: lets the chart endpoint (`src/api/routes.py`) build a live-price
+    `MarketDataProvider` without duplicating the `config/broker.yaml` -> dict lookup
+    `get_adapter` already does inline."""
+    config = yaml.safe_load(config_path.read_text())
+    return dict(config["market_data"])
+
+
+def build_market_data_provider(
     market: str, market_data_config: dict[str, str]
 ) -> MarketDataProvider:
     key_id = _require_env(market_data_config["key_id_env"])

@@ -150,6 +150,17 @@ def sync_market_bars(
     return len(rows)
 
 
+def build_default_provider(config_path: Path = _DEFAULT_CONFIG_PATH) -> AlpacaBarsProvider:
+    """Same key-loading logic `run_daily_sync` uses, extracted so other callers (F074:
+    the on-demand chart backfill in `src/api/routes.py`) don't need their own copy of
+    the `config/ingestion.yaml` -> env-var lookup."""
+    config = yaml.safe_load(config_path.read_text())
+    market_data_config = config["market_data"]
+    key_id = _require_env(market_data_config["key_id_env"])
+    secret_key = _require_env(market_data_config["secret_key_env"])
+    return AlpacaBarsProvider(api_key=key_id, secret_key=secret_key)
+
+
 def run_daily_sync(
     session: Session,
     trading_day: datetime.date,
@@ -178,9 +189,7 @@ def run_daily_sync(
         watchlist_override if watchlist_override is not None else market_data_config["watchlist"]
     )
 
-    key_id = _require_env(market_data_config["key_id_env"])
-    secret_key = _require_env(market_data_config["secret_key_env"])
-    provider = AlpacaBarsProvider(api_key=key_id, secret_key=secret_key)
+    provider = build_default_provider(config_path)
 
     start = trading_day - datetime.timedelta(days=lookback_days - 1)
     return sync_market_bars(session, provider, watchlist, start, trading_day)
