@@ -6,7 +6,7 @@ import pytest
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.market_data import AlpacaCryptoMarketDataProvider, AlpacaStockMarketDataProvider
-from src.broker.registry import get_adapter, get_adapter_type
+from src.broker.registry import get_adapter, get_adapter_type, load_market_data_config
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +84,13 @@ def test_get_adapter_unknown_adapter_type_raises(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Unknown adapter type"):
         get_adapter("FOO", config_path=config_path)
+
+
+def test_load_market_data_config_reads_broker_yaml():
+    config = load_market_data_config()
+
+    assert config["key_id_env"] == "ALPACA_MARKET_DATA_KEY_ID"
+    assert config["secret_key_env"] == "ALPACA_MARKET_DATA_SECRET_KEY"
 
 
 def test_get_adapter_unknown_market_type_raises(tmp_path: Path):
