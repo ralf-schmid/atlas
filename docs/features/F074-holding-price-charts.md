@@ -1,6 +1,6 @@
 # F074 — Kurs-Charts für Bestandswerte auf der Persona-Detailseite
 
-Status: umgesetzt, live verifiziert (Backend + Browser-Rendering, siehe §5)
+Status: umgesetzt, live verifiziert, deployt auf `atlas-ugreen`
 Datum: 2026-07-14
 Phase: 5
 
@@ -155,6 +155,25 @@ umbenannte (aber sonst unveränderte) Funktionen in `registry.py`. Kein
 Schema-/Migrations-Change, keine Änderung an bestehenden Endpoints oder
 UI-Sektionen außerhalb der neuen Chart-Einfügung. Revert = Commit
 zurücknehmen.
+
+## 6a. Deployment auf `atlas-ugreen`
+
+`rsync` (siehe `docs/deployment.md`-Muster) + `docker compose build api web`
++ `up -d api web`. **Live-Check nach dem Deploy deckte eine echte Lücke auf:**
+`GET /api/personas/VULTURE/chart?instrument=ALDX` lieferte `live_price: null`
+trotz gesetzter Alpaca-Keys — Container-Logs zeigten
+`ValueError: Environment variable 'ALPACA_MARKET_DATA_KEY_ID' is not set`.
+Ursache: der `api`-Service in `docker-compose.yml` hatte diese Variable nie
+gebraucht (reiner DB-Read bisher) und reicht sie deshalb bislang nicht durch
+— anders als `scheduler`/`telegram-bot`. Fix: `ALPACA_MARKET_DATA_KEY_ID`/
+`_SECRET_KEY` zum `api`-Service hinzugefügt (Commit `e1f8234`), erneut
+`up -d api` (kein Image-Rebuild nötig, nur Env-Change). **Danach live
+bestätigt:** derselbe Aufruf liefert jetzt einen echten Kurs
+(`live_price: {"price": 1.925, ...}` für ALDX). Beide Fehlerpfade
+(Backfill, Live-Preis) hatten schon vor dem Fix korrekt `try/except`
+gegriffen — kein 500er, nur eine still nie funktionierende Funktion; das
+Design hat sich bewährt, aber die fehlende Konfiguration wäre ohne diesen
+gezielten Live-Check unbemerkt geblieben.
 
 ## 7. Offener Punkt für Ralf
 
