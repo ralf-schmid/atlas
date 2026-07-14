@@ -1,8 +1,6 @@
 # F074 — Kurs-Charts für Bestandswerte auf der Persona-Detailseite
 
-Status: umgesetzt, Backend live gegen echte lokale Daten geprüft;
-Browser-Rendering des Frontends **nicht** visuell verifiziert (Umgebungs-
-Blocker, siehe §5)
+Status: umgesetzt, live verifiziert (Backend + Browser-Rendering, siehe §5)
 Datum: 2026-07-14
 Phase: 5
 
@@ -102,34 +100,53 @@ kein Anlass, es für dieses eine Feature einzuführen).
 - `uv run pytest -q` (lokaler Test-Postgres): **592 passed** (7 neue Tests).
   `ruff check`/`format --check`, `mypy src/api src/broker src/ingestion`:
   clean.
+- **Coverage (nachträglich geprüft, Ralfs Auftrag "prüfe... ob die neue
+  Funktion ausreichend mit Tests versorgt ist"):** `src/api/routes.py`,
+  `src/broker/registry.py`, `src/ingestion/market_data_sync.py` — alle drei
+  **100 % Line- und Branch-Coverage**. `src/broker` und `src/risk` insgesamt
+  weiterhin **100 %** (Pflicht laut CLAUDE.md: ≥ 90 % Lines) — durch dieses
+  Feature nicht verschlechtert.
 - `web`: `npm run lint` (ESLint) und `npx tsc --noEmit` (TypeScript strict):
   beide clean, keine Fehler.
 - **Backend live gegen echte lokale Daten geprüft:** lokaler Uvicorn gegen
   den Test-Postgres, Demo-Persona VULTURE mit echten `OrderRecord`/`Decision`-
   Fills und ~4 Wochen `market_bar`-Historie für AAPL/SOUN seed-eingespielt
   (temporäres, nicht committetes Skript). `GET /api/personas/VULTURE/chart?
-  instrument=AAPL` liefert das erwartete JSON: 17 Tages-Bars ab dem
-  korrekten Start-Datum (erster Fill minus 2 Tage, Wochenenden korrekt
-  ausgelassen), beide Buy-Fills mit korrektem Preis/Menge, `live_price: null`
-  (kein Alpaca-Key lokal gesetzt) — bestätigt den Graceful-Degradation-Pfad
-  live, nicht nur im Mock-Test.
-- **Nicht verifiziert: das tatsächliche Chart-Rendering im Browser.**
-  `web/AGENTS.md`/Next.js 16.2.10 verlangt Node ≥ 20.9.0; die lokale
-  Umgebung hat Node 20.5.1 installiert — `next dev` startet nicht
-  (`npm run dev` bricht mit dieser Versionsmeldung ab, Port 3000 bleibt ohne
-  Listener). Als Ersatz wurde die reine Skalierungs-/Marker-Mathematik der
-  Komponente (Punktberechnung, Nearest-Bar-Zuordnung für Marker,
-  SVG-Pfad-String) in einem eigenständigen Node-Skript gegen die echte
-  API-Antwort nachgerechnet: keine NaN/Infinity-Werte, korrekte Punktzahl
-  (17), korrekte Marker-Zuordnung (`2026-06-22`-Fill → Bar-Index 0,
-  `2026-07-01`-Fill → Bar-Index 7), gültiger SVG-Pfad. Das prüft die Logik,
-  aber **nicht** das tatsächliche visuelle Ergebnis (Layout, Lesbarkeit,
-  Mobile-Darstellung ~390 px) — das braucht entweder ein Node-Upgrade auf
-  ≥ 20.9.0 oder eine Prüfung durch Ralf selbst.
-- **Test-DB-Hygiene:** das Seed-Skript hat versehentlich committete Demo-
-  Daten im lokalen Test-Postgres hinterlassen (Kollision mit 55 Tests beim
-  nächsten `pytest`-Lauf, u. a. Unique-Constraint auf `persona.name`) — via
-  `alembic downgrade base` bereinigt, danach erneut **592 passed** bestätigt.
+  instrument=AAPL` liefert das erwartete JSON: Tages-Bars ab dem korrekten
+  Start-Datum (erster Fill minus 2 Tage, Wochenenden korrekt ausgelassen),
+  beide Buy-Fills mit korrektem Preis/Menge, `live_price: null` (kein
+  Alpaca-Key lokal gesetzt) — bestätigt den Graceful-Degradation-Pfad live,
+  nicht nur im Mock-Test.
+- **Browser-Rendering live verifiziert.** Erster Versuch über
+  `preview_start` scheiterte an zwei getrennten Problemen: (1) die lokale
+  Maschine hat `/usr/local/bin/node` (20.5.1, altes Standalone-Install) vor
+  `/opt/homebrew/bin/node` (25.5.0, Homebrew) im PATH — Next.js 16.2.10
+  verlangt ≥ 20.9.0, `next dev` brach sofort mit der Versionsmeldung ab;
+  behoben durch PATH-Präfix `/opt/homebrew/bin` in `.claude/launch.json`s
+  `web`-Config (lokal, kein globaler PATH-/Shell-Rc-Eingriff). (2) Danach
+  hing der `preview_start`-Tool-eigene Sandbox-Wrapper (`disclaimer`-Helper)
+  beim Spawnen des Dev-Servers unabhängig davon dauerhaft (weder Turbopack
+  noch `--webpack` halfen) — isoliert durch Vergleich: identischer Befehl
+  über die Bash-Tool direkt gestartet lief sofort fehlerfrei
+  (`✓ Ready in 344ms`), über `preview_start` nie. Das ist ein Problem der
+  Preview-Tool-Infrastruktur selbst, nicht des Repos — nicht weiter verfolgt.
+  **Tatsächliche Verifikation:** API + Web-Dev-Server direkt per Bash im
+  Hintergrund gestartet (bypassed `preview_start`), Ralf hat
+  `http://localhost:3000/personas/VULTURE` selbst im Browser geöffnet und
+  bestätigt ("funktioniert") — AAPL/SOUN-Charts mit Kauf-Markern sichtbar,
+  Live-Preis-Punkt korrekt abwesend (kein lokaler Alpaca-Key).
+- **Test-DB-Hygiene (wiederholt aufgetreten, festgehalten für künftige
+  Sessions):** das Demo-Seed-Skript committet echte Zeilen (kein
+  Test-Rollback) in denselben lokalen Test-Postgres, den `pytest` nutzt.
+  `_migrated_schema`s `upgrade("head")` ist bei bereits aktuellem Schema ein
+  No-Op — vorhandene Seed-Daten überleben dadurch in die nächste
+  `pytest`-Session und kollidieren dort (u. a. Unique-Constraint auf
+  `persona.name`, ~55-63 Testfehler, abhängig vom Seed-Umfang). Erst der
+  Session-Teardown (`downgrade("base")`, am Ende eines vollständigen
+  `pytest`-Laufs) räumt auf. Wer lokal sowohl Demo-Daten für den Browser
+  *als auch* `pytest` gegen dieselbe DB braucht: erst `pytest` fertig laufen
+  lassen (räumt selbst auf), dann `alembic upgrade head` + Seed-Skripte
+  *danach* — nicht dazwischen wechseln, ohne das Seeding zu wiederholen.
 
 ## 6. Rollback-Pfad
 
@@ -141,10 +158,13 @@ zurücknehmen.
 
 ## 7. Offener Punkt für Ralf
 
-Node-Version auf dieser Maschine (20.5.1) ist zu alt für `next dev`
-(Next.js 16.2.10 verlangt ≥ 20.9.0) — betrifft nicht nur diese Session,
-sondern jeden lokalen `npm run dev`-Start. Bitte Node aktualisieren (z. B.
-via `nvm install 20.9.0` oder neuer), dann kann das Chart-Rendering visuell
-geprüft werden. Bis dahin ist dieses Feature backend-seitig vollständig
-verifiziert, frontend-seitig nur durch Typecheck/Lint/Logik-Nachrechnung,
-nicht durch tatsächliches Rendering.
+`/usr/local/bin/node` (20.5.1) verdeckt weiterhin systemweit
+`/opt/homebrew/bin/node` (25.5.0) im PATH — der Fix in `.claude/launch.json`
+behebt das nur für die dortige `web`-Launch-Config, nicht für ein manuelles
+`npm run dev` in einem normalen Terminal (das würde weiterhin die alte
+20.5.1 zuerst finden und mit derselben Versionsmeldung abbrechen, sofern
+nicht `PATH=/opt/homebrew/bin:$PATH` vorangestellt wird). Falls das den
+normalen lokalen Workflow stört: `/usr/local/bin/node` entfernen/aktualisieren
+oder PATH-Reihenfolge in der Shell-Konfiguration dauerhaft anpassen —
+absichtlich nicht automatisch gemacht (globale Shell-Konfiguration, siehe
+CLAUDE.md "keine stillen Annahmen").
