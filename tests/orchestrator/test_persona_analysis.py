@@ -1237,6 +1237,9 @@ def test_tool_use_loop_is_capped_then_forces_a_final_answer(session: Session) ->
     assert "tool_choice" not in call_bodies[1]
     assert "tools" in call_bodies[2]
     assert call_bodies[2]["tool_choice"] == "none"
+    # F073: every round disables claude-sonnet-5's server-side-default adaptive
+    # thinking (root cause of the empty-content llm_output_parse_error pattern).
+    assert all(body["thinking"] == {"type": "disabled"} for body in call_bodies)
 
 
 def test_tool_use_rounds_write_a_single_agent_run_with_summed_cost(session: Session) -> None:
@@ -1619,7 +1622,8 @@ def test_unparseable_llm_response_is_persisted_on_agent_run_for_diagnostics(
 
     runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
     assert len(runs) == 1
-    assert runs[0].error == content
+    # F073: prefixed with finish_reason (None here — the fake response doesn't set one)
+    assert runs[0].error == f"[finish_reason=None] {content}"
 
 
 def test_empty_completion_is_retried_then_succeeds(session: Session) -> None:
@@ -1680,7 +1684,7 @@ def test_two_empty_completions_in_a_row_still_reject_with_diagnostics(
 
     runs = session.scalars(select(AgentRun).where(AgentRun.cycle_id == cycle.id)).all()
     assert len(runs) == 1
-    assert runs[0].error == ""
+    assert runs[0].error == "[finish_reason=None] "
 
 
 def test_native_adapter_never_gets_stop_sweep_called(session: Session) -> None:

@@ -67,6 +67,11 @@ _MAX_TOOL_ROUNDS = 2
 # guarded_complete's per-call budget check (Invariant #7) unchanged.
 _MAX_PARSE_RETRIES = 1
 
+# F073: see _run_llm_with_tools docstring — turns off claude-sonnet-5's
+# server-side-default adaptive thinking, root cause of the empty-content
+# `llm_output_parse_error` pattern F057/F065 didn't fully eliminate.
+_THINKING_DISABLED: dict[str, object] = {"type": "disabled"}
+
 # F046: hard bound on prompt size. Groq's free tier caps requests at 12k
 # tokens/min and rejects larger ones outright ("Request too large", live-measured:
 # 145 items ≈ 20.3k tokens); an unbounded payload also inflates Anthropic costs
@@ -193,8 +198,16 @@ def analyze_persona_cycle(
             cost_usd=Decimal(str(cost_usd)),
             # Diagnostics for llm_output_parse_error (_resolve_decision below): the
             # raw response is otherwise lost, making repeat failures for one
-            # persona undebuggable.
-            error=response.content if parsed is None else None,
+            # persona undebuggable. F073: `finish_reason` is prefixed so an empty
+            # `content` (the observed failure shape) still tells the next
+            # investigation why — e.g. "stop" (model ended its turn without ever
+            # emitting text) vs. an unexpected "tool_calls" on the forced-final
+            # round — instead of leaving an empty diagnostic string again.
+            error=(
+                f"[finish_reason={response.finish_reason}] {response.content}"
+                if parsed is None
+                else None
+            ),
         )
     )
     session.flush()
@@ -694,16 +707,23 @@ def _run_llm_with_tools(
     the tool surfaces, so `_resolve_decision` accepts citations of them.
 
     The forced final round (F057) keeps `tools` declared and instead passes
-    `tool_choice="none"` — dropping the `tools` key entirely on that round, while
-    the conversation history still contains this persona's own prior
-    assistant-tool_calls/tool-result messages from earlier rounds, produced
-    empty `message.content` from the proxy on that final call (live-confirmed
-    2026-07-10: every `llm_output_parse_error` decision in the DB has an empty,
-    not malformed, raw response — 11 of 17 hitting HYPE, the persona most likely
-    to use both tool rounds and so most likely to reach the forced round with
-    tool history already in context). Declaring `tools` consistently across all
-    rounds and using `tool_choice` to suppress use on the last one keeps the
+    `tool_choice="none"` to suppress use on the last round while keeping the
     request shape consistent with the conversation history.
+
+    F073: every round also passes `thinking={"type": "disabled"}`. Live diagnosis
+    (2026-07-14, docs/features/F073) found claude-sonnet-5 defaults to *adaptive*
+    extended thinking (litellm 1.92 marks it a `supports_adaptive_thinking` model)
+    even though this codebase never requests it — Anthropic's own server-side
+    default, not something F045/F057/F065 controlled. On the large, tool-history-
+    heavy prompts this agent sends (78k-92k input tokens live), the model can spend
+    its whole completion budget on an internal thinking block and return `content:
+    ""` with a *nonzero* token count — exactly the `llm_output_parse_error` pattern
+    F057's and F065's empty-completion hypothesis didn't fully explain (both
+    fixes reduced but did not eliminate the error; VULTURE/HYPE hit it again after
+    both were deployed, always with substantial tokens_out and empty content).
+    This task has no use for hidden chain-of-thought — the JSON schema's
+    `thesis_text` field already carries the persona's visible reasoning — so
+    thinking is disabled outright rather than budgeted.
     """
     total_tokens_in = 0
     total_tokens_out = 0
@@ -721,6 +741,7 @@ def _run_llm_with_tools(
             persona_id=persona_id,
             tools=[SEARCH_RESEARCH_POOL_TOOL],
             tool_choice="none" if forced_final else None,
+            thinking=_THINKING_DISABLED,
         )
         response = result.response
         total_tokens_in += response.tokens_in

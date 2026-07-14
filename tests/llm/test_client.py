@@ -171,6 +171,54 @@ def test_complete_omits_tool_choice_key_when_not_given():
     assert "tool_choice" not in captured_bodies[0]
 
 
+def test_complete_sends_thinking_when_given():
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    captured_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(httpx_json(request))
+        return httpx.Response(200, json=response_json, headers={"x-litellm-response-cost": "0.01"})
+
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    client.complete(
+        model="claude-sonnet-5",
+        messages=[{"role": "user", "content": "hi"}],
+        thinking={"type": "disabled"},
+    )
+
+    assert captured_bodies[0]["thinking"] == {"type": "disabled"}
+
+
+def test_complete_omits_thinking_key_when_not_given():
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    captured_bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_bodies.append(httpx_json(request))
+        return httpx.Response(200, json=response_json, headers={"x-litellm-response-cost": "0.01"})
+
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+
+    assert "thinking" not in captured_bodies[0]
+
+
 def test_complete_parses_tool_calls_from_response():
     response_json = {
         "choices": [
@@ -205,6 +253,38 @@ def test_complete_parses_tool_calls_from_response():
     assert result.tool_calls[0].id == "call_1"
     assert result.tool_calls[0].name == "search_research_pool"
     assert result.tool_calls[0].arguments_json == '{"symbols": ["AAPL"]}'
+
+
+def test_complete_captures_finish_reason():
+    response_json = {
+        "choices": [{"message": {"content": ""}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=_mock_client(response_json),
+    )
+
+    result = client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+
+    assert result.finish_reason == "stop"
+
+
+def test_complete_finish_reason_is_none_when_absent():
+    response_json = {
+        "choices": [{"message": {"content": "hello"}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+    }
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=_mock_client(response_json),
+    )
+
+    result = client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+
+    assert result.finish_reason is None
 
 
 def test_complete_returns_empty_tool_calls_when_absent():

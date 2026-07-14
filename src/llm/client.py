@@ -29,6 +29,10 @@ class LLMResponse:
     tokens_out: int
     cost_usd: float
     tool_calls: tuple[ToolCall, ...] = ()
+    # F073: surfaced so a `content == ""` diagnosis doesn't have to guess between
+    # causes (e.g. "stop" with a spent thinking budget vs. an unexpected
+    # "tool_calls") — see persona_analysis._resolve_decision's parse-failure path.
+    finish_reason: str | None = None
 
 
 # httpx defaults to a 5s read timeout — far too short for LLM completions, which
@@ -55,12 +59,15 @@ class LiteLLMClient:
         messages: list[dict[str, object]],
         tools: list[dict[str, object]] | None = None,
         tool_choice: str | None = None,
+        thinking: dict[str, object] | None = None,
     ) -> LLMResponse:
         body: dict[str, object] = {"model": model, "messages": messages}
         if tools is not None:
             body["tools"] = tools
         if tool_choice is not None:
             body["tool_choice"] = tool_choice
+        if thinking is not None:
+            body["thinking"] = thinking
         response = self._http.post(
             f"{self._base_url}/chat/completions",
             json=body,
@@ -70,15 +77,18 @@ class LiteLLMClient:
         data = response.json()
         usage = data["usage"]
         cost_usd = _parse_cost_header(response.headers.get("x-litellm-response-cost"))
-        message = data["choices"][0]["message"]
+        choice = data["choices"][0]
+        message = choice["message"]
         content = message.get("content") or ""
         tool_calls = tuple(_parse_tool_call(raw) for raw in message.get("tool_calls") or [])
+        finish_reason = choice.get("finish_reason")
         return LLMResponse(
             content=str(content),
             tokens_in=int(usage["prompt_tokens"]),
             tokens_out=int(usage["completion_tokens"]),
             cost_usd=cost_usd,
             tool_calls=tool_calls,
+            finish_reason=str(finish_reason) if finish_reason is not None else None,
         )
 
 
