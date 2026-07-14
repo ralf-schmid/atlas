@@ -57,6 +57,13 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       N8N_PUBLICATIONS_WEBHOOK_SECRET: ${N8N_PUBLICATIONS_WEBHOOK_SECRET}
       PUBLICATIONS_INGEST_DIR: ${PUBLICATIONS_INGEST_DIR}
+      # F074: the holding-chart endpoint reads live prices / backfills gaps via
+      # Alpaca market data (src/api/routes.py) — same read-only IEX credentials
+      # scheduler/telegram-bot already use below. Missing this doesn't break the
+      # endpoint (both calls are try/except, degrade to an incomplete chart), but
+      # the live-price/backfill features silently never work without it.
+      ALPACA_MARKET_DATA_KEY_ID: ${ALPACA_MARKET_DATA_KEY_ID}
+      ALPACA_MARKET_DATA_SECRET_KEY: ${ALPACA_MARKET_DATA_SECRET_KEY}
     volumes:
       # F011: <base_dir>/<publication>/<YYYY-MM-DD>.pdf, host-persistent across
       # deploys (not in the git repo — matches the existing data/ledger/ convention,
