@@ -1,7 +1,6 @@
 # F075 — Order Fill Reconciliation
 
-Status: umgesetzt, lokal vollständig getestet; Live-Deploy + Backfill auf
-`atlas-ugreen` steht noch aus (siehe §5)
+Status: umgesetzt, deployt und live verifiziert auf `atlas-ugreen`
 Datum: 2026-07-14
 Phase: 5
 
@@ -162,16 +161,21 @@ Box (HYPE/CONTRA/CRYPTOR), keine Migration nötig, kein Datenverlust.
 - **Coverage-Gate (`tests/risk/ tests/broker/ --cov-fail-under=100`,
   identisch zum CI-Job):** `src/broker/*` und `src/risk/*` weiterhin
   **100 % Line + Branch** — durch dieses Feature nicht verschlechtert.
-- **Noch offen:** Deploy auf `atlas-ugreen` (rsync + `docker compose build
-  api scheduler` + `up -d api scheduler`, kein Web-Rebuild nötig) und
-  einmaliger Lauf von `scripts/backfill_ledger_order_fills.py` gegen die
-  echte Box-DB. Live-Verifikationsplan: `docker compose logs scheduler`
-  sollte `order-fill reconciliation sweep updated N order(s)` für die 6
-  bestehenden `NEW`-Orders der nativen Personas zeigen;
-  `SELECT status, count(*) FROM order_record GROUP BY status` sollte danach
-  `FILLED`-Zeilen zeigen statt ausschließlich `NEW`; `GET
-  /api/personas/VULTURE/chart?instrument=ALDX` sollte einen Kauf-Marker
-  zeigen; `/api/personas/VULTURE/holdings` ein echtes `last_buy_at`.
+- **Deployt und live verifiziert (14./15.07.2026, `atlas-ugreen`):** rsync +
+  `docker compose build api scheduler` + `up -d api scheduler` — beide
+  Container healthy, `_reconcile_order_fills_job` im Scheduler-Log
+  registriert. `scripts/backfill_ledger_order_fills.py` gegen die echte
+  Box-DB ausgeführt: 2 virtuelle Alt-Orders (CONTRA, CRYPTOR) → `FILLED`.
+  `reconcile_order_fills` danach manuell angestoßen (nicht auf die
+  15-Minuten-Sweep gewartet): **10 native Orders reconciled** — `SELECT
+  status, count(*) FROM order_record GROUP BY status` zeigt jetzt **12
+  FILLED, 0 NEW** (vorher: 12 NEW, 0 FILLED). `GET
+  /api/personas/VULTURE/chart?instrument=ALDX` liefert jetzt einen echten
+  Kauf-Marker (`fills: [{"ts": "2026-07-10T19:00:30...", "price": 2.16,
+  "action": "buy"}]`) und einen echten Live-Preis
+  (`live_price.price: 1.935`); `/api/personas/VULTURE/holdings` zeigt ein
+  echtes `last_buy_at` für ALDX und KEEL statt `null`. Der ursprüngliche
+  F074-Befund (fehlende grüne Dreiecke) ist damit vollständig behoben.
 
 ## 6. Rollback-Pfad
 
