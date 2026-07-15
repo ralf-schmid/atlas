@@ -162,6 +162,16 @@ atlas/
 - **Keine stillen Annahmen bei Geld-Themen** (Ordertypen, Limits, Steuern,
   Risk-Regeln): fragen statt raten. Rein technische Detailfragen: pragmatisch
   entscheiden und im Commit/ADR dokumentieren.
+- **Deployment-/Infrastruktur-Änderungen im separaten `ugreen-Box`-Repo
+  nachziehen:** Änderungen an `docker-compose.yml` (Services, Ports, Build-/
+  Update-Prozedur, Env-Vars) betreffen die Homelab-Doku im privaten Repo
+  `ralf-schmid/ugreen-Box`, Datei `Informationen/TRUENAS_HOMELAB.md`,
+  Abschnitt „Stack `atlas`" — bei solchen System-Änderungen dort aktiv
+  gegenprüfen und aktualisieren (Repo bei Bedarf per `add_repo` zur Session
+  hinzufügen), nicht nur im atlas-Repo dokumentieren. Die im atlas-Repo
+  referenzierte `docs/deployment.md` ist bewusst lokal-only (`.gitignore`:
+  enthält reale LAN-IPs/Hostnamen) — Änderungsvorschläge dafür immer an Ralf
+  geben, diese Datei selbst nie anlegen oder committen.
 
 ## Entscheidungsstand Phase 1 → 2 (alles geklärt, Details ARCHITECTURE.md §7)
 
