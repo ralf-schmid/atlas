@@ -14,6 +14,7 @@ import logging
 import uuid
 import zoneinfo
 from collections.abc import Callable
+from decimal import Decimal
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from langgraph.graph.state import CompiledStateGraph
@@ -21,6 +22,7 @@ from langgraph.types import Command, Interrupt
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from src.broker.alpaca_paper import AlpacaOrderState, AlpacaPaperAdapter
 from src.broker.protocol import BrokerAdapter
 from src.broker.registry import get_adapter, get_adapter_type
 from src.db.models import (
@@ -29,6 +31,7 @@ from src.db.models import (
     DecisionStatus,
     MarketSession,
     OrderRecord,
+    OrderRecordStatus,
     Persona,
     Portfolio,
 )
@@ -43,6 +46,10 @@ from src.telegram.hitl_store import apply_hitl_outcome, decision_to_hitl_request
 
 _HITL_SWEEP_INTERVAL_MINUTES = 5
 _STUCK_DECISION_SWEEP_INTERVAL_MINUTES = 15
+# F075: reporting-only (chart markers, /holdings last_buy_at, digest trade
+# count) — not risk/order-placement-critical, same interval as the stuck-
+# decision sweep is a reasonable, unhurried default.
+_ORDER_RECONCILE_INTERVAL_MINUTES = 15
 
 logger = logging.getLogger(__name__)
 
@@ -202,6 +209,21 @@ def build_scheduler(
         minutes=_STUCK_DECISION_SWEEP_INTERVAL_MINUTES,
         args=[session_factory],
         id="stuck-decision-retry-sweep",
+        replace_existing=True,
+    )
+
+    # F075: native-Alpaca `order_record`s are created `status=NEW` and nothing
+    # ever polled Alpaca for the real fill afterward (F023 §1 non-scope) — every
+    # order in production sat on NEW forever, silently blanking the chart
+    # markers, /holdings "Letzter Kauf", and the daily digest's trade count.
+    # Virtual (internal_ledger) personas don't need this: their fill is known
+    # synchronously at placement time (`OrderResult.filled_at`, execute_decision).
+    scheduler.add_job(
+        _reconcile_order_fills_job,
+        trigger="interval",
+        minutes=_ORDER_RECONCILE_INTERVAL_MINUTES,
+        args=[session_factory],
+        id="order-fill-reconciliation",
         replace_existing=True,
     )
 
@@ -463,6 +485,77 @@ def retry_stuck_decisions(
                     extra={"decision_id": str(decision.id)},
                 )
     return executed
+
+
+def _reconcile_order_fills_job(session_factory: Callable[[], Session]) -> None:
+    """A failed sweep must not take down the scheduler thread either — same
+    non-fatal contract as `_retry_stuck_decisions_job`/`_sweep_expired_hitl_job`."""
+    try:
+        count = reconcile_order_fills(session_factory)
+        if count:
+            logger.info("order-fill reconciliation sweep updated %d order(s)", count)
+    except Exception:
+        logger.error("order-fill reconciliation sweep failed", exc_info=True)
+
+
+_ALPACA_STATE_TO_ORDER_RECORD_STATUS = {
+    AlpacaOrderState.FILLED: OrderRecordStatus.FILLED,
+    AlpacaOrderState.PARTIALLY_FILLED: OrderRecordStatus.PARTIALLY_FILLED,
+    AlpacaOrderState.CANCELED: OrderRecordStatus.CANCELED,
+    AlpacaOrderState.REJECTED: OrderRecordStatus.REJECTED,
+    AlpacaOrderState.EXPIRED: OrderRecordStatus.EXPIRED,
+}
+
+
+def reconcile_order_fills(
+    session_factory: Callable[[], Session],
+    adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
+) -> int:
+    """Polls Alpaca for the real status of every `order_record` still `NEW` for a
+    native-Alpaca persona and writes back `status`/`filled_at`/`fill_price` (see
+    F075). Virtual (`internal_ledger`) personas are skipped — their fill is
+    already recorded synchronously at `execute_decision` time, so a `NEW` row for
+    one of them means the order genuinely hasn't been placed successfully, not
+    that it's pending confirmation. Same non-fatal, per-row contract as
+    `retry_stuck_decisions`: one order that fails to poll (e.g. Alpaca hiccup)
+    must not block reconciling the rest.
+    """
+    updated = 0
+    with session_factory() as session:
+        stmt = (
+            select(OrderRecord, Persona.name)
+            .join(Decision, OrderRecord.decision_id == Decision.id)
+            .join(Portfolio, Decision.portfolio_id == Portfolio.id)
+            .join(Persona, Portfolio.persona_id == Persona.id)
+            .where(OrderRecord.status == OrderRecordStatus.NEW)
+        )
+        for order_record, persona_name in session.execute(stmt).all():
+            if get_adapter_type(persona_name) != "alpaca_paper":
+                continue
+            broker_adapter = adapter_factory(persona_name)
+            assert isinstance(broker_adapter, AlpacaPaperAdapter)
+            try:
+                fill_status = broker_adapter.get_order_status(order_record.broker_order_id)
+            except Exception:
+                logger.error(
+                    "failed to poll order status for reconciliation",
+                    exc_info=True,
+                    extra={"order_record_id": str(order_record.id)},
+                )
+                continue
+
+            new_status = _ALPACA_STATE_TO_ORDER_RECORD_STATUS.get(fill_status.state)
+            if new_status is None:  # still open at Alpaca — nothing to update yet
+                continue
+
+            order_record.status = new_status
+            order_record.filled_at = fill_status.filled_at
+            if fill_status.fill_price is not None:
+                order_record.fill_price = Decimal(str(fill_status.fill_price))
+            session.add(order_record)
+            session.commit()
+            updated += 1
+    return updated
 
 
 def _parse_time(value: str) -> tuple[int, int]:

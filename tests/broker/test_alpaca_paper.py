@@ -1,13 +1,19 @@
+import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
 from alpaca.common.exceptions import APIError
+from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
 from alpaca.trading.enums import PositionSide
 from alpaca.trading.models import Order as AlpacaOrder
 from alpaca.trading.models import Position as AlpacaPosition
 from alpaca.trading.models import TradeAccount
 
-from src.broker.alpaca_paper import AlpacaPaperAdapter, _is_duplicate_client_order_id
+from src.broker.alpaca_paper import (
+    AlpacaOrderState,
+    AlpacaPaperAdapter,
+    _is_duplicate_client_order_id,
+)
 from src.broker.protocol import OrderSide
 
 
@@ -246,3 +252,54 @@ def test_get_account_balance_normalizes_alpaca_account(adapter, mock_client):
     assert balance.cash == 5000.0
     assert balance.equity == 5200.0
     assert balance.buying_power == 5000.0
+
+
+@pytest.mark.parametrize(
+    ("alpaca_status", "expected_state"),
+    [
+        (AlpacaOrderStatus.FILLED, AlpacaOrderState.FILLED),
+        (AlpacaOrderStatus.PARTIALLY_FILLED, AlpacaOrderState.PARTIALLY_FILLED),
+        (AlpacaOrderStatus.CANCELED, AlpacaOrderState.CANCELED),
+        (AlpacaOrderStatus.REJECTED, AlpacaOrderState.REJECTED),
+        (AlpacaOrderStatus.EXPIRED, AlpacaOrderState.EXPIRED),
+        (AlpacaOrderStatus.NEW, AlpacaOrderState.OPEN),
+        (AlpacaOrderStatus.ACCEPTED, AlpacaOrderState.OPEN),
+    ],
+)
+def test_get_order_status_maps_alpaca_status(adapter, mock_client, alpaca_status, expected_state):
+    alpaca_order = AlpacaOrder.model_construct(
+        status=alpaca_status, filled_at=None, filled_avg_price=None
+    )
+    mock_client.get_order_by_id.return_value = alpaca_order
+
+    result = adapter.get_order_status("entry-123")
+
+    assert result.state == expected_state
+    mock_client.get_order_by_id.assert_called_once_with("entry-123")
+
+
+def test_get_order_status_extracts_fill_price_and_time_when_filled(adapter, mock_client):
+    filled_at = datetime.datetime(2026, 7, 14, 10, 0, tzinfo=datetime.UTC)
+    alpaca_order = AlpacaOrder.model_construct(
+        status=AlpacaOrderStatus.FILLED, filled_at=filled_at, filled_avg_price="151.25"
+    )
+    mock_client.get_order_by_id.return_value = alpaca_order
+
+    result = adapter.get_order_status("entry-123")
+
+    assert result.state == AlpacaOrderState.FILLED
+    assert result.filled_at == datetime.datetime(2026, 7, 14, 10, 0)  # tzinfo stripped
+    assert result.fill_price == 151.25
+
+
+def test_get_order_status_no_fill_info_when_still_open(adapter, mock_client):
+    alpaca_order = AlpacaOrder.model_construct(
+        status=AlpacaOrderStatus.NEW, filled_at=None, filled_avg_price=None
+    )
+    mock_client.get_order_by_id.return_value = alpaca_order
+
+    result = adapter.get_order_status("entry-123")
+
+    assert result.state == AlpacaOrderState.OPEN
+    assert result.filled_at is None
+    assert result.fill_price is None

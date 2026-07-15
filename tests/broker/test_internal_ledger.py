@@ -58,6 +58,9 @@ def test_place_order_buy_fills_at_market_price_and_books_cash(adapter):
     assert positions[0].symbol == "AAPL"
     assert positions[0].qty == 10
     assert positions[0].avg_entry_price == 150.0
+    # F075: fill is known synchronously — no separate reconciliation needed.
+    assert result.fill_price == 150.0
+    assert result.filled_at is not None
 
 
 def test_place_order_registers_opposite_side_pending_stop(adapter, store):
@@ -274,6 +277,10 @@ def test_place_order_replayed_with_same_decision_id_does_not_refill(adapter):
     )
 
     assert replayed == first
+    # F075: the replay must reconstruct the *same* fill info, not lose it —
+    # this used to fail (replay returned filled_at=None, fill_price=None).
+    assert replayed.filled_at == first.filled_at
+    assert replayed.fill_price == first.fill_price
     balance = adapter.get_account_balance()
     positions = adapter.get_positions()
     assert balance.cash == 5000.0 - 10 * 150.0  # only filled once

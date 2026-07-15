@@ -8,6 +8,7 @@ an LLM response directly) and turns it into a real order + `order_record`.
 from __future__ import annotations
 
 import datetime
+from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
@@ -46,7 +47,14 @@ def execute_decision(
         broker_order_id=result.entry_order_id,
         mode=portfolio.mode,
         submitted_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
-        status=OrderRecordStatus.NEW,
+        # F075: adapters that know the fill synchronously at placement time
+        # (InternalLedgerAdapter) report it via `result.filled_at`/`fill_price` —
+        # record it immediately instead of leaving the row NEW forever.
+        # AlpacaPaperAdapter never sets these (Alpaca confirms asynchronously);
+        # those rows stay NEW until `reconcile_order_fills` polls them.
+        status=OrderRecordStatus.FILLED if result.filled_at is not None else OrderRecordStatus.NEW,
+        filled_at=result.filled_at,
+        fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
         raw={
             "stop_order_id": result.stop_order_id,
             "qty": result.qty,

@@ -7,10 +7,15 @@ endpoint (Invariant #5) — there is no live code path here.
 
 from __future__ import annotations
 
+import datetime
+from dataclasses import dataclass
+from enum import StrEnum
+
 from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
 from alpaca.trading.enums import OrderClass, TimeInForce
 from alpaca.trading.enums import OrderSide as AlpacaOrderSide
+from alpaca.trading.enums import OrderStatus as AlpacaOrderStatus
 from alpaca.trading.models import Order as AlpacaOrder
 from alpaca.trading.models import Position as AlpacaPosition
 from alpaca.trading.models import TradeAccount
@@ -21,6 +26,38 @@ from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
 _TO_ALPACA_SIDE = {
     OrderSide.BUY: AlpacaOrderSide.BUY,
     OrderSide.SELL: AlpacaOrderSide.SELL,
+}
+
+
+class AlpacaOrderState(StrEnum):
+    """F075: broker-native fill state, kept out of `BrokerAdapter`'s shared
+    Protocol (`InternalLedgerAdapter` never has an open/pending order — fills
+    happen synchronously at `place_order()` time, see `OrderResult.filled_at`)
+    — same "concrete-type, not uniform Protocol method" precedent as
+    `persona_analysis._sweep_stop_orders`, which also only means something for
+    one adapter."""
+
+    OPEN = "open"  # still pending at Alpaca — no actionable change yet
+    FILLED = "filled"
+    PARTIALLY_FILLED = "partially_filled"
+    CANCELED = "canceled"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+
+
+@dataclass(frozen=True, slots=True)
+class AlpacaFillStatus:
+    state: AlpacaOrderState
+    filled_at: datetime.datetime | None
+    fill_price: float | None
+
+
+_TERMINAL_STATE_MAP = {
+    AlpacaOrderStatus.FILLED: AlpacaOrderState.FILLED,
+    AlpacaOrderStatus.PARTIALLY_FILLED: AlpacaOrderState.PARTIALLY_FILLED,
+    AlpacaOrderStatus.CANCELED: AlpacaOrderState.CANCELED,
+    AlpacaOrderStatus.REJECTED: AlpacaOrderState.REJECTED,
+    AlpacaOrderStatus.EXPIRED: AlpacaOrderState.EXPIRED,
 }
 
 
@@ -120,6 +157,18 @@ class AlpacaPaperAdapter:
 
     def cancel_order(self, order_id: str) -> None:
         self._client.cancel_order_by_id(order_id)
+
+    def get_order_status(self, order_id: str) -> AlpacaFillStatus:
+        """F075: polled by `src.orchestrator.scheduler.reconcile_order_fills` for
+        every `order_record` still `NEW` — Alpaca confirms fills asynchronously,
+        never at `place_order()` submission time (unlike `InternalLedgerAdapter`,
+        see `OrderResult.filled_at`)."""
+        order = self._client.get_order_by_id(order_id)
+        assert isinstance(order, AlpacaOrder)
+        state = _TERMINAL_STATE_MAP.get(order.status, AlpacaOrderState.OPEN)
+        filled_at = order.filled_at.replace(tzinfo=None) if order.filled_at is not None else None
+        fill_price = float(order.filled_avg_price) if order.filled_avg_price is not None else None
+        return AlpacaFillStatus(state=state, filled_at=filled_at, fill_price=fill_price)
 
     def get_positions(self) -> list[Position]:
         positions = self._client.get_all_positions()

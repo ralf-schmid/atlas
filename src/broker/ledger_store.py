@@ -45,6 +45,13 @@ class ExecutedOrder:
     qty: float
     side: OrderSide
     stop_loss_price: float
+    # F075: the fill info `place_order` already knows synchronously — stored so a
+    # crash-replay reconstructs the identical `OrderResult`, not one missing these
+    # fields. ISO string, not `datetime`, to keep `json.dumps(asdict(...))` in
+    # `JSONLedgerStore.save` working without a custom encoder. `None` for both:
+    # ledger files written before this field existed (`.get(...)` on load below).
+    fill_price: float | None = None
+    filled_at: str | None = None
 
 
 @dataclass(slots=True)
@@ -98,6 +105,10 @@ class JSONLedgerStore:
                     qty=e["qty"],
                     side=OrderSide(e["side"]),
                     stop_loss_price=e["stop_loss_price"],
+                    # F075: older ledger files predate these two — None is honest
+                    # (the historical fill price/time was never captured then).
+                    fill_price=e.get("fill_price"),
+                    filled_at=e.get("filled_at"),
                 )
                 for decision_id, e in raw.get("executed_decisions", {}).items()
             },

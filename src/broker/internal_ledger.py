@@ -11,6 +11,7 @@ Long-only (no shorting, no margin) — consistent with the "Shorting Enabled = o
 
 from __future__ import annotations
 
+import datetime
 import uuid
 
 from src.broker.ledger_store import (
@@ -65,10 +66,17 @@ class InternalLedgerAdapter:
                 qty=existing.qty,
                 side=existing.side,
                 stop_loss_price=existing.stop_loss_price,
+                filled_at=(
+                    datetime.datetime.fromisoformat(existing.filled_at)
+                    if existing.filled_at is not None
+                    else None
+                ),
+                fill_price=existing.fill_price,
             )
 
         last_price = self._market_data.get_last_price(symbol)
         self._apply_fill(state, symbol=symbol, qty=qty, side=side, price=last_price)
+        filled_at = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
 
         entry_order_id = str(uuid.uuid4())
         stop_order_id = str(uuid.uuid4())
@@ -86,6 +94,8 @@ class InternalLedgerAdapter:
             qty=qty,
             side=side,
             stop_loss_price=stop_loss_price,
+            fill_price=last_price,
+            filled_at=filled_at.isoformat(),
         )
         self._store.save(self._persona, state)
 
@@ -96,6 +106,8 @@ class InternalLedgerAdapter:
             qty=qty,
             side=side,
             stop_loss_price=stop_loss_price,
+            filled_at=filled_at,
+            fill_price=last_price,
         )
 
     def cancel_order(self, order_id: str) -> None:

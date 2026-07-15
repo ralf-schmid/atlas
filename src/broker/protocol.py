@@ -5,6 +5,7 @@ See ARCHITECTURE.md §3.1/§9 and docs/features/F001-broker-adapter.md.
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
@@ -23,6 +24,13 @@ class OrderResult:
     qty: float
     side: OrderSide
     stop_loss_price: float
+    # F075: set only by adapters that know the fill synchronously at placement
+    # time (InternalLedgerAdapter — no real broker to confirm asynchronously).
+    # AlpacaPaperAdapter leaves both None; its fills are confirmed later by
+    # `get_order_status()` polling (see src/orchestrator/scheduler.py
+    # `reconcile_order_fills`), never known at submit time.
+    filled_at: datetime.datetime | None = None
+    fill_price: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

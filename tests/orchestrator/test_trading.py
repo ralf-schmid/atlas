@@ -27,8 +27,16 @@ from src.orchestrator.trading import execute_decision
 
 
 class _FakeAdapter:
-    def __init__(self, *, should_fail: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        should_fail: bool = False,
+        filled_at: datetime.datetime | None = None,
+        fill_price: float | None = None,
+    ) -> None:
         self.should_fail = should_fail
+        self.filled_at = filled_at
+        self.fill_price = fill_price
         self.calls: list[dict[str, object]] = []
 
     def place_order(self, **kwargs: object) -> OrderResult:
@@ -42,6 +50,8 @@ class _FakeAdapter:
             qty=float(kwargs["qty"]),  # type: ignore[arg-type]
             side=OrderSide.BUY,
             stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+            filled_at=self.filled_at,
+            fill_price=self.fill_price,
         )
 
     def cancel_order(self, order_id: str) -> None:
@@ -121,6 +131,25 @@ def test_execute_decision_persists_order_record_and_marks_executed(session: Sess
     assert order_record.raw is not None
     assert order_record.raw["stop_order_id"] == "stop-456"
     assert decision.status == DecisionStatus.EXECUTED
+
+
+def test_execute_decision_marks_filled_when_adapter_reports_synchronous_fill(
+    session: Session,
+) -> None:
+    """F075: InternalLedgerAdapter knows the fill synchronously at placement
+    time (unlike AlpacaPaperAdapter/`_FakeAdapter` above, which leave
+    filled_at/fill_price unset) — execute_decision must record it immediately
+    instead of leaving the row NEW forever."""
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+    filled_at = datetime.datetime(2026, 7, 14, 10, 0)
+    adapter = _FakeAdapter(filled_at=filled_at, fill_price=151.25)
+
+    order_record = execute_decision(session, decision, adapter, "internal_ledger")
+
+    assert order_record.status == OrderRecordStatus.FILLED
+    assert order_record.filled_at == filled_at
+    assert order_record.fill_price == Decimal("151.25")
 
 
 def test_execute_decision_rejects_non_approved_decision(session: Session) -> None:
