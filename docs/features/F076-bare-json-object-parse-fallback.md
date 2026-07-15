@@ -1,6 +1,6 @@
 # F076 — Robusteres Parsing für unfenced JSON hinter Prosa
 
-Status: umgesetzt, live verifiziert
+Status: umgesetzt, live verifiziert, deployt auf `atlas-ugreen`
 Datum: 2026-07-15
 Phase: 5
 
@@ -90,6 +90,12 @@ Codefence → ganzer String → (nur wenn kein Codefence gefunden wurde)
   fallen; ein verbleibender Fall wäre jetzt entweder eine dritte, neue
   Variante (per `finish_reason`-Diagnostik direkt sichtbar) oder ein
   tatsächlich kaputtes/unvollständiges JSON.
+- **Deployt (15.07.2026, `atlas-ugreen`):** Commit `b746bb7` per `git push
+  origin main`, `rsync` + `docker compose build scheduler telegram-bot` +
+  `up -d scheduler telegram-bot` (nur diese beiden Services importieren
+  `persona_analysis.py`/`llm_decision_schema.py` — `api`/`web` unverändert
+  gelassen). Beide Container laufen ohne Crash-Loop, Scheduler-Log zeigt
+  alle Jobs neu registriert (inkl. `_reconcile_order_fills_job` aus F075).
 
 ## 6. Rollback-Pfad
 
