@@ -22,7 +22,13 @@ from src.broker.ledger_store import (
     PositionState,
 )
 from src.broker.market_data import MarketDataProvider
-from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
+from src.broker.protocol import (
+    AccountBalance,
+    ClosePositionResult,
+    OrderResult,
+    OrderSide,
+    Position,
+)
 
 _OPPOSITE_SIDE = {OrderSide.BUY: OrderSide.SELL, OrderSide.SELL: OrderSide.BUY}
 
@@ -106,6 +112,66 @@ class InternalLedgerAdapter:
             qty=qty,
             side=side,
             stop_loss_price=stop_loss_price,
+            filled_at=filled_at,
+            fill_price=last_price,
+        )
+
+    def close_position(
+        self,
+        *,
+        decision_id: int,
+        symbol: str,
+        qty: float,
+        stop_order_ids: list[str],
+    ) -> ClosePositionResult:
+        decision_key = str(decision_id)
+        state = self._load()
+
+        # Same crash-idempotency contract as place_order (F027) — a LangGraph
+        # replay must not re-apply the sell.
+        existing = state.executed_decisions.get(decision_key)
+        if existing is not None:
+            return ClosePositionResult(
+                order_id=existing.entry_order_id,
+                symbol=existing.symbol,
+                qty=existing.qty,
+                side=existing.side,
+                filled_at=(
+                    datetime.datetime.fromisoformat(existing.filled_at)
+                    if existing.filled_at is not None
+                    else None
+                ),
+                fill_price=existing.fill_price,
+            )
+
+        # Best-effort (F077 §2): a stop already triggered/removed between the
+        # persona's decision and this execution is not an error — the position is
+        # about to go to 0 either way.
+        for stop_order_id in stop_order_ids:
+            state.pending_stops.pop(stop_order_id, None)
+
+        last_price = self._market_data.get_last_price(symbol)
+        self._apply_fill(state, symbol=symbol, qty=qty, side=OrderSide.SELL, price=last_price)
+        filled_at = datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+
+        order_id = str(uuid.uuid4())
+        state.executed_decisions[decision_key] = ExecutedOrder(
+            entry_order_id=order_id,
+            stop_order_id="",  # F077: a close places no new stop, nothing to record
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.SELL,
+            stop_loss_price=0.0,
+            fill_price=last_price,
+            filled_at=filled_at.isoformat(),
+        )
+        self._store.save(self._persona, state)
+
+        return ClosePositionResult(
+            order_id=order_id,
+            symbol=symbol,
+            qty=qty,
+            side=OrderSide.SELL,
             filled_at=filled_at,
             fill_price=last_price,
         )

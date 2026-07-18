@@ -21,7 +21,13 @@ from alpaca.trading.models import Position as AlpacaPosition
 from alpaca.trading.models import TradeAccount
 from alpaca.trading.requests import MarketOrderRequest, StopLossRequest
 
-from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
+from src.broker.protocol import (
+    AccountBalance,
+    ClosePositionResult,
+    OrderResult,
+    OrderSide,
+    Position,
+)
 
 _TO_ALPACA_SIDE = {
     OrderSide.BUY: AlpacaOrderSide.BUY,
@@ -153,6 +159,47 @@ class AlpacaPaperAdapter:
             qty=rounded_qty,
             side=side,
             stop_loss_price=stop_loss_price,
+        )
+
+    def close_position(
+        self,
+        *,
+        decision_id: int,
+        symbol: str,
+        qty: float,
+        stop_order_ids: list[str],
+    ) -> ClosePositionResult:
+        # F077 §2: best-effort — a stop already filled/canceled between the
+        # persona's decision and this execution is not an error, just nothing left
+        # to cancel.
+        for stop_order_id in stop_order_ids:
+            try:
+                self._client.cancel_order_by_id(stop_order_id)
+            except APIError:
+                continue
+
+        client_order_id = str(decision_id)
+        try:
+            order = self._client.submit_order(
+                order_data=MarketOrderRequest(
+                    symbol=symbol,
+                    qty=qty,
+                    side=AlpacaOrderSide.SELL,
+                    # F051: fractional qty needs DAY, not GTC — no bracket/stop leg
+                    # here anyway (this is a full close, no new stop, see F077 §1).
+                    time_in_force=TimeInForce.DAY,
+                    client_order_id=client_order_id,
+                )
+            )
+        except APIError as exc:
+            if not _is_duplicate_client_order_id(exc):
+                raise
+            order = self._client.get_order_by_client_id(client_order_id)
+        if not isinstance(order, AlpacaOrder):
+            raise TypeError(f"Unexpected submit_order response type: {type(order)!r}")
+
+        return ClosePositionResult(
+            order_id=str(order.id), symbol=symbol, qty=qty, side=OrderSide.SELL
         )
 
     def cancel_order(self, order_id: str) -> None:

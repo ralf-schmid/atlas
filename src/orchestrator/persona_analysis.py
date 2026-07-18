@@ -85,9 +85,9 @@ _OUTPUT_SCHEMA_INSTRUCTIONS = """\
 Antworte ausschließlich mit einem einzigen JSON-Objekt (keine Erklärung davor/danach), \
 in exakt diesem Schema:
 {
-  "action": "buy" | "hold" | "reject_idea",
+  "action": "buy" | "close" | "hold" | "reject_idea",
   "instrument": string oder null (bei "hold" ohne konkretes Instrument: "PORTFOLIO"; \
-bei "buy"/"reject_idea" Pflichtfeld),
+bei "buy"/"close"/"reject_idea" Pflichtfeld),
   "conviction": Zahl zwischen 0 und 1 (nur bei "buy", deine Überzeugungsstärke — \
 keine USD-Zahl, keine Positionsgröße),
   "thesis_text": string (deine Begründung),
@@ -95,6 +95,9 @@ keine USD-Zahl, keine Positionsgröße),
   "input_research_ids": Liste der research_item-IDs, die deine Begründung stützen \
 (mindestens eine, exakt wie im Datenblock unten angegeben)
 }
+"close" beendet eine bestehende Position aus OPEN_POSITIONS vollständig (die Menge \
+wird automatisch aus deinem tatsächlichen Bestand ermittelt, nicht von dir angegeben). \
+Ein Teilverkauf ist noch nicht möglich.
 """
 
 # Generic infra text, not persona-specific — lives here (not in a charter
@@ -421,6 +424,11 @@ def _resolve_decision(
             session, cycle_id, portfolio_id, persona_name, parsed, cited_ids, broker_adapter
         )
 
+    if parsed.action == "close":
+        return _resolve_close_decision(
+            session, cycle_id, portfolio_id, persona_name, parsed, cited_ids, broker_adapter
+        )
+
     return _persist_decision(
         session,
         cycle_id=cycle_id,
@@ -553,6 +561,97 @@ def _resolve_buy_decision(
         portfolio = session.get_one(Portfolio, portfolio_id)
         if is_hitl_required(portfolio.mode):
             mark_hitl_pending(session, decision, amount_usd=position_value_usd)
+            session.commit()
+            return _await_hitl_outcome(session, decision, persona_name)
+
+    return decision
+
+
+def _resolve_close_decision(
+    session: Session,
+    cycle_id: uuid.UUID,
+    portfolio_id: uuid.UUID,
+    persona_name: str,
+    parsed: PersonaDecisionOutput,
+    cited_ids: list[uuid.UUID],
+    broker_adapter: BrokerAdapter,
+) -> Decision:
+    """F077: full exit only (no partial `sell` yet, see F077 §1) — the quantity is
+    always the persona's actual held qty, never LLM-supplied (same "no arithmetic
+    from the LLM" principle as `_resolve_buy_decision`)."""
+    if not parsed.instrument:
+        return _persist_decision(
+            session,
+            cycle_id=cycle_id,
+            portfolio_id=portfolio_id,
+            instrument=_INSTRUMENT_HOLD_SENTINEL,
+            action=DecisionAction.REJECT_IDEA,
+            thesis_text=parsed.thesis_text,
+            rejection_reason="missing_instrument",
+            input_research_ids=cited_ids,
+        )
+
+    risk_state = read_portfolio_risk_state(session, broker_adapter, portfolio_id, cycle_id)
+    position = next((p for p in risk_state.positions if p.symbol == parsed.instrument), None)
+
+    if position is None or position.qty <= 0:
+        return _persist_decision(
+            session,
+            cycle_id=cycle_id,
+            portfolio_id=portfolio_id,
+            instrument=parsed.instrument,
+            action=DecisionAction.REJECT_IDEA,
+            thesis_text=parsed.thesis_text,
+            rejection_reason="no_open_position",
+            input_research_ids=cited_ids,
+        )
+
+    system_guardrails = load_system_guardrails()
+    persona_guardrails = load_persona_guardrails(persona_name)
+    current_price = position.market_value / position.qty if position.qty else 0.0
+
+    # Only `max_trades_per_day` and the circuit breaker apply to a non-BUY action
+    # (src/risk/gate.py `_evaluate_buy_only_rules` runs for TradeAction.BUY only) —
+    # and the circuit breaker deliberately never blocks a CLOSE (Invariant #8's
+    # "sell_only" mode must still allow exiting positions).
+    risk_check = evaluate_decision(
+        action=TradeAction.CLOSE,
+        position_value_usd=position.market_value,
+        entry_price=position.avg_entry_price,
+        stop_loss_price=None,
+        atr14=None,
+        portfolio_equity_usd=risk_state.equity_usd,
+        portfolio_cash_usd=risk_state.cash_usd,
+        portfolio_peak_equity_usd=risk_state.peak_equity_usd,
+        open_positions_count=risk_state.open_positions_count,
+        trades_today_count=risk_state.trades_today_count,
+        system=system_guardrails,
+        persona=persona_guardrails,
+    )
+
+    status = DecisionStatus.APPROVED if risk_check.approved else DecisionStatus.RISK_REJECTED
+    decision = _persist_decision(
+        session,
+        cycle_id=cycle_id,
+        portfolio_id=portfolio_id,
+        instrument=parsed.instrument,
+        action=DecisionAction.CLOSE,
+        quantity=Decimal(str(position.qty)),
+        thesis_text=parsed.thesis_text,
+        rejection_reason=None if risk_check.approved else "risk_gate_rejected",
+        expected_outcome={
+            "entry_price": position.avg_entry_price,
+            "exit_price_estimate": current_price,
+        },
+        input_research_ids=cited_ids,
+        risk_check=_serialize_risk_check(risk_check),
+        status=status,
+    )
+
+    if risk_check.approved:
+        portfolio = session.get_one(Portfolio, portfolio_id)
+        if is_hitl_required(portfolio.mode):
+            mark_hitl_pending(session, decision, amount_usd=position.market_value)
             session.commit()
             return _await_hitl_outcome(session, decision, persona_name)
 

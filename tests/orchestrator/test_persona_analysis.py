@@ -19,7 +19,13 @@ from sqlalchemy.orm import Session
 
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.ledger_store import JSONLedgerStore
-from src.broker.protocol import AccountBalance, OrderResult, OrderSide, Position
+from src.broker.protocol import (
+    AccountBalance,
+    ClosePositionResult,
+    OrderResult,
+    OrderSide,
+    Position,
+)
 from src.db.models import (
     AgentRun,
     AgentRunStatus,
@@ -47,6 +53,7 @@ class _FakeAdapter:
         self._balance = balance
         self._positions = positions or []
         self.placed_orders: list[dict[str, object]] = []
+        self.closed_positions: list[dict[str, object]] = []
 
     def place_order(self, **kwargs: object) -> OrderResult:
         self.placed_orders.append(kwargs)
@@ -57,6 +64,15 @@ class _FakeAdapter:
             qty=float(kwargs["qty"]),  # type: ignore[arg-type]
             side=OrderSide.BUY,
             stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+        )
+
+    def close_position(self, **kwargs: object) -> ClosePositionResult:
+        self.closed_positions.append(kwargs)
+        return ClosePositionResult(
+            order_id="close-test-1",
+            symbol=str(kwargs["symbol"]),
+            qty=float(kwargs["qty"]),  # type: ignore[arg-type]
+            side=OrderSide.SELL,
         )
 
     def cancel_order(self, order_id: str) -> None:
@@ -1084,6 +1100,205 @@ def test_buy_response_rejected_by_risk_gate_when_trades_today_exceeded(
     assert decision.status == DecisionStatus.RISK_REJECTED
     assert decision.risk_check is not None
     assert decision.risk_check["approved"] is False
+
+
+# F077: close-decision tests.
+
+
+def test_close_response_executed_with_hitl_disabled(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    content = json.dumps(
+        {
+            "action": "close",
+            "instrument": "AAPL",
+            "thesis_text": "thesis played out, taking profit",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    held_position = Position(
+        symbol="AAPL",
+        qty=10.0,
+        side=OrderSide.BUY,
+        avg_entry_price=150.0,
+        market_value=1600.0,
+        unrealized_pl=100.0,
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=3400, equity=5000, buying_power=3400), positions=[held_position]
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.CLOSE
+    assert decision.quantity == Decimal("10.0")
+    assert decision.risk_check is not None
+    assert decision.risk_check["approved"] is True
+    assert decision.status == DecisionStatus.EXECUTED
+    assert adapter.closed_positions
+    assert adapter.closed_positions[0]["symbol"] == "AAPL"
+    assert adapter.closed_positions[0]["qty"] == 10.0
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is not None
+    assert order_record.raw is not None and order_record.raw["closed"] is True
+
+
+def test_close_without_existing_position_falls_back_to_reject_idea(session: Session) -> None:
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    content = json.dumps(
+        {
+            "action": "close",
+            "instrument": "AAPL",
+            "thesis_text": "close it",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.REJECT_IDEA
+    assert decision.rejection_reason == "no_open_position"
+    assert not adapter.closed_positions
+
+
+def test_close_without_instrument_falls_back_to_reject_idea(session: Session) -> None:
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    content = json.dumps(
+        {
+            "action": "close",
+            "instrument": None,
+            "thesis_text": "close something",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.REJECT_IDEA
+    assert decision.rejection_reason == "missing_instrument"
+
+
+def test_close_rejected_by_risk_gate_when_trades_today_exceeded(session: Session) -> None:
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    content = json.dumps(
+        {
+            "action": "close",
+            "instrument": "AAPL",
+            "thesis_text": "close it",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+
+    # VULTURE max_trades_per_day = 10 (config/personas/vulture.yaml) — seed 10 real
+    # order_records for this portfolio today, same pattern as the buy-side test above.
+    from src.db.models import OrderRecord, OrderRecordStatus, PortfolioMode
+
+    for i in range(10):
+        other_cycle = create_cycle(
+            session, datetime.date(2026, 7, 7), 200 + i, MarketSession.US_EQUITY
+        )
+        other_item = ResearchItem(
+            cycle_id=other_cycle.id,
+            agent="market_research",
+            source_type="screener_result",
+            source_ref="MSFT",
+            summary="x",
+            instruments=["MSFT"],
+            raw={},
+        )
+        session.add(other_item)
+        session.flush()
+        other_decision = Decision(
+            cycle_id=other_cycle.id,
+            portfolio_id=portfolio.id,
+            instrument="MSFT",
+            action=DecisionAction.BUY,
+            quantity=Decimal("1"),
+            thesis_text="x",
+            expected_outcome={},
+            input_research_ids=[other_item.id],
+            status=DecisionStatus.EXECUTED,
+        )
+        session.add(other_decision)
+        session.flush()
+        session.add(
+            OrderRecord(
+                decision_id=other_decision.id,
+                broker="alpaca_paper",
+                mode=PortfolioMode.PAPER,
+                submitted_at=datetime.datetime(2026, 7, 7, 9, 0),
+                status=OrderRecordStatus.FILLED,
+            )
+        )
+    session.flush()
+
+    held_position = Position(
+        symbol="AAPL",
+        qty=10.0,
+        side=OrderSide.BUY,
+        avg_entry_price=150.0,
+        market_value=1600.0,
+        unrealized_pl=100.0,
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=3400, equity=5000, buying_power=3400), positions=[held_position]
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.CLOSE
+    assert decision.status == DecisionStatus.RISK_REJECTED
+    assert decision.risk_check is not None
+    assert decision.risk_check["approved"] is False
+    assert not adapter.closed_positions
 
 
 def _sequenced_client(responses: list[dict]) -> tuple[LiteLLMClient, list[dict]]:

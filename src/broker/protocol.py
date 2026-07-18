@@ -34,6 +34,17 @@ class OrderResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ClosePositionResult:
+    order_id: str
+    symbol: str
+    qty: float
+    side: OrderSide
+    # See OrderResult above for why these are only sometimes known synchronously.
+    filled_at: datetime.datetime | None = None
+    fill_price: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Position:
     symbol: str
     qty: float
@@ -67,6 +78,23 @@ class BrokerAdapter(Protocol):
         `decision_id` and `stop_loss_price` are mandatory (Invariants #3 and #4) —
         there is no code path that places an order without a decision reference or
         without a broker-side stop-loss.
+        """
+        ...
+
+    def close_position(
+        self,
+        *,
+        decision_id: int,
+        symbol: str,
+        qty: float,
+        stop_order_ids: list[str],
+    ) -> ClosePositionResult:
+        """Fully exit an existing position: best-effort cancel every id in
+        `stop_order_ids` (F077 — a position built from several buy tranches has one
+        GTC stop per tranche; an id already filled/gone is silently ignored, not an
+        error), then place one market sell for `qty`. No new stop-loss is placed —
+        this is a full close (qty=0 afterwards), never a partial reduction (see F077
+        §1 Non-Scope).
         """
         ...
 

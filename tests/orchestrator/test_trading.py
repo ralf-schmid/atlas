@@ -9,7 +9,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.broker.protocol import OrderResult, OrderSide
+from src.broker.protocol import ClosePositionResult, OrderResult, OrderSide
 from src.db.models import (
     Decision,
     DecisionAction,
@@ -38,6 +38,7 @@ class _FakeAdapter:
         self.filled_at = filled_at
         self.fill_price = fill_price
         self.calls: list[dict[str, object]] = []
+        self.close_calls: list[dict[str, object]] = []
 
     def place_order(self, **kwargs: object) -> OrderResult:
         self.calls.append(kwargs)
@@ -50,6 +51,19 @@ class _FakeAdapter:
             qty=float(kwargs["qty"]),  # type: ignore[arg-type]
             side=OrderSide.BUY,
             stop_loss_price=float(kwargs["stop_loss_price"]),  # type: ignore[arg-type]
+            filled_at=self.filled_at,
+            fill_price=self.fill_price,
+        )
+
+    def close_position(self, **kwargs: object) -> ClosePositionResult:
+        self.close_calls.append(kwargs)
+        if self.should_fail:
+            raise RuntimeError("broker rejected the order")
+        return ClosePositionResult(
+            order_id="close-789",
+            symbol=str(kwargs["symbol"]),
+            qty=float(kwargs["qty"]),  # type: ignore[arg-type]
+            side=OrderSide.SELL,
             filled_at=self.filled_at,
             fill_price=self.fill_price,
         )
@@ -213,4 +227,125 @@ def test_execute_decision_rejects_missing_quantity(session: Session) -> None:
         assert "quantity" in str(exc)
 
     assert adapter.calls == []
+    assert session.scalars(select(OrderRecord)).all() == []
+
+
+# F077: close-decision tests.
+
+
+def _make_filled_buy_order_record(
+    session: Session, portfolio: Portfolio, *, instrument: str, stop_order_id: str
+) -> OrderRecord:
+    """A previously executed BUY tranche on `instrument`, with the GTC stop-loss
+    order id a real `execute_decision` buy call would have stored in `raw`."""
+    buy_decision = _make_approved_decision(session, portfolio)
+    buy_decision.instrument = instrument
+    buy_decision.status = DecisionStatus.EXECUTED
+    session.flush()
+    order_record = OrderRecord(
+        decision_id=buy_decision.id,
+        broker="alpaca_paper",
+        broker_order_id="entry-old",
+        mode=PortfolioMode.PAPER,
+        submitted_at=datetime.datetime(2026, 7, 10, 9, 0),
+        status=OrderRecordStatus.FILLED,
+        raw={"stop_order_id": stop_order_id, "qty": 2.0, "side": "buy", "stop_loss_price": 140.0},
+    )
+    session.add(order_record)
+    session.flush()
+    return order_record
+
+
+def _make_approved_close_decision(session: Session, portfolio: Portfolio) -> Decision:
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 2, MarketSession.US_EQUITY)
+    item = ResearchItem(
+        cycle_id=cycle.id,
+        agent="market_research",
+        source_type="screener_result",
+        source_ref="AAPL",
+        summary="test",
+        instruments=["AAPL"],
+        raw={},
+    )
+    session.add(item)
+    session.flush()
+    decision = Decision(
+        cycle_id=cycle.id,
+        portfolio_id=portfolio.id,
+        instrument="AAPL",
+        action=DecisionAction.CLOSE,
+        quantity=Decimal("2"),
+        thesis_text="test",
+        expected_outcome={"entry_price": 150.0, "exit_price_estimate": 160.0},
+        input_research_ids=[item.id],
+        status=DecisionStatus.APPROVED,
+    )
+    session.add(decision)
+    session.flush()
+    return decision
+
+
+def test_execute_decision_close_collects_stop_order_id_from_prior_buy(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    _make_filled_buy_order_record(session, portfolio, instrument="AAPL", stop_order_id="stop-456")
+    decision = _make_approved_close_decision(session, portfolio)
+    adapter = _FakeAdapter()
+
+    order_record = execute_decision(session, decision, adapter, "alpaca_paper")
+
+    assert adapter.close_calls == [
+        {
+            "decision_id": decision.id,
+            "symbol": "AAPL",
+            "qty": 2.0,
+            "stop_order_ids": ["stop-456"],
+        }
+    ]
+    assert order_record.broker_order_id == "close-789"
+    assert order_record.raw == {"qty": 2.0, "side": "sell", "closed": True}
+    assert decision.status == DecisionStatus.EXECUTED
+
+
+def test_execute_decision_close_collects_stop_order_ids_from_two_buy_tranches(
+    session: Session,
+) -> None:
+    portfolio = _make_portfolio(session)
+    _make_filled_buy_order_record(session, portfolio, instrument="AAPL", stop_order_id="stop-1")
+    _make_filled_buy_order_record(session, portfolio, instrument="AAPL", stop_order_id="stop-2")
+    decision = _make_approved_close_decision(session, portfolio)
+    adapter = _FakeAdapter()
+
+    execute_decision(session, decision, adapter, "alpaca_paper")
+
+    (call,) = adapter.close_calls
+    assert sorted(call["stop_order_ids"]) == ["stop-1", "stop-2"]  # type: ignore[arg-type]
+
+
+def test_execute_decision_close_ignores_buy_records_from_other_instruments(
+    session: Session,
+) -> None:
+    portfolio = _make_portfolio(session)
+    _make_filled_buy_order_record(session, portfolio, instrument="MSFT", stop_order_id="stop-msft")
+    decision = _make_approved_close_decision(session, portfolio)
+    adapter = _FakeAdapter()
+
+    execute_decision(session, decision, adapter, "alpaca_paper")
+
+    (call,) = adapter.close_calls
+    assert call["stop_order_ids"] == []
+
+
+def test_execute_decision_close_rejects_missing_quantity(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_close_decision(session, portfolio)
+    decision.quantity = None
+    adapter = _FakeAdapter()
+
+    try:
+        execute_decision(session, decision, adapter, "alpaca_paper")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "quantity" in str(exc)
+
+    assert adapter.close_calls == []
     assert session.scalars(select(OrderRecord)).all() == []

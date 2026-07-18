@@ -311,3 +311,72 @@ def test_place_order_with_different_decision_id_fills_again(adapter):
     positions = adapter.get_positions()
     assert len(positions) == 1
     assert positions[0].qty == 15
+
+
+# F077: close_position tests.
+
+
+def test_close_position_sells_full_qty_and_books_cash(adapter):
+    entry = adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    result = adapter.close_position(
+        decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[entry.stop_order_id]
+    )
+
+    assert result.symbol == "AAPL"
+    assert result.qty == 10
+    assert result.side == OrderSide.SELL
+    assert result.fill_price == 150.0
+    assert result.filled_at is not None
+    assert adapter.get_positions() == []
+    assert adapter.get_account_balance().cash == 5000.0  # bought and sold at the same price
+
+
+def test_close_position_removes_given_stop_order_ids(adapter, store):
+    entry = adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    adapter.close_position(
+        decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[entry.stop_order_id]
+    )
+
+    state = store.load("HYPE", default_cash=5000.0)
+    assert state.pending_stops == {}
+
+
+def test_close_position_ignores_unknown_stop_order_id(adapter):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    # Must not raise even though "does-not-exist" was never a real pending stop.
+    result = adapter.close_position(
+        decision_id=2, symbol="AAPL", qty=10, stop_order_ids=["does-not-exist"]
+    )
+
+    assert result.qty == 10
+    assert adapter.get_positions() == []
+
+
+def test_close_position_replayed_with_same_decision_id_does_not_resell(adapter):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=10, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    first = adapter.close_position(decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[])
+    replayed = adapter.close_position(decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[])
+
+    assert replayed == first
+    assert adapter.get_account_balance().cash == 5000.0  # only sold once
+
+
+def test_close_position_selling_more_than_held_raises_no_shorting(adapter):
+    adapter.place_order(
+        decision_id=1, symbol="AAPL", qty=5, side=OrderSide.BUY, stop_loss_price=140.0
+    )
+
+    with pytest.raises(ValueError, match="no shorting"):
+        adapter.close_position(decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[])

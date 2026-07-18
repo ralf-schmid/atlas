@@ -303,3 +303,76 @@ def test_get_order_status_no_fill_info_when_still_open(adapter, mock_client):
     assert result.state == AlpacaOrderState.OPEN
     assert result.filled_at is None
     assert result.fill_price is None
+
+
+# F077: close_position tests.
+
+
+def test_close_position_cancels_every_stop_then_sells(adapter, mock_client):
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="sell-123", legs=None)
+
+    result = adapter.close_position(
+        decision_id=99, symbol="AAPL", qty=10, stop_order_ids=["stop-1", "stop-2"]
+    )
+
+    assert mock_client.cancel_order_by_id.call_count == 2
+    mock_client.cancel_order_by_id.assert_any_call("stop-1")
+    mock_client.cancel_order_by_id.assert_any_call("stop-2")
+    (call,) = mock_client.submit_order.call_args_list
+    sell_request = call.kwargs["order_data"]
+    assert sell_request.symbol == "AAPL"
+    assert sell_request.qty == 10
+    assert sell_request.side.value == "sell"
+    assert sell_request.time_in_force.value == "day"
+    assert sell_request.order_class is None
+    assert result.order_id == "sell-123"
+    assert result.qty == 10
+    assert result.side == OrderSide.SELL
+
+
+def test_close_position_ignores_cancel_failure_for_already_filled_stop(adapter, mock_client):
+    http_error = MagicMock()
+    http_error.response.status_code = 422
+    mock_client.cancel_order_by_id.side_effect = [
+        APIError('{"code": 42210000, "message": "order not found"}', http_error),
+        None,
+    ]
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="sell-123", legs=None)
+
+    result = adapter.close_position(
+        decision_id=99, symbol="AAPL", qty=10, stop_order_ids=["already-filled", "stop-2"]
+    )
+
+    assert mock_client.cancel_order_by_id.call_count == 2
+    mock_client.submit_order.assert_called_once()
+    assert result.order_id == "sell-123"
+
+
+def test_close_position_recovers_existing_order_on_duplicate_client_order_id(adapter, mock_client):
+    mock_client.submit_order.side_effect = _duplicate_client_order_id_error()
+    mock_client.get_order_by_client_id.return_value = AlpacaOrder.model_construct(
+        id="sell-123", legs=None
+    )
+
+    result = adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=[])
+
+    mock_client.get_order_by_client_id.assert_called_once_with("99")
+    assert result.order_id == "sell-123"
+
+
+def test_close_position_reraises_non_duplicate_api_errors(adapter, mock_client):
+    http_error = MagicMock()
+    http_error.response.status_code = 403
+    mock_client.submit_order.side_effect = APIError(
+        '{"code": 40310000, "message": "insufficient buying power"}', http_error
+    )
+
+    with pytest.raises(APIError):
+        adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=[])
+
+
+def test_close_position_rejects_unexpected_response_type(adapter, mock_client):
+    mock_client.submit_order.return_value = {"id": "raw-dict"}
+
+    with pytest.raises(TypeError, match="Unexpected submit_order response"):
+        adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=[])
