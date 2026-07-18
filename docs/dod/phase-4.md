@@ -263,3 +263,42 @@ Sizing toppt jetzt nur noch die Differenz zum Ziel-Gesamtwert auf (bereits
 am/über Ziel → `reject_idea` statt Nullmengen-Order), und das Risk-Gate prüft
 `existing_position_value_usd + position_value_usd` gegen die Obergrenze als
 unabhängiges Sicherheitsnetz.
+
+**Update (18.07.2026):** DoD-Punkt "Telegram-Tagesdigest" ist erledigt —
+[F070](../features/F070-daily-telegram-digest.md) (13.07.2026) implementiert
+`/digest` inkl. täglichem Cron-Job (16:30 America/New_York) und ist live gegen
+die echte Produktions-DB verifiziert. Seitdem zusätzlich gelandet, ohne
+direkten DoD-Bezug, aber mit Auswirkung auf den Dauerlauf-Nachweis:
+[F072](../features/F072-hitl-off-paper-trade-notify.md) (13.07.2026, Ralfs
+Entscheidung: HITL für `paper` aus, Telegram-Trade-Info statt Freigabe-Button —
+`live` bleibt HITL-pflichtig, Invariante #5 unberührt), F073 (Parse-Error-Fix),
+F074 (Holding-Charts), [F075](../features/F075-order-fill-reconciliation.md)
+(Order-Fill-Reconciliation, behebt Chart-/Holdings-/Digest-Lücken, deployt
+14./15.07.2026), F076 (JSON-Parse-Fallback, 15.07.2026).
+
+**Weiterhin offen (unverändert seit 12.07.2026, jetzt mit neuem Datum):**
+- **5 Handelstage in Folge ohne unbehandelte Exception:** Zähler beginnt mit
+  jedem Deploy/Container-Rebuild neu; die F072–F076-Deploys am 13.–15.07 sind
+  selbst Unterbrechungen. Damit läuft der Nachweis frühestens seit dem
+  F076-Deploy (15.07.2026) — noch keine 5 Tage seit dem letzten Rebuild.
+- **Kosten-Cap-Stichprobe gegen echte LiteLLM-Abrechnung:** weiterhin nicht
+  durchgeführt.
+- **HITL Approve/Reject/Timeout end-to-end im Dauerbetrieb:** für Paper seit
+  F072 (13.07.2026) nicht mehr zutreffend — HITL ist für `paper` jetzt aus,
+  der Nachweis von F049–F052 bleibt als historischer Beleg für den
+  Interrupt-/Resume-Mechanismus gültig, ist aber kein laufender
+  Dauerbetriebs-Nachweis mehr. Für `live` (Invariante #5, weiterhin
+  HITL-pflichtig) steht ein Dauerbetriebs-Nachweis naturgemäß noch aus, da
+  kein Live-Betrieb existiert.
+
+**Einordnung ggü. ARCHITECTURE.md §8:** Phase 4 ist damit weiterhin formal
+nicht abgeschlossen (2 von 6 DoD-Punkten offen: Mehrtage-Dauerlauf,
+Kosten-Cap-Stichprobe). Phase 5 (§8, "Review, Journal & Wettbewerbsstart" —
+Review-Agent, Slippage-Malus, Leaderboard, offizieller Start des
+8-Wochen-Wettbewerbs) hat inhaltlich noch nicht begonnen; F072 trägt zwar
+`Phase: 5` im Feature-Dokument (Ralfs spontane Betriebsentscheidung, keine
+formale Phasen-Eröffnung), ist aber ein Ops-Fix am Paper-Betrieb, kein
+P5-Feature im Sinne von ARCHITECTURE.md §8. Der 8-Wochen-Wettbewerbs-Zähler
+(ARCHITECTURE.md §4.7) hat noch nicht offiziell begonnen — das ist laut §8
+selbst ein P5-DoD-Punkt ("Wettbewerb offiziell gestartet: Stichtag
+dokumentiert, alle 6 Portfolios auf 5.000 USD").
