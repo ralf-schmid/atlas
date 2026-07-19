@@ -1,6 +1,7 @@
 # F077 — Sell/Close-Decision-Pfad
 
-Status: umgesetzt, noch nicht deployt/live verifiziert (siehe §6)
+Status: umgesetzt, Live-Smoke-Test am 19.07.2026 (Sonntag) einen echten Bug
+gefunden + behoben, Retest bei offenem US-Markt noch ausstehend (siehe §7)
 Datum: 2026-07-18
 Phase: 5 (Voraussetzung für den Review-Agenten, siehe unten)
 
@@ -209,9 +210,9 @@ Scheduler-Zyklus geht.
 - **Coverage-Gate** (`tests/risk/ tests/broker/ --cov-fail-under=100`,
   identisch zum CI-Job): weiterhin **100 % Line + Branch** für `src/broker/*`
   und `src/risk/*`.
-- **Noch nicht gemacht:** der Paper-Smoke-Test gegen eine echte offene
-  Position auf `atlas-ugreen` (§3) — bewusst zurückgestellt, siehe §6. Bis
-  dahin ist dieses Feature nur lokal verifiziert, nicht live.
+- **Noch nicht gemacht (Stand vor dem Smoke-Test):** der Paper-Smoke-Test
+  gegen eine echte offene Position auf `atlas-ugreen` (§3). Siehe §7 für das
+  Ergebnis des ersten Versuchs.
 
 ## 6. Rollback-Pfad
 
@@ -230,3 +231,53 @@ Paper-Smoke-Test manuell (nicht über den Scheduler) gegen eine echte
 Alpaca-Paper-Position fahren und im Dashboard verifizieren, dass Stop(s)
 gecancelt und die Position auf 0 sind — erst danach in den laufenden
 Scheduler-Zyklus lassen.
+
+## 7. Live-Smoke-Test (19.07.2026, gemeinsam mit Ralf)
+
+**Ablauf:** neues Image nur für `scheduler` gebaut (`docker compose build
+scheduler`), **nicht** deployt/neugestartet — der laufende
+`atlas-scheduler-1`-Container blieb während des gesamten Tests auf dem alten
+Image (kein autonomer Close-Zugriff). Manuelles Einmal-Skript über `docker
+compose run --rm scheduler` (frischer Wegwerf-Container auf dem neuen Image,
+mit denselben Trading-Credentials wie der Live-Service): echte `CLOSE`-Decision
+für VULTURE/KEEL (11 Stück, eine Buy-Tranche, ein Stop) gebaut, direkt
+`APPROVED` (kein LLM/HITL — reiner Mechanik-Test), `execute_decision`
+aufgerufen.
+
+**Ergebnis erster Versuch — echter Bug gefunden:** der Sell schlug fehl:
+`insufficient qty available for order (requested: 11, available: 0),
+held_for_orders: 11`, referenzierte den soeben gecancelten Stop
+(`e1b1b205-...`). Der Stop stand danach über 30s auf `PENDING_CANCEL`, nicht
+`CANCELED`. **Sicherheitslage unkritisch:** die Order-Transaktion wurde beim
+Fehler sauber zurückgerollt (kein Waisen-Datensatz), und weil der Cancel nie
+bestätigt wurde, blieb der ursprüngliche Stop für KEEL die ganze Zeit faktisch
+aktiv — Invariante #4 war zu keinem Zeitpunkt verletzt.
+
+**Root Cause:** `cancel_order_by_id`, das ohne Exception zurückkehrt, heißt
+bei Alpaca nur "Cancel angenommen", nicht "Cancel vollzogen" — die Freigabe
+der gehaltenen Stückzahl passiert asynchron. Sehr wahrscheinlich verstärkt
+(ggf. verursacht) dadurch, dass der Test an einem Sonntag lief (US-Markt zu) —
+Alpacas Paper-Matching-Engine scheint Order-State-Übergänge primär während
+der Handelszeiten zu verarbeiten.
+
+**Fix:** `AlpacaPaperAdapter.close_position()` wartet jetzt nach einem
+akzeptierten Cancel aktiv auf dessen Auflösung (`_wait_for_hold_release`,
+Poll alle 2s, Timeout 30s) — akzeptiert `CANCELED`/`EXPIRED`/`REJECTED`/`FILLED`
+als "Hold freigegeben", wirft sonst nach Timeout einen klaren `RuntimeError`
+statt den Sell überhaupt zu versuchen. Nur für Stop-IDs, deren Cancel-Aufruf
+tatsächlich ohne Fehler durchging (ein Cancel, der mit `APIError` fehlschlägt,
+z. B. weil der Stop schon gefeuert/weg ist, ist bereits terminal — kein
+Warten nötig). `InternalLedgerAdapter` braucht das nicht (Cancel dort ist
+synchron, kein Broker-Roundtrip).
+
+6 neue/geänderte Tests in `tests/broker/test_alpaca_paper.py` (Poll-Erfolg
+über mehrere `PENDING_CANCEL`-Antworten, Timeout-Pfad, unerwarteter
+Response-Typ, `time.sleep` in Tests gemockt). `uv run pytest -q`: **628
+passed**. Coverage-Gate `src/risk` + `src/broker`: weiterhin **100 %**.
+
+**Noch offen:** Retest bei tatsächlich offenem US-Markt (werktags, America/
+New_York-Handelszeit), um zu bestätigen, dass der Cancel dann tatsächlich
+innerhalb der 30s-Timeout auflöst und die ganze Kette (Cancel → Sell →
+Position 0) im Live-Fall durchläuft — bislang nur der Bugfix selbst lokal
+verifiziert, der eigentliche End-to-End-Beweis mit echtem Broker steht noch
+aus. Scheduler auf der Box weiterhin auf altem Image, kein Deploy.

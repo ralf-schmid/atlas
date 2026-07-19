@@ -309,6 +309,9 @@ def test_get_order_status_no_fill_info_when_still_open(adapter, mock_client):
 
 
 def test_close_position_cancels_every_stop_then_sells(adapter, mock_client):
+    mock_client.get_order_by_id.return_value = AlpacaOrder.model_construct(
+        status=AlpacaOrderStatus.CANCELED
+    )
     mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="sell-123", legs=None)
 
     result = adapter.close_position(
@@ -318,6 +321,11 @@ def test_close_position_cancels_every_stop_then_sells(adapter, mock_client):
     assert mock_client.cancel_order_by_id.call_count == 2
     mock_client.cancel_order_by_id.assert_any_call("stop-1")
     mock_client.cancel_order_by_id.assert_any_call("stop-2")
+    # F077 live-finding: a cancel that Alpaca accepted must be confirmed resolved
+    # (qty hold released) before the sell is submitted.
+    assert mock_client.get_order_by_id.call_count == 2
+    mock_client.get_order_by_id.assert_any_call("stop-1")
+    mock_client.get_order_by_id.assert_any_call("stop-2")
     (call,) = mock_client.submit_order.call_args_list
     sell_request = call.kwargs["order_data"]
     assert sell_request.symbol == "AAPL"
@@ -337,6 +345,9 @@ def test_close_position_ignores_cancel_failure_for_already_filled_stop(adapter, 
         APIError('{"code": 42210000, "message": "order not found"}', http_error),
         None,
     ]
+    mock_client.get_order_by_id.return_value = AlpacaOrder.model_construct(
+        status=AlpacaOrderStatus.CANCELED
+    )
     mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="sell-123", legs=None)
 
     result = adapter.close_position(
@@ -344,8 +355,55 @@ def test_close_position_ignores_cancel_failure_for_already_filled_stop(adapter, 
     )
 
     assert mock_client.cancel_order_by_id.call_count == 2
+    # Only the accepted cancel ("stop-2") needs a hold-release check — the one
+    # that errored is already terminal, that's why it errored.
+    mock_client.get_order_by_id.assert_called_once_with("stop-2")
     mock_client.submit_order.assert_called_once()
     assert result.order_id == "sell-123"
+
+
+def test_close_position_waits_for_pending_cancel_to_resolve(adapter, mock_client, monkeypatch):
+    """F077 live-finding (2026-07-19, real Alpaca Paper): a cancel_order_by_id call
+    that returns without error only *requests* cancellation — observed stuck in
+    PENDING_CANCEL for 30s+ against the real paper endpoint with the US market
+    closed. close_position must poll for actual resolution, not sell immediately."""
+    monkeypatch.setattr("src.broker.alpaca_paper.time.sleep", lambda _seconds: None)
+    mock_client.get_order_by_id.side_effect = [
+        AlpacaOrder.model_construct(status=AlpacaOrderStatus.PENDING_CANCEL),
+        AlpacaOrder.model_construct(status=AlpacaOrderStatus.PENDING_CANCEL),
+        AlpacaOrder.model_construct(status=AlpacaOrderStatus.CANCELED),
+    ]
+    mock_client.submit_order.return_value = AlpacaOrder.model_construct(id="sell-123", legs=None)
+
+    result = adapter.close_position(
+        decision_id=99, symbol="AAPL", qty=10, stop_order_ids=["stop-1"]
+    )
+
+    assert mock_client.get_order_by_id.call_count == 3
+    assert result.order_id == "sell-123"
+    mock_client.submit_order.assert_called_once()
+
+
+def test_close_position_rejects_unexpected_get_order_response_type(adapter, mock_client):
+    mock_client.get_order_by_id.return_value = {"status": "canceled"}
+
+    with pytest.raises(TypeError, match="Unexpected get_order_by_id response"):
+        adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=["stop-1"])
+
+    mock_client.submit_order.assert_not_called()
+
+
+def test_close_position_raises_if_stop_never_resolves(adapter, mock_client, monkeypatch):
+    monkeypatch.setattr("src.broker.alpaca_paper.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr("src.broker.alpaca_paper.time.monotonic", iter([0.0, 5.0, 35.0]).__next__)
+    mock_client.get_order_by_id.return_value = AlpacaOrder.model_construct(
+        status=AlpacaOrderStatus.PENDING_CANCEL
+    )
+
+    with pytest.raises(RuntimeError, match="did not resolve within"):
+        adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=["stop-1"])
+
+    mock_client.submit_order.assert_not_called()
 
 
 def test_close_position_recovers_existing_order_on_duplicate_client_order_id(adapter, mock_client):

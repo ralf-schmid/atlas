@@ -8,6 +8,7 @@ endpoint (Invariant #5) — there is no live code path here.
 from __future__ import annotations
 
 import datetime
+import time
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -65,6 +66,21 @@ _TERMINAL_STATE_MAP = {
     AlpacaOrderStatus.REJECTED: AlpacaOrderState.REJECTED,
     AlpacaOrderStatus.EXPIRED: AlpacaOrderState.EXPIRED,
 }
+
+# F077 live-finding (2026-07-19, real Alpaca Paper): cancel_order_by_id returning
+# without an error only *requests* cancellation — Alpaca resolves it asynchronously
+# (observed: a stop-loss leg stuck in PENDING_CANCEL for 30s+ with the US market
+# closed). A sell submitted right after the cancel call fails with "insufficient
+# qty available" because the qty is still `held_for_orders` by the not-yet-resolved
+# stop. These are the terminal states that release that hold.
+_HOLD_RELEASED_STATES = {
+    AlpacaOrderStatus.CANCELED,
+    AlpacaOrderStatus.EXPIRED,
+    AlpacaOrderStatus.REJECTED,
+    AlpacaOrderStatus.FILLED,
+}
+_CANCEL_POLL_INTERVAL_S = 2.0
+_CANCEL_POLL_TIMEOUT_S = 30.0
 
 
 def _is_duplicate_client_order_id(exc: APIError) -> bool:
@@ -171,12 +187,19 @@ class AlpacaPaperAdapter:
     ) -> ClosePositionResult:
         # F077 §2: best-effort — a stop already filled/canceled between the
         # persona's decision and this execution is not an error, just nothing left
-        # to cancel.
+        # to cancel. Only ids Alpaca actually accepted a cancel request for need
+        # the wait below — one that errored (already filled/gone) is already in a
+        # terminal state, that's *why* the cancel call failed.
+        accepted_cancels = []
         for stop_order_id in stop_order_ids:
             try:
                 self._client.cancel_order_by_id(stop_order_id)
             except APIError:
                 continue
+            accepted_cancels.append(stop_order_id)
+
+        for stop_order_id in accepted_cancels:
+            self._wait_for_hold_release(stop_order_id)
 
         client_order_id = str(decision_id)
         try:
@@ -201,6 +224,30 @@ class AlpacaPaperAdapter:
         return ClosePositionResult(
             order_id=str(order.id), symbol=symbol, qty=qty, side=OrderSide.SELL
         )
+
+    def _wait_for_hold_release(self, order_id: str) -> None:
+        """F077 live-finding (2026-07-19): poll until Alpaca actually resolves the
+        cancellation (releases the qty it was `held_for_orders`), instead of
+        assuming a successful `cancel_order_by_id` call takes effect immediately.
+        Raises rather than let the following sell fail with a cryptic
+        "insufficient qty available" — a stuck cancel is real, actionable
+        information (e.g. the market being closed), not something to silently
+        retry into a broken order."""
+        deadline = time.monotonic() + _CANCEL_POLL_TIMEOUT_S
+        while True:
+            order = self._client.get_order_by_id(order_id)
+            if not isinstance(order, AlpacaOrder):
+                raise TypeError(f"Unexpected get_order_by_id response type: {type(order)!r}")
+            if order.status in _HOLD_RELEASED_STATES:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f"Stop order {order_id} did not resolve within "
+                    f"{_CANCEL_POLL_TIMEOUT_S}s of being canceled (still "
+                    f"{order.status!r}) — refusing to sell while its qty hold may "
+                    "still be active"
+                )
+            time.sleep(_CANCEL_POLL_INTERVAL_S)
 
     def cancel_order(self, order_id: str) -> None:
         self._client.cancel_order_by_id(order_id)
