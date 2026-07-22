@@ -250,23 +250,39 @@ schedule:
     interval_minutes: 30
 
 publications:
-  # Fallback-first (ARCHITECTURE.md §3.5.1): n8n erkennt die Benachrichtigungs-Mail
-  # (Absender/Betreff, siehe F013), ruft den ATLAS-Webhook auf, der Ralf per Telegram
-  # zum manuellen Ablegen der PDF auffordert. Auto-Download via Playwright reift
-  # spaeter nach. base_dir_env muss mit F011s Verzeichnis-Konvention
+  # n8n erkennt die Benachrichtigungs-Mail (Absender/Betreff, siehe F013) und ruft den
+  # ATLAS-Webhook auf. Seit F078 laedt der Webhook die Ausgabe selbst herunter
+  # (Playwright, gespeicherte Browser-Session) und schiebt sie durch die
+  # Artikel-Pipeline; die Telegram-Aufforderung zum manuellen Ablegen ist nur noch der
+  # Fehlerpfad. base_dir_env muss mit F011s Verzeichnis-Konvention
   # (<base_dir>/<slug>/<YYYY-MM-DD>.pdf) uebereinstimmen.
   base_dir_env: PUBLICATIONS_INGEST_DIR
   webhook_secret_env: N8N_PUBLICATIONS_WEBHOOK_SECRET
+  # F078 §6 Rollback-Schalter: false = Verhalten exakt wie F013 (nur Telegram-
+  # Aufforderung, kein Browser-Start). config/ ist ins Image gebacken - Aenderung
+  # braucht einen Rebuild, keinen Code-Revert.
+  auto_download: true
+  # Playwright-storage_state aus scripts/boersenmedien_session.py. Kein Passwort in
+  # der .env: das Login-Formular haengt hinter Cloudflare Turnstile, Ralf meldet sich
+  # einmalig selbst an (F078 §2.2). Datei ist ein Credential (Rechte 600), liegt nur
+  # auf der Box unter data/ingest/boersenmedien/.
+  session_state_env: BOERSENMEDIEN_SESSION_STATE
   magazines:
+    # overview_url zeigt bewusst auf die Abo-Uebersicht statt auf einzelne Abo-URLs:
+    # die Abo-Nummer wechselt bei jeder Verlaengerung (2778322 -> 2877536, live
+    # beobachtet 22.07.2026), die drei frueher hier gepflegten Direktlinks waren
+    # dadurch tot. Der Auto-Download findet das passende Abo ohnehin zur Laufzeit
+    # ueber subject_keyword gegen den Produkt-Titel (F078 §2.4) - diese URL dient nur
+    # noch der manuellen Fallback-Aufforderung.
     - slug: euro_am_sonntag
       subject_keyword: "Euro am Sonntag"
-      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778324/A-10529198/ausgaben"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements"
     - slug: boerse_online
       subject_keyword: "BÖRSE ONLINE"
-      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778326/A-10510298/ausgaben"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements"
     - slug: der_aktionaer
       subject_keyword: "DER AKTIONÄR"
-      overview_url: "https://konto.boersenmedien.com/produkte/abonnements/2778322/A-10510232/ausgaben"
+      overview_url: "https://konto.boersenmedien.com/produkte/abonnements"
 
 coingecko:
   # Kostenlos, kein Auth (F040) — Krypto-Marktregime-Signal (BTC-Dominanz) fuer

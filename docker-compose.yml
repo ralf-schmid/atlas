@@ -57,6 +57,10 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
       N8N_PUBLICATIONS_WEBHOOK_SECRET: ${N8N_PUBLICATIONS_WEBHOOK_SECRET}
       PUBLICATIONS_INGEST_DIR: ${PUBLICATIONS_INGEST_DIR}
+      # F078: the same webhook now downloads the issue itself via Playwright, using
+      # the browser session Ralf captured once (scripts/boersenmedien_session.py).
+      # Fixed container path, matching the volume below.
+      BOERSENMEDIEN_SESSION_STATE: /data/ingest/boersenmedien/session_state.json
       # F074: the holding-chart endpoint reads live prices / backfills gaps via
       # Alpaca market data (src/api/routes.py) — same read-only IEX credentials
       # scheduler/telegram-bot already use below. Missing this doesn't break the
@@ -71,6 +75,12 @@ services:
       # not driven by PUBLICATIONS_INGEST_DIR, so it doesn't silently change if that
       # env var ever does.
       - ./data/ingest/publications:/data/ingest/publications
+      # F078: the captured Boersenmedien browser session. Deliberately its own
+      # directory, not inside the publications tree — it is a credential (chmod 600,
+      # authenticates as Ralf until the cookies expire), not ingest data, and
+      # scan_ingest_directory() globs that tree. Read-only: the job only ever loads
+      # the state, refreshing it is a manual, human-driven step.
+      - ./data/ingest/boersenmedien:/data/ingest/boersenmedien:ro
     depends_on:
       postgres:
         condition: service_healthy

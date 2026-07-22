@@ -38,13 +38,17 @@ def test_notify_publication_rejects_unrecognized_subject(monkeypatch):
     assert response.status_code == 422
 
 
-def test_notify_publication_sends_telegram_alert_for_known_magazine(monkeypatch):
+def test_notify_publication_sends_telegram_alert_when_auto_download_disabled(monkeypatch):
+    """F078 §6 rollback path: with the config flag off, F013's behaviour is intact."""
     monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
     monkeypatch.setenv("PUBLICATIONS_INGEST_DIR", "/data/ingest/publications")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "000000:dummy-bot-token")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "123456")
 
-    with patch("src.api.routes_ingestion.send_alert", new_callable=AsyncMock) as mock_send:
+    with (
+        patch("src.api.routes_ingestion._auto_download_enabled", return_value=False),
+        patch("src.api.routes_ingestion.send_alert", new_callable=AsyncMock) as mock_send,
+    ):
         response = _client().post(
             "/api/ingestion/publications/notify",
             json={"subject": "Neuer Inhalt - DER AKTIONÄR E-Paper"},
@@ -56,6 +60,48 @@ def test_notify_publication_sends_telegram_alert_for_known_magazine(monkeypatch)
     mock_send.assert_awaited_once()
     _config, message = mock_send.call_args.args
     assert "der_aktionaer" in message
+
+
+def test_notify_publication_starts_auto_download_for_known_magazine(monkeypatch):
+    """F078: the webhook answers immediately and hands the browser work to a
+    background task — patched here, a real run would launch Chromium."""
+    monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
+    monkeypatch.setenv("PUBLICATIONS_INGEST_DIR", "/data/ingest/publications")
+
+    with (
+        patch("src.api.routes_ingestion._auto_download_enabled", return_value=True),
+        patch(
+            "src.api.routes_ingestion._download_and_ingest", new_callable=AsyncMock
+        ) as mock_download,
+    ):
+        response = _client().post(
+            "/api/ingestion/publications/notify",
+            json={"subject": "Neuer Inhalt - DER AKTIONÄR E-Paper"},
+            headers={"x-webhook-secret": "s3cret"},
+        )
+
+    assert response.status_code == 202
+    assert response.json() == {"publication": "der_aktionaer", "status": "download_started"}
+    mock_download.assert_awaited_once()
+    magazine, subject = mock_download.call_args.args
+    assert magazine.slug == "der_aktionaer"
+    assert subject == "Neuer Inhalt - DER AKTIONÄR E-Paper"
+
+
+def test_notify_publication_unknown_subject_starts_no_download(monkeypatch):
+    monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
+
+    with patch(
+        "src.api.routes_ingestion._download_and_ingest", new_callable=AsyncMock
+    ) as mock_download:
+        response = _client().post(
+            "/api/ingestion/publications/notify",
+            json={"subject": "Ihre Rechnung liegt bereit"},
+            headers={"x-webhook-secret": "s3cret"},
+        )
+
+    assert response.status_code == 422
+    mock_download.assert_not_awaited()
 
 
 def test_notify_musterdepot_rejects_missing_secret(monkeypatch):

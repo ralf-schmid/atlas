@@ -55,15 +55,22 @@ def format_fallback_alert(
     subject: str,
     base_dir: Path,
     today: datetime.date | None = None,
+    reason: str | None = None,
 ) -> str:
     """Renders the Telegram message asking Ralf to manually download and drop the
     PDF — matches F011's `<base_dir>/<slug>/<YYYY-MM-DD>.pdf` convention exactly, so
-    the file lands where the fallback pipeline picks it up."""
+    the file lands where the fallback pipeline picks it up.
+
+    Since F078 this is the *failure* path, not the normal one: `reason` carries why
+    the auto-download didn't work (most often an expired browser session), so the
+    message says what to fix instead of just what to do by hand."""
     issue_date = today or datetime.date.today()
     target_path = base_dir / magazine.slug / f"{issue_date.isoformat()}.pdf"
+    message = f"📰 Neue Ausgabe erkannt: {subject}\n\n"
+    if reason is not None:
+        message += f"⚠️ Auto-Download fehlgeschlagen: {reason}\n\n"
     return (
-        f"📰 Neue Ausgabe erkannt: {subject}\n\n"
-        f"Bitte PDF laden und ablegen unter:\n"
+        message + f"Bitte PDF laden und ablegen unter:\n"
         f"{target_path}\n\n"
         f"Übersicht der Ausgaben: {magazine.overview_url}"
     )
