@@ -218,8 +218,27 @@ konto.boersenmedien.com ausgeführt (nur lesend):
   `domcontentloaded` (die Seiten sind server-gerendert), danach lädt die Seite in
   wenigen Sekunden.
 
-**Noch offen (braucht Ralf):** Session-Erfassung auf dem Mac + Ende-zu-Ende-Lauf mit
-echter Ausgabe.
+**Ende-zu-Ende live verifiziert (22.07.2026):** Webhook → Download → Pipeline → DB,
+mit der echten Session und der echten Ausgabe:
+
+- `POST /api/ingestion/publications/notify` → `202 {"status":"download_started"}`
+- `data/ingest/publications/der_aktionaer/2026-07-22.pdf`, 29.207.483 Bytes
+- `publication_article`: **203 Artikel** für `(der_aktionaer, 2026-07-22)`
+
+**Fund 3 — Schreibrechte (dieselbe UID-Klasse wie Fund 1):** der erste Ende-zu-Ende-Lauf
+brach in `Download.save_as` ab. `data/ingest/publications/` lag auf `755`/UID 3000; der
+Container-User (UID 3001) hatte über die Gruppe nur Leserechte. Bis dahin hatte
+ausschließlich Ralf dort abgelegt — der Container schrieb zum ersten Mal in dieses
+Verzeichnis. Korrigiert auf `775` (Gruppe `familie`), danach lief der Lauf durch. Der
+Fehlschlag hat dabei den **Fallback-Pfad mitverifiziert**: Telegram-Aufforderung mit
+Angabe der Ursache, kein stiller Ausfall.
+
+**Fund 4 — der `api`-Service konfigurierte kein Logging.** `configure_logging()` (F029)
+wurde nur von `run_scheduler.py`/`run_telegram_bot.py` aufgerufen, nie vom
+API-Prozess. Der Root-Logger blieb damit auf WARNING: die Erfolgsmeldung des
+Background-Tasks (INFO) verschwand, nur der Traceback (ERROR) war sichtbar. Für einen
+Fire-and-Forget-Task ist genau die falsche Hälfte sichtbar — `src/api/app.py` ruft
+`configure_logging()` jetzt beim Import auf, wie die beiden anderen Services.
 
 ## 6. Rollback
 

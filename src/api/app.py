@@ -9,6 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.api.routes import router
 from src.api.routes_ingestion import router as ingestion_router
+from src.logging_config import configure_logging
+
+# Same JSON logging the scheduler and telegram-bot services set up (F029). The api
+# service was the one process that never did, so anything it logged below ERROR was
+# dropped by the default root level — F078's background download reported nothing on
+# success, only on failure. A fire-and-forget task needs to leave a trace either way.
+configure_logging()
 
 app = FastAPI(title="ATLAS API")
 
