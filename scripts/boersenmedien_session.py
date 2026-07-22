@@ -38,13 +38,15 @@ def main() -> int:
         try:
             context = browser.new_context()
             page = context.new_page()
-            page.goto(_SUBSCRIPTIONS_URL, wait_until="networkidle", timeout=60_000)
+            # domcontentloaded, see PlaywrightBoersenmedienPortal._goto — networkidle
+            # never settles on this portal.
+            page.goto(_SUBSCRIPTIONS_URL, wait_until="domcontentloaded", timeout=60_000)
 
             print("Bitte im Browser anmelden (inkl. 'Angemeldet bleiben?'), bis")
             print(f"{_SUBSCRIPTIONS_URL} die Abo-Liste zeigt. Danach hier ENTER druecken.")
             input()
 
-            page.goto(_SUBSCRIPTIONS_URL, wait_until="networkidle", timeout=60_000)
+            page.goto(_SUBSCRIPTIONS_URL, wait_until="domcontentloaded", timeout=60_000)
             if "login.boersenmedien" in page.url or page.query_selector("#SignInPassword"):
                 print(f"Noch nicht angemeldet (Seite: {page.url}) — nichts gespeichert.")
                 return 1

@@ -59,7 +59,11 @@ Box und wird in den `api`-Container gemountet.
   Turnstile-Widget. Es benutzt ausschließlich eine Session, die ein Mensch erzeugt hat.
 - **Kein Secret im Repo/`.env`:** die Session-Datei liegt nur auf der Box unter
   `data/ingest/boersenmedien/` (nicht im Git, wie `data/ledger/` und
-  `data/ingest/publications/`). Sie ist ein Credential — Dateirechte `600`.
+  `data/ingest/publications/`). Sie ist ein Credential, aber `600` funktioniert auf
+  der Box **nicht**: Host-`ralf` ist UID 3000, der Container-User UID 3001, gemeinsam
+  nur über die Gruppe `familie` (GID 3000). Deshalb Verzeichnis `750`, Datei `640` —
+  Gruppenlesen ist die minimale Rechtevergabe, die den Container lesen lässt (live
+  verifiziert, §5).
 - **Ablauf der Session** ist der erwartete Normalfall, kein Ausnahmefehler: der Job
   erkennt ihn (Redirect auf `login.boersenmedien.de` bzw. sichtbares
   `#SignInPassword`) und fällt auf **exakt die heutige F013-Telegram-Aufforderung**
@@ -173,7 +177,26 @@ konto.boersenmedien.com ausgeführt (nur lesend):
   nicht aus der ersten Zeile des Kartentexts — sonst hieße die Ausgabe in der
   Telegram-Meldung „★GRATIS★".
 
-**Noch offen (braucht Ralf):** Session-Erfassung + Ende-zu-Ende-Lauf auf der Box.
+**Auf der Box verifiziert (22.07.2026, `atlas-api-1` nach Rebuild):**
+
+- `BOERSENMEDIEN_SESSION_STATE` gesetzt, Mount `/data/ingest/boersenmedien` sichtbar,
+  Modul importierbar.
+- **Rechte-Fund:** das Verzeichnis lag zunächst auf `700`/UID 3000 — der
+  Container-User ist UID 3001 und kam nicht heran. Korrigiert auf `750` (Gruppe
+  `familie`), danach lesbar. Die Session-Datei braucht entsprechend `640`.
+- Chromium startet im api-Container und erreicht das Portal (kein Cloudflare-Block
+  auf die Box-IP).
+- **Session-Ablauf-Pfad live bestätigt:** ohne Session-Datei landet die Navigation auf
+  `login.boersenmedien.de` mit sichtbarem `#SignInPassword` — exakt die Bedingung, auf
+  die `_goto` `BoersenmedienSessionExpired` wirft und die den Telegram-Fallback
+  auslöst.
+- **`networkidle`-Fund:** die erste Navigation lief in den 60-s-Timeout — das Portal
+  hält Analytics-Verbindungen offen, `networkidle` wird nie erreicht. Umgestellt auf
+  `domcontentloaded` (die Seiten sind server-gerendert), danach lädt die Seite in
+  wenigen Sekunden.
+
+**Noch offen (braucht Ralf):** Session-Erfassung auf dem Mac + Ende-zu-Ende-Lauf mit
+echter Ausgabe.
 
 ## 6. Rollback
 

@@ -229,7 +229,11 @@ class PlaywrightBoersenmedienPortal:
         download_info.value.save_as(target)
 
     def _goto(self, url: str) -> None:
-        self._page.goto(url, wait_until="networkidle", timeout=60_000)
+        # `domcontentloaded`, not `networkidle`: the portal keeps analytics
+        # connections open, so networkidle never settles and every navigation ran
+        # into the timeout (measured from the box, F078 §5). The pages are
+        # server-rendered ASP.NET views — the markup is complete at DOMContentLoaded.
+        self._page.goto(url, wait_until="domcontentloaded", timeout=60_000)
         if "login.boersenmedien" in self._page.url or self._page.query_selector(
             _PASSWORD_FIELD_SELECTOR
         ):
