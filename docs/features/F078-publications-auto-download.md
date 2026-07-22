@@ -50,10 +50,33 @@ Browser-Session inspiziert (nur lesend, keine Downloads, keine Änderungen):
 
 ### 2.2 Auth-Weg: gespeicherter Session-State statt Passwort
 
-Ralf führt **einmalig** `scripts/boersenmedien_session.py` auf seinem Mac aus, meldet
-sich im geöffneten Browser selbst an (inkl. „Angemeldet bleiben") und das Skript
-sichert den Playwright-`storage_state` (Cookies) als JSON. Die Datei kommt auf die
-Box und wird in den `api`-Container gemountet.
+Ralf meldet sich **einmalig in seinem eigenen Chrome** an (inkl. „Angemeldet
+bleiben"), danach exportiert `scripts/boersenmedien_session.py` die Cookies als
+Playwright-`storage_state`. Die Datei kommt auf die Box und wird in den
+`api`-Container gemountet.
+
+**Korrektur nach dem ersten Praxisversuch (22.07.2026):** die erste Fassung ließ das
+Skript selbst einen Browser öffnen, in dem Ralf sich anmelden sollte — Cloudflare hat
+dieses Fenster blockiert. Ein von Playwright gestarteter Chromium ist an seiner
+Automations-Oberfläche erkennbar, auch headed und auch wenn ein Mensch tippt. Im
+normalen Chrome funktioniert die Anmeldung dagegen problemlos. Der Ablauf ist deshalb
+umgedreht: Ralf startet ein **gewöhnliches Chrome-Fenster** mit eigenem Profil und
+Remote-Debugging-Port, meldet sich dort an (dabei hängt *nichts* am Browser, es gibt
+also nichts zu erkennen), und das Skript verbindet sich **danach** per CDP und liest
+nur die Cookies aus. Das ist keine Umgehung des Bot-Schutzes: die Anmeldung macht
+weiterhin ein Mensch in einem echten Browser, Turnstile bewertet ihn korrekt.
+
+Zwei Schutzmaßnahmen im Export:
+
+- **Nur `boersenmedien`-Cookies** werden geschrieben. Das Profil kann Cookies
+  beliebiger anderer Seiten enthalten, und die haben in einer Datei, die auf einen
+  Server kopiert wird, nichts zu suchen. Eigenes Profil (`~/.atlas-boersenmedien-chrome`)
+  statt des Hauptprofils hält die Menge ohnehin klein.
+- **Selbstprüfung:** das Skript verwirft nichts stillschweigend — es bricht ab, wenn
+  nur Session-Cookies da sind („Angemeldet bleiben" vergessen), und testet die
+  exportierte Datei anschließend in einem **headless** Browser gegen die Abo-Seite.
+  Ein Fehlschlag zeigt sich damit sofort und nicht erst als Telegram-Alarm, wenn die
+  nächste Ausgabe erscheint.
 
 - **Kein Umgehen von Bot-Schutz:** ATLAS füllt kein Login-Formular aus und löst kein
   Turnstile-Widget. Es benutzt ausschließlich eine Session, die ein Mensch erzeugt hat.
