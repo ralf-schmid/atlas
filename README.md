@@ -55,7 +55,7 @@ Die verbindliche Architektur ist in zwei Dokumenten definiert:
 
 ### Phase 2: Fundament ✅ abgeschlossen
 - [x] Docker-Compose-Stack auf der UGREEN live deployt; API, Web, Postgres und LiteLLM laufen healthy
-- [x] GitHub Actions CI mit ruff, mypy und pytest ist grün; Branch Protection ist auf dem privaten Free-Repo strukturell nicht verfügbar
+- [x] GitHub Actions CI mit ruff, mypy und pytest ist grün; Branch Protection für `main` seit 2026-07-24 über ein Repository Ruleset aktiv (Pflicht-Checks `lint, test, web, gitleaks`, gilt auch für Admin) — siehe ADR-0007
 - [x] Alembic-Schema für die Kerntabellen aus ARCHITECTURE.md §3.6 steht und ist upgrade/downgrade-getestet
 - [x] Broker-Adapter: Alpaca-Paper-Order inklusive GTC-Stop getestet; interner Ledger als Fallback vorhanden
 - [x] LiteLLM-Proxy mit Anthropic + Groq verifiziert; Orchestrator-Kostenbremse getestet
