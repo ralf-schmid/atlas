@@ -28,6 +28,7 @@ from langgraph.types import Command
 from sqlalchemy import select
 
 from src.broker.protocol import AccountBalance, OrderResult, OrderSide
+from src.broker.registry import get_adapter_type
 from src.db.base import get_session_factory
 from src.db.models import (
     AgentRun,
@@ -55,12 +56,12 @@ class _FakeBrokerAdapter:
     `buy` interrupt to "approved" in a test would place a real Alpaca Paper order
     via the real `get_adapter()` registry."""
 
-    # F079: the sizing layer reads this before persisting a buy. False (fractional
-    # allowed) on purpose: this test covers the HITL interrupt/resume flow, and its
-    # conviction-0.3 buys size to ~$45/$120 → sub-1-share on AAPL @ $181. Whole-share
-    # flooring would turn both into reject_idea and raise no interrupt at all, which
-    # is F079's own concern, not what this test exercises.
-    requires_whole_shares = False
+    def __init__(self, *, requires_whole_shares: bool) -> None:
+        # F079: the sizing layer reads this before persisting a buy. Set per persona
+        # by _fake_adapter_factory from the same config/broker.yaml the real registry
+        # uses, so the fake routes whole-share (alpaca_paper) vs fractional
+        # (internal_ledger) exactly like production.
+        self.requires_whole_shares = requires_whole_shares
 
     def place_order(self, **kwargs: object) -> OrderResult:
         return OrderResult(
@@ -83,7 +84,13 @@ class _FakeBrokerAdapter:
 
 
 def _fake_adapter_factory(persona_name: str) -> _FakeBrokerAdapter:
-    return _FakeBrokerAdapter()
+    # Persona-faithful: derive the whole-share flag from the same config/broker.yaml
+    # the real registry reads (get_adapter_type needs no env keys), so VULTURE/
+    # GUARDIAN/CHARTIST (alpaca_paper) size to whole shares and HYPE/CONTRA/CRYPTOR
+    # (internal_ledger) stay fractional — no hardcoded persona→broker map here.
+    return _FakeBrokerAdapter(
+        requires_whole_shares=get_adapter_type(persona_name) == "alpaca_paper"
+    )
 
 
 def _hold_response_client() -> LiteLLMClient:
@@ -214,7 +221,12 @@ def _mixed_hold_and_buy_client() -> LiteLLMClient:
                 {
                     "action": "buy",
                     "instrument": "AAPL",
-                    "conviction": 0.3,
+                    # F079: VULTURE is a whole-share (alpaca_paper) persona capped at
+                    # 3% of $5k = $150. At the ~$50 seeded price below, conviction 0.9
+                    # → $135 → 2 whole shares, so its buy survives whole-share flooring
+                    # and still reaches HITL. A smaller size would floor to 0 shares
+                    # and be rejected before ever raising an interrupt.
+                    "conviction": 0.9,
                     "thesis_text": "integration test — buy path",
                     "input_research_ids": cited_ids,
                 }
@@ -274,11 +286,13 @@ def test_multiple_simultaneous_hitl_interrupts_resume_independently(
                 MarketBar(
                     symbol="AAPL",
                     timeframe=MarketBarTimeframe.DAY,
+                    # ~$50, not a real AAPL quote: keeps VULTURE's 3%-capped, whole-
+                    # share buy at >= 1 share (see the buy client's conviction note).
                     ts=base + datetime.timedelta(days=i),
-                    open=180,
-                    high=182,
-                    low=178,
-                    close=181,
+                    open=50,
+                    high=51,
+                    low=49,
+                    close=50,
                     volume=1000000,
                 )
             )
