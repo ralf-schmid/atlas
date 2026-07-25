@@ -53,6 +53,12 @@ def test_adapter_always_uses_paper_endpoint():
         mock_cls.assert_called_once_with("key", "secret", paper=True)
 
 
+def test_requires_whole_shares_is_true(adapter):
+    """F079 test 6: Alpaca forbids fractional bracket orders, so the sizing layer
+    must whole-share-restrict this adapter's personas."""
+    assert adapter.requires_whole_shares is True
+
+
 def test_place_order_requires_decision_id(adapter):
     with pytest.raises(TypeError):
         adapter.place_order(  # type: ignore[call-arg]

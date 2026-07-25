@@ -100,6 +100,11 @@ def _is_duplicate_client_order_id(exc: APIError) -> bool:
 class AlpacaPaperAdapter:
     """BrokerAdapter for a single native Alpaca paper account."""
 
+    # F079: Alpaca forbids fractional qty on the bracket/OTO orders this system
+    # needs for its mandatory stop leg (F052), so every buy is rounded to whole
+    # shares — the sizing layer must reject anything that rounds to 0 up front.
+    requires_whole_shares = True
+
     def __init__(self, api_key: str, secret_key: str) -> None:
         self._client = TradingClient(api_key, secret_key, paper=True)
 

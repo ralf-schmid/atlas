@@ -30,6 +30,12 @@ def adapter(market_data, store):
     )
 
 
+def test_requires_whole_shares_is_false(adapter):
+    """F079 test 6: the internal ledger fills fractional qty (crypto needs it), so
+    its personas must NOT be whole-share-restricted by the sizing layer."""
+    assert adapter.requires_whole_shares is False
+
+
 def test_place_order_requires_decision_id(adapter):
     with pytest.raises(TypeError):
         adapter.place_order(  # type: ignore[call-arg]

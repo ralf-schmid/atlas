@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import math
 import uuid
 from dataclasses import asdict
 from decimal import Decimal
@@ -518,6 +519,28 @@ def _resolve_buy_decision(
         )
 
     quantity = position_value_usd / entry_price if entry_price > 0 else 0.0
+
+    # F079: whole-share brokers (Alpaca) can't fill a fractional bracket order, so
+    # round the size down to whole shares here — before the Risk-Gate and before
+    # persisting anything. `floor`, not `round`: rounding up would place a position
+    # larger than the gate-approved value. If nothing whole remains, the idea is too
+    # small to trade — persist it as reject_idea instead of an unexecutable APPROVED
+    # leaf that `retry_stuck_decisions` would hammer forever (see F080).
+    if broker_adapter.requires_whole_shares:
+        quantity = float(math.floor(quantity))
+        if quantity < 1:
+            return _persist_decision(
+                session,
+                cycle_id=cycle_id,
+                portfolio_id=portfolio_id,
+                instrument=parsed.instrument,
+                action=DecisionAction.REJECT_IDEA,
+                thesis_text=parsed.thesis_text,
+                rejection_reason="position_too_small_for_whole_share",
+                input_research_ids=cited_ids,
+            )
+        # The gate and malus must see the same size that will actually trade.
+        position_value_usd = quantity * entry_price
 
     risk_check = evaluate_decision(
         action=TradeAction.BUY,

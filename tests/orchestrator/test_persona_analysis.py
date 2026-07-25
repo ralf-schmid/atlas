@@ -49,7 +49,16 @@ from src.orchestrator.seed import seed_personas_and_portfolios
 
 
 class _FakeAdapter:
-    def __init__(self, balance: AccountBalance, positions: list[Position] | None = None) -> None:
+    def __init__(
+        self,
+        balance: AccountBalance,
+        positions: list[Position] | None = None,
+        *,
+        requires_whole_shares: bool = True,
+    ) -> None:
+        # F079: default True — these tests model VULTURE, a native Alpaca (whole-share)
+        # persona. F079-specific tests pass False to exercise the fractional path.
+        self.requires_whole_shares = requires_whole_shares
         self._balance = balance
         self._positions = positions or []
         self.placed_orders: list[dict[str, object]] = []
@@ -430,7 +439,8 @@ def test_llm_payload_carries_raw_field_per_research_item(session: Session) -> No
     assert research_payload[str(item.id)]["raw"]["text_excerpt"] == "Voller Artikel-Anriss…"
 
 
-def _seed_market_bars(session: Session, symbol: str) -> None:
+def _seed_market_bars(session: Session, symbol: str, close: str = "4.00") -> None:
+    price = Decimal(close)
     base = datetime.datetime(2026, 6, 1)
     for i in range(5):
         session.add(
@@ -438,10 +448,10 @@ def _seed_market_bars(session: Session, symbol: str) -> None:
                 symbol=symbol,
                 timeframe=MarketBarTimeframe.DAY,
                 ts=base + datetime.timedelta(days=i),
-                open=Decimal("4.00"),
-                high=Decimal("4.20"),
-                low=Decimal("3.90"),
-                close=Decimal("4.00"),
+                open=price,
+                high=price * Decimal("1.05"),
+                low=price * Decimal("0.95"),
+                close=price,
                 volume=Decimal("1000000"),
             )
         )
@@ -742,8 +752,9 @@ def test_buy_sizing_tops_up_existing_position_instead_of_stacking_full_size(
         }
     )
     # VULTURE max_position_pct=0.03, equity=5000 -> target = 0.5*0.03*5000 = 75.0.
-    # Already holding 30.0 worth -> only 45.0 (= 11.25 shares @ 4.00 close) should
-    # be bought, not a fresh 75.0.
+    # Already holding 30.0 worth -> only 45.0 (= 11.25 shares @ 4.00 close) is the
+    # gap, not a fresh 75.0. F079: VULTURE is a whole-share broker, so 11.25 floors
+    # to 11 shares = 44.0 actually bought (total position then 30.0 + 44.0 = 74.0).
     existing_position = Position(
         symbol="AAPL",
         qty=7.5,
@@ -771,16 +782,16 @@ def test_buy_sizing_tops_up_existing_position_instead_of_stacking_full_size(
     assert decision.action == DecisionAction.BUY
     assert decision.status == DecisionStatus.EXECUTED
     assert decision.quantity is not None
-    assert float(decision.quantity) == pytest.approx(11.25)
+    assert float(decision.quantity) == pytest.approx(11.0)  # F079: floor(11.25)
     assert decision.expected_outcome["existing_position_value_usd"] == pytest.approx(30.0)
     assert decision.expected_outcome["target_position_value_usd"] == pytest.approx(75.0)
     assert decision.risk_check is not None
     assert decision.risk_check["rules_evaluated"]["max_position_pct"][
         "total_position_value_usd"
-    ] == pytest.approx(75.0)
+    ] == pytest.approx(74.0)  # F079: 30.0 existing + 11 whole shares @ 4.00 = 74.0
     order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
     assert order_record is not None
-    assert order_record.raw["qty"] == pytest.approx(11.25)
+    assert order_record.raw["qty"] == pytest.approx(11.0)
 
 
 def test_buy_rejected_as_idea_when_already_at_target_position_size(
@@ -832,6 +843,214 @@ def test_buy_rejected_as_idea_when_already_at_target_position_size(
     assert decision.status == DecisionStatus.RECORDED
     assert decision.quantity is None
     assert not adapter.placed_orders
+
+
+def test_buy_rejected_when_whole_share_broker_size_rounds_below_one_share(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F079 test 1: a whole-share broker (Alpaca) can't fill a sub-1-share bracket
+    order. When target/entry_price rounds down to 0 shares, the sizing layer must
+    reject the idea up front (reject_idea, RECORDED) instead of persisting an
+    APPROVED decision the adapter can never fill and retry_stuck_decisions hammers
+    forever."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    # VULTURE target = 0.5*0.03*5000 = 75.0; @ 100.00 that's 0.75 shares -> floor 0.
+    _seed_market_bars(session, "AAPL", close="100.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "tiny position, rounds to zero shares",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.REJECT_IDEA
+    assert decision.rejection_reason == "position_too_small_for_whole_share"
+    assert decision.status == DecisionStatus.RECORDED
+    assert decision.quantity is None
+    assert not adapter.placed_orders
+    order_record = session.scalar(select(OrderRecord).where(OrderRecord.decision_id == decision.id))
+    assert order_record is None
+
+
+def test_buy_whole_share_broker_floors_fractional_size_to_whole_shares(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F079 test 2: a whole-share broker's approved size is floored, not rounded —
+    round() could exceed the gate-approved value. Raw 18.75 shares -> 18, not 19."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    # VULTURE target = 0.5*0.03*5000 = 75.0 @ 4.00 = 18.75 shares -> floor 18.
+    _seed_market_bars(session, "AAPL", close="4.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "fractional size floors to whole shares",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.status == DecisionStatus.EXECUTED
+    assert decision.quantity is not None
+    assert float(decision.quantity) == pytest.approx(18.0)
+    assert decision.risk_check is not None
+    assert decision.risk_check["approved"] is True
+
+
+def test_buy_whole_share_broker_keeps_exact_one_share(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F079 test 3: an exactly-1.0-share size is not rejected — the floor is < 1."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    # VULTURE target 75.0 @ 75.00 close = exactly 1.0 share.
+    _seed_market_bars(session, "AAPL", close="75.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "exactly one share",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.quantity is not None
+    assert float(decision.quantity) == pytest.approx(1.0)
+
+
+def test_buy_fractional_broker_keeps_fractional_size(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F079 tests 4/5: a fractional broker (internal ledger — HYPE/CONTRA/CRYPTOR)
+    must NOT be whole-share-restricted. A sub-1 fractional size stays APPROVED with
+    its exact fractional quantity, so crypto/fractional trading is unaffected."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_hype(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    # HYPE target = 0.5*0.08*5000 = 200.0 @ 4.00 = 50.0 shares (fractional broker
+    # keeps the exact value regardless — the point is no whole-share reject/floor).
+    _seed_market_bars(session, "AAPL", close="4.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "fractional broker keeps fractional size",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=5000, equity=5000, buying_power=5000),
+        requires_whole_shares=False,
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "HYPE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.quantity is not None
+    assert float(decision.quantity) == pytest.approx(50.0)
+
+
+def test_buy_fractional_broker_allows_sub_one_share_size(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F079 test 5: a fractional broker accepts a size well below one share — the
+    whole-share reject must never fire for it (crypto tranches are tiny)."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_hype(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    # HYPE target 200.0 @ 500000.00 close = 0.0004 shares -> stays fractional.
+    _seed_market_bars(session, "AAPL", close="500000.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "sub-one-share fractional size is fine",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(
+        AccountBalance(cash=5000, equity=5000, buying_power=5000),
+        requires_whole_shares=False,
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "HYPE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.rejection_reason != "position_too_small_for_whole_share"
+    assert decision.quantity is not None
+    assert float(decision.quantity) == pytest.approx(0.0004)
 
 
 def test_snapshot_failure_after_a_successful_order_does_not_undo_it(

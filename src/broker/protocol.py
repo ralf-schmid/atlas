@@ -64,6 +64,13 @@ class AccountBalance:
 class BrokerAdapter(Protocol):
     """Broker I/O only. No risk decisions, no persistence — see F001 §2."""
 
+    # F079: whether this broker can only fill whole-share quantities. True for
+    # Alpaca (fractional qty forbids the mandatory bracket stop, F052), False for
+    # the internal ledger (HYPE/CONTRA/CRYPTOR — fractional is fine, crypto needs
+    # it). The sizing layer reads this to reject sub-1-share buys up front instead
+    # of persisting an APPROVED decision the adapter can never fill.
+    requires_whole_shares: bool
+
     def place_order(
         self,
         *,

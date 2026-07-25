@@ -36,6 +36,10 @@ _OPPOSITE_SIDE = {OrderSide.BUY: OrderSide.SELL, OrderSide.SELL: OrderSide.BUY}
 class InternalLedgerAdapter:
     """BrokerAdapter for a single virtual persona, backed by a LedgerStore."""
 
+    # F079: the virtual ledger has no bracket-order constraint and CRYPTOR trades
+    # fractional crypto — fractional quantities are fine here, no whole-share reject.
+    requires_whole_shares = False
+
     def __init__(
         self,
         persona: str,
