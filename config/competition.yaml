@@ -1,0 +1,13 @@
+# Competition parameters — consumed by the SPY benchmark (F081) and the
+# official competition start/reset (F090). See docs/dod/phase-5.md.
+#
+# start_date decided by Ralf on 2026-07-25: Monday 2026-08-03, 8 weeks,
+# ends Friday 2026-09-25. Changing it after the first benchmark snapshot
+# requires a documented recomputation — never a silent edit (F081 §2).
+competition:
+  start_date: 2026-08-03
+  start_capital_usd: 5000
+
+benchmark:
+  enabled: true
+  symbol: SPY

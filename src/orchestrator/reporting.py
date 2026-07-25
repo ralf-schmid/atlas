@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter
 from src.db.models import PortfolioSnapshot, PositionSnapshot
+from src.orchestrator.benchmark import compute_benchmark_value
 
 
 def generate_portfolio_snapshot(
@@ -56,9 +57,20 @@ def generate_portfolio_snapshot(
         cash=Decimal(str(balance.cash)),
         pnl_realized=Decimal("0"),  # no sell/close path yet — see F021 §1, F024 §1
         pnl_unrealized=Decimal(str(pnl_unrealized)),
-        benchmark_value=None,  # SPY benchmark portfolio is P5 scope, ARCHITECTURE.md §8
+        benchmark_value=_compute_benchmark(session, now),  # F081: SPY buy-and-hold benchmark
         max_drawdown=Decimal(str(max_drawdown)),
     )
     session.add(snapshot)
     session.flush()
     return snapshot
+
+
+def _compute_benchmark(session: Session, now: datetime.datetime) -> Decimal | None:
+    """F081: wraps compute_benchmark_value (returns float|None) to Decimal|None
+    for the JSONB column.  Exceptions are swallowed — a benchmark failure must
+    not break the snapshot that already wrote real portfolio data."""
+    try:
+        value = compute_benchmark_value(session, now)
+        return Decimal(str(value)) if value is not None else None
+    except Exception:
+        return None
