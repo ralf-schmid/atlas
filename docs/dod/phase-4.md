@@ -91,6 +91,9 @@ wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
 - [ ] 5 Handelstage in Folge: alle geplanten Zyklen (4/Tag Aktien +
       CRYPTOR-Plan) gelaufen, 0 unbehandelte Exceptions; Crash-Recovery getestet
       (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer)
+      **Teilweise erledigt (25.07.2026):** 8 Handelstage Dauerlauf (15.–24.07.)
+      ohne Restart/unbehandelte Exception nachgewiesen, siehe Update unten.
+      **Offen:** nur noch der Crash-Recovery-Test.
       **Teilweise:** [F025](../features/F025-cycle-scheduling.md) —
       `config/cycles.yaml` + `build_scheduler` (APScheduler, alle 4 Aktien-Zyklen +
       CRYPTOR Werktags-/Wochenend-Zeiten) fertig und getestet (Job-Registrierung,
@@ -98,8 +101,14 @@ wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
       Scheduler löst automatisiert, unbeaufsichtigt echte Zyklen aus (Kosten, ggf.
       echte Orders); Aktivierung erfordert Ralfs ausdrückliches Go (siehe F025 §6).
       Ohne laufenden Scheduler kein 5-Tage-Dauerlauf, kein Crash-Recovery-Test.
-- [ ] Tageskosten ≤ Cap; `cost_ledger` stimmt stichprobenhaft mit
+- [x] Tageskosten ≤ Cap; `cost_ledger` stimmt stichprobenhaft mit
       LiteLLM-Abrechnung überein
+      **Erledigt (25.07.2026):** siehe Update unten — LiteLLM läuft bewusst ohne
+      eigene Datenbank und hat daher keine gespeicherte Abrechnung; der Nachweis
+      wurde deshalb (mit Ralfs Zustimmung) als unabhängige Nachrechnung
+      Tokens × offizielle Anthropic-Preisliste geführt. Übereinstimmung
+      < 0,1 % im Tages-Aggregat, 0,0000 USD Differenz je Einzel-Call; alle
+      Tages- und Persona-Caps eingehalten.
 - [ ] Telegram-Tagesdigest kommt täglich; Zahlen gegen DB-Query verifiziert
 
 ## Geplante Feature-Reihenfolge (Stand 2026-07-07, kann sich ändern)
@@ -280,9 +289,10 @@ F074 (Holding-Charts), [F075](../features/F075-order-fill-reconciliation.md)
 - **5 Handelstage in Folge ohne unbehandelte Exception:** Zähler beginnt mit
   jedem Deploy/Container-Rebuild neu; die F072–F076-Deploys am 13.–15.07 sind
   selbst Unterbrechungen. Damit läuft der Nachweis frühestens seit dem
-  F076-Deploy (15.07.2026) — noch keine 5 Tage seit dem letzten Rebuild.
-- **Kosten-Cap-Stichprobe gegen echte LiteLLM-Abrechnung:** weiterhin nicht
-  durchgeführt.
+  F076-Deploy (15.07.2026) — ~~noch keine 5 Tage seit dem letzten Rebuild~~
+  → erledigt am 25.07.2026 (8 Handelstage), siehe Update unten.
+- **Kosten-Cap-Stichprobe gegen echte LiteLLM-Abrechnung:** ~~weiterhin nicht
+  durchgeführt~~ → erledigt am 25.07.2026, siehe Update unten.
 - **HITL Approve/Reject/Timeout end-to-end im Dauerbetrieb:** für Paper seit
   F072 (13.07.2026) nicht mehr zutreffend — HITL ist für `paper` jetzt aus,
   der Nachweis von F049–F052 bleibt als historischer Beleg für den
@@ -291,9 +301,91 @@ F074 (Holding-Charts), [F075](../features/F075-order-fill-reconciliation.md)
   HITL-pflichtig) steht ein Dauerbetriebs-Nachweis naturgemäß noch aus, da
   kein Live-Betrieb existiert.
 
-**Einordnung ggü. ARCHITECTURE.md §8:** Phase 4 ist damit weiterhin formal
-nicht abgeschlossen (2 von 6 DoD-Punkten offen: Mehrtage-Dauerlauf,
-Kosten-Cap-Stichprobe). Phase 5 (§8, "Review, Journal & Wettbewerbsstart" —
+**Update (25.07.2026): Kosten-Cap-Stichprobe erledigt.** Vorgehen und Befund:
+
+- **Warum kein direkter LiteLLM-Abgleich möglich ist:** der LiteLLM-Proxy läuft
+  bewusst ohne eigene Datenbank (`config/litellm_proxy_config.yaml` — nur
+  `master_key`, keine `database_url`); die Spend-Endpoints
+  (`/global/spend/report` etc.) antworten mit 400 "Database not connected".
+  Es existiert also keine gespeicherte LiteLLM-Abrechnung, gegen die man
+  vergleichen könnte. Die Kosten fließen ausschließlich pro Request über den
+  Response-Header `x-litellm-response-cost` in den `cost_ledger` (F006 §2 —
+  bewusst keine eigene Preistabelle im Repo).
+- **Gewählter Ersatz-Maßstab (von Ralf bestätigt):** unabhängige Nachrechnung
+  der Ledger-Einträge gegen die offizielle Anthropic-Preisliste
+  (Stand 2026-06: claude-sonnet-5 Intro-Preis 2 $/MTok Input, 10 $/MTok Output
+  bis 31.08.2026; regulär 3 $/15 $).
+- **Befund Aggregat (Stichprobe 22.–24.07.2026, ausschließlich
+  claude-sonnet-5):**
+
+  | Tag | Calls | tokens_in | tokens_out | Ledger USD | Nachrechnung USD |
+  |---|---|---|---|---|---|
+  | 22.07. | 93 | 1.021.201 | 51.608 | 2,5588 | 2,5585 |
+  | 23.07. | 104 | 1.174.317 | 58.651 | 2,9344 | 2,9351 |
+  | 24.07. | 105 | 1.234.232 | 56.032 | 3,0289 | 3,0288 |
+
+  Abweichung < 0,1 % (Rundung auf 4 Nachkommastellen je Einzelbuchung).
+- **Befund Einzel-Calls:** 15 jüngste Sonnet-Zeilen einzeln nachgerechnet
+  (`tokens_in × 2 $ + tokens_out × 10 $ pro MTok`) — Differenz durchgängig
+  0,0000 USD. LiteLLM bepreist also exakt mit dem Sonnet-5-Intro-Tarif.
+- **Cap-Einhaltung im Stichproben-Zeitraum:** System-Tagessummen 2,56 / 2,93 /
+  3,03 USD (Cap 5 USD/Tag); Persona-Maximum CRYPTOR 0,67 USD am 24.07.
+  (Cap 1 USD/Tag je Persona). Alle Caps eingehalten.
+- **Bekannte, bewusst akzeptierte Unschärfe (Prompt Caching):** der Ledger
+  speichert nur `tokens_in`/`tokens_out` ohne Cache-Aufschlüsselung.
+  Cache-Reads kosten bei Anthropic real nur ~0,1× des Input-Preises,
+  Cache-Writes 1,25×/2× — LiteLLM rechnet hier offenbar alle Input-Tokens zum
+  vollen Satz. Der Ledger ist damit eine **Obergrenze** der realen Kosten,
+  d. h. konservativ im Sinne der Cap-Durchsetzung (Invariante #7): Caps
+  greifen eher zu früh als zu spät. Nach dem Auslaufen des Intro-Preises
+  (31.08.2026) steigen die realen Sätze auf 3 $/15 $ — LiteLLM liefert den
+  Preis pro Request selbst, es ist keine Repo-Änderung nötig, aber die
+  Tageskosten werden dann um ~50 % höher ausfallen (heutige ~3 USD/Tag →
+  ~4,5 USD/Tag, nahe am 5-USD-Cap — beobachten).
+
+**Update (25.07.2026): 5-Tage-Dauerlauf nachgewiesen (Crash-Recovery-Test
+bleibt offen).** Befund und Ralfs Bewertungsentscheidung:
+
+- **Ununterbrochener Betrieb:** `atlas-scheduler-1` und `atlas-telegram-bot-1`
+  laufen seit dem F076-Deploy (15.07.2026 04:34 UTC) ohne Restart
+  (Docker `RestartCount=0`, kein Rebuild). Das deckt die Handelstage
+  15.–24.07. ab — **8 Handelstage in Folge**, mehr als die geforderten 5.
+- **Alle geplanten Zyklen gelaufen:** DB-Query über `cycle`: 8 Zyklen/Tag an
+  Werktagen (4 Aktien + 4 CRYPTOR), 2/Tag am Wochenende (18./19.07., nur
+  CRYPTOR — Wochentags-Beschränkung F061 wirkt), lückenlos.
+- **Fehlerbild im Zeitraum:** 8 `cycle failed`-Logeinträge, alle **extern
+  verursacht und behandelt** (gefangen, mit Traceback geloggt, Alert-Pfad
+  F029): 6× DNS-Auflösung `paper-api.alpaca.markets` fehlgeschlagen, 1×
+  Alpaca-500, 1× LiteLLM-500. Nur 3 `agent_run`-Zeilen `FAILED`
+  (21.07.: 1, 24.07.: 2); die jeweils übrigen Personas desselben Zyklus und
+  alle Folgezyklen liefen normal. **Ralfs Entscheidung (25.07.2026):**
+  extern verursachte, sauber behandelte Ausfälle zählen nicht als
+  „unbehandelte Exception" — der Nachweis gilt.
+  *Beobachtung für den Betrieb:* 6 DNS-Fehler in 9 Tagen ist auffällig
+  (Homelab-DNS/fritz.box?) — kein DoD-Blocker, aber beobachten; ggf. später
+  Retry für transiente Broker-Fehler in `persona_analysis` (P5-Kandidat).
+- **Bereinigung feststeckender Decisions:** 6 GUARDIAN/MSFT-`APPROVED`-
+  Decisions (13.–21.07., fraktionale Stückzahlen 0,04–0,22) konnten wegen der
+  Ganzaktien-Regel (F052: Rundung auf 0 → `ValueError`) nie ausgeführt werden;
+  der `retry_stuck_decisions`-Sweep versuchte sie alle 15 Minuten erneut
+  (~530 ERROR-Logzeilen/Tag seit 15.07.). Mit Ralfs Zustimmung am 25.07.2026
+  manuell auf `RISK_REJECTED` gesetzt (das `decision_status`-Enum hat kein
+  `FAILED`; `RISK_REJECTED` + ausführliche `rejection_reason` ist der
+  passende Endzustand). **Offenes Folge-Ticket:** das Sizing erzeugte noch am
+  21.07. eine fraktionale Menge < 1 Aktie — die F052-Rundung greift erst im
+  Broker-Adapter statt schon in der Sizing-/Risk-Schicht; außerdem sollte der
+  Sweep permanente Fehler (`ValueError`) von transienten unterscheiden und
+  Erstere terminal markieren, statt endlos zu retryen (P5-Kandidat).
+- **Weiterhin offen aus diesem DoD-Punkt:** der **Crash-Recovery-Test**
+  (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer) wurde
+  bewusst nicht während des Dauerlauf-Zeitraums durchgeführt (wäre selbst
+  eine Unterbrechung). Er ist jetzt, da der 5-Tage-Nachweis steht, gefahrlos
+  nachholbar.
+
+**Einordnung ggü. ARCHITECTURE.md §8:** Phase 4 ist damit fast abgeschlossen —
+von den DoD-Punkten fehlt nur noch der Crash-Recovery-Test (Teil des
+Dauerlauf-Punkts); 5-Tage-Dauerlauf und Kosten-Cap-Stichprobe sind seit
+25.07.2026 nachgewiesen (siehe Updates oben). Phase 5 (§8, "Review, Journal & Wettbewerbsstart" —
 Review-Agent, Slippage-Malus, Leaderboard, offizieller Start des
 8-Wochen-Wettbewerbs) hat inhaltlich noch nicht begonnen; F072 trägt zwar
 `Phase: 5` im Feature-Dokument (Ralfs spontane Betriebsentscheidung, keine
