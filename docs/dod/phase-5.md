@@ -128,11 +128,17 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
 
 ## Offene Entscheidungen für Ralf (vor/während P5 — Geld-Themen, nie stillschweigend)
 
-1. **Wettbewerbs-Stichtag:** ab wann laufen die 8 Wochen? (Reset aller
-   Portfolios auf 5.000 USD — der bisherige Paper-Verlauf wird zur
-   "Vorsaison".)
-2. **Slippage-Parameter:** Spread-Schätzmethode + Penalty-Höhe (§7 Punkt 8
-   gibt nur die Struktur vor).
+1. **Wettbewerbs-Stichtag: ✅ entschieden 25.07.2026 — Montag, 03.08.2026.**
+   8 Wochen → Ende Fr 25.09.2026. Reset aller Portfolios auf 5.000 USD;
+   der bisherige Paper-Verlauf (seit 08.07.) wird zur "Vorsaison".
+   Konsequenz: Block 0 + Block 1 (F079–F083) + Alpaca-Reset-Spike + F090
+   müssen in der Woche 28.07.–01.08. fertig werden — ambitioniert, bewusst
+   so gewählt. F084 (Review-Agent) darf nach dem Start nachziehen (Reviews
+   sind rückwirkend berechenbar).
+2. **Slippage-Parameter: Spread-Methode ✅ entschieden 25.07.2026 — fixe bps
+   je Assetklasse** (Details/Begründung in
+   [F083](../features/F083-slippage-malus-berechnung.md)). Noch offen:
+   konkrete bps-Werte + Penalty-Höhe — Feinjustierung bei F083-Umsetzung.
 3. **Kosten-Cap nach Intro-Preis-Ende (31.08.) + Review-Agent-Mehrkosten:**
    Cap anheben, Modell-Mix ändern oder Review-Frequenz drosseln?
 4. **Review-Fälligkeit im Detail:** §8 sagt "jede geschlossene Position binnen
