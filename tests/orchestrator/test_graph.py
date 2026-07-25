@@ -55,6 +55,13 @@ class _FakeBrokerAdapter:
     `buy` interrupt to "approved" in a test would place a real Alpaca Paper order
     via the real `get_adapter()` registry."""
 
+    # F079: the sizing layer reads this before persisting a buy. False (fractional
+    # allowed) on purpose: this test covers the HITL interrupt/resume flow, and its
+    # conviction-0.3 buys size to ~$45/$120 → sub-1-share on AAPL @ $181. Whole-share
+    # flooring would turn both into reject_idea and raise no interrupt at all, which
+    # is F079's own concern, not what this test exercises.
+    requires_whole_shares = False
+
     def place_order(self, **kwargs: object) -> OrderResult:
         return OrderResult(
             entry_order_id="test-entry",
