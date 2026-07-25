@@ -57,7 +57,15 @@ und Leitplanken für die Implementierung.
   Agenten lesen ausschließlich aus der DB, nie direkt aus dem Internet.
 - **Repo:** GitHub, privat. CI (GitHub Actions) ab Phase 2: ruff, mypy
   (strict für `src/risk`, `src/broker`), pytest, gitleaks. Branch Protection:
-  kein Merge ohne grüne CI.
+  kein Merge ohne grüne CI. **Aktiv seit 2026-07-24** für `main` — als
+  Repository **Ruleset** (auf privaten Free-Repos verfügbar; die klassische
+  Branch Protection ist es nicht → 403 „Upgrade to Pro"), Pflicht-Checks
+  `lint, test, web, gitleaks`, strict, gilt auch für Admin, keine Review-Pflicht
+  (ADR-0007). **Claude kann dieses Setting nicht selbst setzen/ändern:** kein
+  GitHub-MCP-Tool dafür, und der Egress-Proxy blockt Roh-API-Schreibcalls auf
+  den Protection-/Ruleset-Pfad (403). Änderungen an den Pflicht-Checks (z. B.
+  neuer CI-Job) muss Ralf manuell in der UI/per `gh` nachziehen — Claude liefert
+  nur den Klickpfad/Befehl.
 
 ## Nicht verhandelbare Sicherheits-Invarianten
 

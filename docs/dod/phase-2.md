@@ -39,11 +39,16 @@ des ATLAS-Repos angepasst werden müssen.
       behoben.
       **Update (2026-07-05, Abschluss):** CI für den aktuellen Stand nach Commit
       `65cf957` wurde von Ralf manuell als vollständig grün geprüft.
-      **Branch Protection: nicht umgesetzt, kein offener Punkt.** GitHub verweigert
-      Branch Protection/Rulesets auf privaten Repos persönlicher Free-Accounts
+      **Branch Protection (Phase-2-Stand): nicht umgesetzt.** Die klassische
+      Branch-Protection-API verweigert auf privaten Repos persönlicher Free-Accounts
       strukturell (403 "Upgrade to GitHub Pro or make this repository public",
-      unabhängig von der Konfiguration). Ralf hat entschieden, das nicht zu verfolgen
-      (kein GitHub Pro, Repo bleibt privat) — daher aus der Aufgabenliste entfernt.
+      unabhängig von der Konfiguration). Ralf hatte entschieden, das nicht zu verfolgen
+      (kein GitHub Pro, Repo bleibt privat).
+      **Update (2026-07-24): nachträglich aktiviert.** Über ein **Repository Ruleset**
+      (auf privaten Free-Repos verfügbar, anders als die klassische Branch Protection)
+      hat Ralf ein Gate für `main` gesetzt — Pflicht-Checks `lint, test, web, gitleaks`,
+      strict, Bypass-Liste leer (gilt auch für Admin), keine Review-Pflicht.
+      Details und Begründung: [ADR-0007](../adr/0007-branch-protection-main-via-ruleset.md).
 - [x] Alembic erzeugt das Schema aus §3.6 vollständig; Downgrade/Rollback getestet
       **Nachweis:** [F003](../features/F003-db-schema-decision-order-record.md), alle 11
       Tabellen, upgrade/downgrade/upgrade-Zyklus mehrfach gegen echtes Postgres verifiziert.
@@ -106,9 +111,10 @@ des ATLAS-Repos angepasst werden müssen.
 ## Zusammenfassung (Stand 2026-07-05, Abschluss)
 
 Phase 2 ist abgeschlossen. 9 von 9 ATLAS-Punkten sind inhaltlich erledigt und live
-verifiziert. Branch Protection ist kein
-offener Punkt mehr — strukturell auf diesem Plan nicht möglich, Ralf verfolgt es
-nicht weiter. Der ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`,
+verifiziert. Branch Protection war zum Phase-2-Abschluss auf dem privaten Free-Repo
+strukturell nicht möglich; am 2026-07-24 wurde sie nachträglich über ein Repository
+Ruleset aktiviert ([ADR-0007](../adr/0007-branch-protection-main-via-ruleset.md)).
+Der ATLAS-Stack läuft live auf der UGREEN (`/mnt/apps/docker/atlas/`,
 Details [docs/deployment.md](../deployment.md)), inkl. Grafana-Postgres-Datasource
 und Dashboard "ATLAS — Overview" (18 Panels,
 [config/grafana/atlas-overview-dashboard.json](../../config/grafana/atlas-overview-dashboard.json)).
