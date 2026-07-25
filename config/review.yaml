@@ -1,0 +1,38 @@
+# Slippage malus parameters — see docs/features/F083-slippage-malus-berechnung.md.
+# Defaults proposed at F083 implementation (2026-07-25, Ralf-approved approach).
+# Fine-tuned before 2026-08-03 competition start — each change documented.
+slippage:
+  enabled: true
+
+  # Spread in basis points (1 bps = 0.01 % = 0.0001).
+  # Asset-class defaults — equities liquid, crypto wider.
+  spread_bps:
+    equities: 5
+    crypto: 15
+
+  # Suffix-based heuristic to distinguish crypto from equity symbols.
+  crypto_symbols:
+    - BTC
+    - ETH
+    - USDT
+    - USDC
+    - XRP
+    - DOGE
+    - SOL
+    - ADA
+    - DOT
+    - MATIC
+
+  # Volume-based penalty: additional cost when an order exceeds
+  # a fraction of the daily trading volume (simulates market impact).
+  penalty:
+    # Fraction (as %) of daily volume that triggers the penalty.
+    # "> 1 %" threshold from ARCHITECTURE.md §7.8.
+    volume_threshold_pct: 1.0
+
+    # Additional basis points per unit of threshold overshoot.
+    # penalty_bps = bps_per_x × (order_vol_pct / threshold_pct − 1)
+    bps_per_x: 10
+
+    # Absolute cap for the penalty in bps (prevents extreme outliers).
+    cap_bps: 50
