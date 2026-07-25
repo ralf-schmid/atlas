@@ -424,6 +424,50 @@ def retry_stuck_decisions(
                 )
                 session.commit()
                 executed += 1
+            except ValueError as exc:
+                # F080: a ValueError from execute_decision means the decision is
+                # structurally unexecutable (broken expected_outcome, qty=None, or —
+                # pre-F079 Alt-Decisions — qty rounds to 0 whole shares). Retry would
+                # fail identically every sweep. Mark terminal and alert once.
+                session.rollback()
+                try:
+                    decision = session.get_one(Decision, decision.id)
+                    decision.status = DecisionStatus.EXECUTION_FAILED
+                    decision.rejection_reason = f"execution_failed_permanent: {exc}"
+                    session.commit()
+                except Exception:
+                    session.rollback()
+                    logger.error(
+                        "failed to mark stuck decision as EXECUTION_FAILED",
+                        exc_info=True,
+                        extra={"decision_id": str(decision.id)},
+                    )
+                    continue
+
+                logger.error(
+                    "stuck decision permanently failed — marked EXECUTION_FAILED",
+                    extra={"decision_id": str(decision.id), "reason": str(exc)},
+                )
+                try:
+                    from src.telegram.alerts import (
+                        format_execution_failed_message,
+                        send_alert,
+                    )
+
+                    text = format_execution_failed_message(
+                        persona_name, decision.instrument, str(exc)
+                    )
+                    asyncio.run(send_alert(load_telegram_config(), text))
+                except Exception:
+                    logger.error(
+                        "failed to send execution-failed telegram alert",
+                        exc_info=True,
+                        extra={"decision_id": str(decision.id)},
+                    )
+                continue
+
+            # F080: transient (non-ValueError) failure — leave decision APPROVED
+            # so the next sweep retries it.
             except Exception:
                 session.rollback()
                 logger.error(

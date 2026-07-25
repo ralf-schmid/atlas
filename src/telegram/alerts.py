@@ -29,6 +29,12 @@ def format_trade_executed_message(
     return text
 
 
+def format_execution_failed_message(persona_name: str, instrument: str, reason: str) -> str:
+    """F080: a one-time alert when retry_stuck_decisions gives up on a permanently
+    unexecutable APPROVED decision (ValueError from execute_decision)."""
+    return f"❌ {persona_name} / {instrument}: Execution failed permanently\n{reason}"
+
+
 async def send_hitl_approval_request(config: TelegramConfig, request: HitlRequest) -> None:
     bot = Bot(token=config.bot_token)
     await bot.send_message(

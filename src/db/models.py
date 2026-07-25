@@ -50,6 +50,12 @@ class DecisionStatus(enum.Enum):
     APPROVED = "approved"
     EXECUTED = "executed"
     RECORDED = "recorded"  # terminal status for hold / reject_idea — no order follows
+    # F080: terminal status for an APPROVED decision that is permanently
+    # unexecutable at the broker (execute_decision raised ValueError — broken
+    # decision data, e.g. qty rounds to 0 whole shares). Distinct from RECORDED
+    # (a never-placed idea) and risk_rejected (a gate refusal): here an order was
+    # attempted and can never succeed, so retry_stuck_decisions stops retrying it.
+    EXECUTION_FAILED = "execution_failed"
 
 
 class OrderRecordStatus(enum.Enum):
