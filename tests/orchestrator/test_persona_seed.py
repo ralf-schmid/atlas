@@ -11,10 +11,12 @@ from src.db.models import Persona, Portfolio, PortfolioMode
 from src.orchestrator.seed import seed_personas_and_portfolios
 
 _EXPECTED_NAMES = {"VULTURE", "HYPE", "GUARDIAN", "CHARTIST", "CONTRA", "CRYPTOR"}
+# F090 (26.07.2026): fresh competition accounts — kept in sync with
+# seed._NATIVE_ACCOUNT_IDS on purpose (regression guard against an accidental id change).
 _NATIVE_ACCOUNT_IDS = {
-    "VULTURE": "PA32N1PG3J5G",
-    "GUARDIAN": "PA3NCUB9NOCJ",
-    "CHARTIST": "PA3SLPCA9U5V",
+    "VULTURE": "PA3WGSNL34B4",
+    "GUARDIAN": "PA3B5LJR7MBI",
+    "CHARTIST": "PA3UZXQ9XP0B",
 }
 
 

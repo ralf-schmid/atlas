@@ -23,10 +23,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 _PERSONAS_DIR = _REPO_ROOT / "config" / "personas"
 _BROKER_CONFIG_PATH = _REPO_ROOT / "config" / "broker.yaml"
 
+# F090 (26.07.2026): recreated at 5000 USD for the competition start — Alpaca has
+# no in-place reset (ADR-0009), so these are fresh accounts with new ids and new
+# API keys (keys in the box .env). Pre-season ids were PA32N1PG3J5G / PA3NCUB9NOCJ
+# / PA3SLPCA9U5V.
 _NATIVE_ACCOUNT_IDS: dict[str, str] = {
-    "VULTURE": "PA32N1PG3J5G",
-    "GUARDIAN": "PA3NCUB9NOCJ",
-    "CHARTIST": "PA3SLPCA9U5V",
+    "VULTURE": "PA3WGSNL34B4",
+    "GUARDIAN": "PA3B5LJR7MBI",
+    "CHARTIST": "PA3UZXQ9XP0B",
 }
 _INTERNAL_LEDGER_MARKER = "internal_ledger"
 _START_VALUE_USD = 5000
