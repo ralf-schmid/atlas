@@ -147,6 +147,10 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
 4. **Review-Fälligkeit im Detail:** §8 sagt "jede geschlossene Position binnen
    7 Tagen" — was gilt für am Wettbewerbsende noch offene Positionen und für
    `hold`-Ketten ohne Position?
-5. **Alpaca-Paper-Reset-Verfahren:** lässt Alpaca einen Konto-Reset auf
-   exakt 5.000 USD zu (Dashboard-Funktion), oder brauchen wir neue
-   Paper-Accounts? (Kurzer Spike zu Beginn von Block 4, Ergebnis als ADR.)
+5. **Alpaca-Paper-Reset-Verfahren:** ✅ Spike erledigt 26.07.2026
+   ([ADR-0009](../adr/0009-alpaca-paper-reset-via-new-accounts.md)). Befund:
+   Alpaca hat den In-Place-Reset abgeschafft — für exakt 5.000 USD müssen **neue**
+   Paper-Accounts angelegt werden (Startbetrag frei wählbar, aber **neue API-Keys**;
+   max. 3 Accounts/Login → alte vorher löschen; kein Trading-API-Reset-Endpoint).
+   Manuelle Ralf-Aufgabe (Accounts + Keys), die 3 virtuellen Personas werden per
+   Code (Ledger-Reset auf 5.000) zurückgesetzt. Offene F090-Detailpunkte im ADR.
