@@ -1,6 +1,8 @@
 # Alpaca-Paper-Reset für den Wettbewerbsstart: neue Accounts statt In-Place-Reset
 
-* Status: accepted
+* Status: accepted — **umgesetzt 26.07.2026** (F090: 3 neue Accounts à 5.000,
+  neue Keys/IDs, Reset gefahren, alle 6 Personas 5.000 flat verifiziert; Stichtag
+  auf Mo 27.07.2026 vorgezogen)
 * Deciders: Ralf Schmid
 * Datum: 2026-07-26
 * Betrifft Invariante(n): #5 (Paper/Live-Trennung), #10 (Fairness des Experiments)

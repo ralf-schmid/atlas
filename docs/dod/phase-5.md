@@ -14,9 +14,11 @@ nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
       Quelle→Research→Decision→Order→Fill→Review lückenlos in der UI
       nachvollzogen (Screenshots im DoD-Dokument)
 - [ ] Selektionskriterien (§4.7) als automatischer Wochenreport implementiert
-- [ ] **Wettbewerb offiziell gestartet:** Stichtag dokumentiert, alle 6
-      Portfolios auf 5.000 USD, SPY-Benchmark-Portfolio (virtuell,
-      Buy-and-Hold) läuft mit
+- [x] **Wettbewerb offiziell gestartet (26.07.2026, [F090](../features/F090-competition-reset-and-start.md)):**
+      Stichtag Mo 27.07.2026 (`config/competition.yaml`), alle 6 Portfolios auf
+      5.000 USD flat / 0 Positionen (verifiziert), Vorsaison via `archived_at`
+      archiviert. SPY-Benchmark (F081) aktiviert sich am Stichtag selbst
+      (berechneter Wert in `portfolio_snapshot.benchmark_value`).
 
 ## Ist-Stand bei Planungserstellung (25.07.2026)
 

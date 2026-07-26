@@ -1,9 +1,15 @@
 # F090 — Wettbewerbs-Reset & offizieller Start
 
-**Status:** Umsetzung erledigt (Code + Tests, 26.07.2026); **Livesetzung
-ausstehend** (Ralfs Dashboard-Schritt + neue `.env`-Keys + `_NATIVE_ACCOUNT_IDS`,
-dann `scripts/reset_competition.py` auf der Box). Migration `8a25be33a9fe`
-(`portfolio.archived_at`) noch nicht auf die Box deployt.
+**Status:** ✅ **Livegesetzt 26.07.2026.** Ralf hat die 3 nativen Alpaca-Accounts
+neu à 5.000 angelegt (neue Keys in Box-`.env`), `_NATIVE_ACCOUNT_IDS` + Migration
+`8a25be33a9fe` deployt, `scripts/reset_competition.py` auf der Box gefahren
+(archived=6, created=6, Ledger-Reset CRYPTOR/HYPE/CONTRA). Verifiziert: alle 6
+Personas 5.000 flat / 0 Positionen (native via neue Broker-Accounts, virtuell via
+Ledger). **Stichtag auf Mo 27.07.2026 vorgezogen** (statt 03.08. — die Accounts
+standen schon jetzt bei 5.000, siehe `config/competition.yaml`). Vorsaison (6
+Portfolios) archiviert via `archived_at`. Zwei Nebenwirkungen mitbehoben:
+`load_competition_config`-Bug bei YAML-Datumsobjekten (Commit `4fe0ad7`) und der
+CI-Alpaca-Integrationstest für die Wettbewerbsdauer geskippt (Fairness, `90f6ce1`).
 **Phase:** 5, Block 4 (Abschluss der Phase — letzter P5-DoD-Punkt "Wettbewerb
 offiziell gestartet")
 **Abhängigkeiten:** [ADR-0009](../adr/0009-alpaca-paper-reset-via-new-accounts.md)
