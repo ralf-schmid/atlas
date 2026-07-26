@@ -65,14 +65,15 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
    mitten im Zyklus → Resume via Postgres-Checkpointer nachweisen. Kein
    Feature, ein dokumentierter Test in `phase-4.md`. Jetzt gefahrlos möglich,
    da der 5-Tage-Nachweis steht.
-2. **F079 — Sizing erzeugt keine Sub-1-Aktien-Orders mehr:** die
+2. ✅ **F079 — Sizing erzeugt keine Sub-1-Aktien-Orders mehr** (25.07.2026,
+   `9cf0509`): die
    Ganzaktien-Rundung (F052) sitzt erst im Broker-Adapter; die Sizing-Schicht
    (`decision_sizing.py`/`persona_analysis`) produzierte noch am 21.07. eine
    0,04-Aktien-Decision, die nie ausführbar war (Befund `phase-4.md`,
    25.07.2026). Rundung/Mindestgrößen-Check nach vorn in die Sizing-Schicht;
    zu kleiner Rest → `reject_idea` statt APPROVED-Leiche.
-3. **F080 — Stuck-Decision-Sweep unterscheidet permanent/transient:**
-   `retry_stuck_decisions` retryte 6 nie ausführbare Decisions 10 Tage lang
+3. ✅ **F080 — Stuck-Decision-Sweep unterscheidet permanent/transient**
+   (25.07.2026, `b98db47`): `retry_stuck_decisions` retryte 6 nie ausführbare Decisions 10 Tage lang
    alle 15 Minuten (~530 ERROR-Logs/Tag). Permanente Fehler (`ValueError`
    aus dem Adapter) → Decision terminal markieren + einmaliger
    Telegram-Alert; transiente (Netzwerk/5xx) → weiter retryen.

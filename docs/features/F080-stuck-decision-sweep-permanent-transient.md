@@ -1,6 +1,14 @@
 # F080 — Stuck-Decision-Sweep unterscheidet permanent vs. transient
 
-**Status:** Entwurf (Feature-Schnitt 25.07.2026, Phase 5 Block 0)
+**Status:** ✅ **Umgesetzt 25.07.2026** (Commit `b98db47`). Neuer terminaler
+`DecisionStatus.EXECUTION_FAILED` + non-transaktionale Alembic-Migration
+`92ad7d28c742` (auf lokaler Test-DB bis head durchgelaufen). `retry_stuck_decisions`
+fängt `ValueError` vor dem generischen `except` ab → Decision terminal +
+`execution_failed_permanent: …`, genau ein Telegram-Alert
+(`format_execution_failed_message`); alles andere bleibt transient/APPROVED.
+Nebenbei behoben: UnboundLocalError durch redundanten funktion-lokalen
+Telegram-Config-Import (unterdrückte den F072-Success-Alert). Tests §5 (1–6) grün.
+Rollback: `ValueError`-Branch entfernen genügt (Enum-Wert schadet ungenutzt nicht).
 **Phase:** 5, Block 0 (P4-Abschluss + Aufräumer, vor dem P5-Start)
 **Abhängigkeiten:** keine harten. Muss vor dem Wettbewerbsstart (2026-08-03)
 erledigt sein. Verwandt mit [F079] (Sizing-Reject) — F079 verhindert das

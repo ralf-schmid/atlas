@@ -1,6 +1,11 @@
 # F079 — Sizing erzeugt keine Sub-1-Aktien-Orders mehr
 
-**Status:** Entwurf (Feature-Schnitt 25.07.2026, Phase 5 Block 0)
+**Status:** ✅ **Umgesetzt 25.07.2026** (Commits `9cf0509`, Test-Fix `44c94d5`).
+`BrokerAdapter.requires_whole_shares` (True Alpaca / False Ledger),
+`_resolve_buy_decision` rejektet Sub-1-Aktien-Buys (`floor(quantity)==0` →
+`reject_idea`/`RECORDED`, `position_too_small_for_whole_share`) vor dem Risk-Gate
+und persistiert für Whole-Share-Broker die `floor`-Menge. Tests §4 (1–7) grün,
+inkl. Regression + HITL-Flow-Adapter-Fix. Rollback: rein additiver Code-Pfad.
 **Phase:** 5, Block 0 (P4-Abschluss + Aufräumer, vor dem P5-Start)
 **Abhängigkeiten:** keine harten. Muss vor dem Wettbewerbsstart (2026-08-03)
 erledigt sein, da sonst am Stichtag weiterhin unausführbare APPROVED-Leichen
