@@ -128,13 +128,14 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
 
 ## Offene Entscheidungen für Ralf (vor/während P5 — Geld-Themen, nie stillschweigend)
 
-1. **Wettbewerbs-Stichtag: ✅ entschieden 25.07.2026 — Montag, 03.08.2026.**
-   8 Wochen → Ende Fr 25.09.2026. Reset aller Portfolios auf 5.000 USD;
-   der bisherige Paper-Verlauf (seit 08.07.) wird zur "Vorsaison".
-   Konsequenz: Block 0 + Block 1 (F079–F083) + Alpaca-Reset-Spike + F090
-   müssen in der Woche 28.07.–01.08. fertig werden — ambitioniert, bewusst
-   so gewählt. F084 (Review-Agent) darf nach dem Start nachziehen (Reviews
-   sind rückwirkend berechenbar).
+1. **Wettbewerbs-Stichtag: ✅ vorgezogen auf Montag, 27.07.2026** (Ralf,
+   26.07.2026; ursprünglich 03.08. vom 25.07.). Grund: die 3 nativen
+   Alpaca-Accounts wurden bereits jetzt auf 5.000 neu angelegt (F090/ADR-0009) —
+   statt sie eine Woche idle zu lassen, startet der Wettbewerb am ersten
+   Handelstag nach dem Reset. 8 Wochen → Ende Fr 18.09.2026. Reset aller
+   Portfolios auf 5.000 USD; der bisherige Paper-Verlauf (seit 08.07.) wird zur
+   archivierten "Vorsaison" (F090). F084 (Review-Agent) darf nach dem Start
+   nachziehen (Reviews sind rückwirkend berechenbar).
 2. **Slippage-Parameter: Spread-Methode ✅ entschieden 25.07.2026 — fixe bps
    je Assetklasse** (Details/Begründung in
    [F083](../features/F083-slippage-malus-berechnung.md)). Noch offen:

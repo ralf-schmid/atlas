@@ -1,11 +1,15 @@
 # Competition parameters — consumed by the SPY benchmark (F081) and the
 # official competition start/reset (F090). See docs/dod/phase-5.md.
 #
-# start_date decided by Ralf on 2026-07-25: Monday 2026-08-03, 8 weeks,
-# ends Friday 2026-09-25. Changing it after the first benchmark snapshot
-# requires a documented recomputation — never a silent edit (F081 §2).
+# start_date originally 2026-08-03 (Ralf, 2026-07-25). Pulled forward to Monday
+# 2026-07-27 on 2026-07-26 (Ralf): the 3 native Alpaca accounts were recreated at
+# 5000 now (F090/ADR-0009), so the competition starts on the first trading day
+# after the reset instead of idling the fresh accounts for a week. 8 weeks -> ends
+# Friday 2026-09-18. Safe edit: no benchmark snapshot exists yet (the benchmark
+# activates on start_date, still in the future at edit time). Changing it AFTER the
+# first benchmark snapshot needs a documented recomputation — never silent (F081 §2).
 competition:
-  start_date: 2026-08-03
+  start_date: 2026-07-27
   start_capital_usd: 5000
 
 benchmark:
