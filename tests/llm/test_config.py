@@ -27,9 +27,10 @@ def test_load_llm_config_base_url_overridden_by_env(monkeypatch):
 def test_load_llm_config_caps_match_spec():
     config = load_llm_config()
 
-    assert config.caps.system_daily_usd == 5.0
+    # Raised 25.07.2026 (ADR-0008): 5->10 daily, 120->240 monthly. Per-persona unchanged.
+    assert config.caps.system_daily_usd == 10.0
     assert config.caps.persona_daily_usd == 1.0
-    assert config.caps.monthly_soft_cap_usd == 120.0
+    assert config.caps.monthly_soft_cap_usd == 240.0
     assert config.caps.monthly_soft_cap_warn_pct == 0.8
 
 

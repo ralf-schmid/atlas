@@ -6,9 +6,15 @@
 base_url: http://localhost:4000
 
 caps:
-  system_daily_usd: 5.0
+  # Raised 5.0 -> 10.0 (Ralf, 25.07.2026): headroom for the P5 Review-Agent (Sonnet)
+  # plus the Sonnet-5 intro-price expiry on 31.08.2026 (+50% on Sonnet cost). See ADR-0008.
+  system_daily_usd: 10.0
+  # Per-persona cap unchanged: current spend ~0.4-0.5 USD/persona/day, and the raise
+  # targets shared/system cost (Review-Agent runs as a shared role), not persona_analysis.
   persona_daily_usd: 1.0
-  monthly_soft_cap_usd: 120.0
+  # Raised 120 -> 240 in step with the daily cap (keeps the ~24-days-of-full-spend ratio),
+  # so the monthly soft cap doesn't silently become the binding limit after 12 days.
+  monthly_soft_cap_usd: 240.0
   monthly_soft_cap_warn_pct: 0.8
 
 roles:

@@ -184,7 +184,9 @@ atlas/
 ## Entscheidungsstand Phase 1 → 2 (alles geklärt, Details ARCHITECTURE.md §7)
 
 1. Kosten-Caps fixiert: 5 €/Tag System, 1 €/Tag je Persona, 120 €/Monat Soft-Cap
-   (Warnung ab 80 %)
+   (Warnung ab 80 %). **Ab 25.07.2026 angehoben (ADR-0008): 10 $/Tag System,
+   240 $/Monat Soft-Cap; Per-Persona unverändert.** Werte gelten als USD
+   (ADR-0004). Live-Werte in `config/llm.yaml`.
 2. Alpaca-Spikes = erste P2-Arbeitspakete: Paper-Account-Anzahl (Ziel 6),
    Krypto für DE-Residents live, Paper-Startkapital 5.000 USD — Ergebnisse als ADR
 3. Paper-Feld läuft nach der Gewinner-Kür weiter (6× Paper + 1× Live parallel)

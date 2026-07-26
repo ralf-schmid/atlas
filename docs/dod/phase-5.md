@@ -140,7 +140,10 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
    [F083](../features/F083-slippage-malus-berechnung.md)). Noch offen:
    konkrete bps-Werte + Penalty-Höhe — Feinjustierung bei F083-Umsetzung.
 3. **Kosten-Cap nach Intro-Preis-Ende (31.08.) + Review-Agent-Mehrkosten:**
-   Cap anheben, Modell-Mix ändern oder Review-Frequenz drosseln?
+   ✅ teilentschieden 25.07.2026 — System-Tagescap 5 → 10 USD, Monats-Soft-Cap
+   120 → 240 USD, Per-Persona unverändert 1 USD ([ADR-0008](../adr/0008-raise-daily-cost-cap-to-10-usd.md)).
+   Offen bleibt die endgültige Modell-Mix-/Frequenz-Bewertung nach dem
+   Intro-Preis-Ende (31.08.), falls die neuen Caps sich als zu eng erweisen.
 4. **Review-Fälligkeit im Detail:** §8 sagt "jede geschlossene Position binnen
    7 Tagen" — was gilt für am Wettbewerbsende noch offene Positionen und für
    `hold`-Ketten ohne Position?
