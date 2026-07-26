@@ -36,7 +36,17 @@ from src.broker.protocol import OrderSide
 # path instead of the fresh-submission path this test is meant to verify.
 _DECISION_ID = int(time.time())
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    # F090 (26.07.2026): disabled for the live competition. This test places a real
+    # bracket order on VULTURE's paper account — during the competition that would
+    # pollute a scored account (Invariant #10, fairness), and there is no spare paper
+    # account to point it at (max 3 per login, ADR-0001). The adapter's behaviour is
+    # covered by the unit tests; the Phase-2 DoD ("Paper-Order accepted in CI") was
+    # met before the reset. Re-enable after the competition (or against a throwaway
+    # account) by removing this skip.
+    pytest.mark.skip(reason="F090: no CI orders on competition accounts (Invariant #10)"),
+]
 
 _SYMBOL = "AAPL"
 _QTY = 1
