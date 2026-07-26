@@ -70,7 +70,13 @@ def _upsert_persona(session: Session, name: str, persona_yaml: dict[str, object]
 
 
 def _get_or_create_portfolio(session: Session, persona: Persona, name: str) -> Portfolio:
-    existing = session.query(Portfolio).filter_by(persona_id=persona.id).one_or_none()
+    # F090: match only the active-season portfolio (archived_at IS NULL). After a
+    # competition reset a persona also has an archived pre-season row; without this
+    # filter the idempotent seed would return that archived one (and one_or_none
+    # would raise once both exist).
+    existing = (
+        session.query(Portfolio).filter_by(persona_id=persona.id, archived_at=None).one_or_none()
+    )
     if existing is not None:
         return existing
 

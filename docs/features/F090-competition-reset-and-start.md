@@ -1,6 +1,9 @@
 # F090 — Wettbewerbs-Reset & offizieller Start
 
-**Status:** Schnitt (26.07.2026), Umsetzung ausstehend
+**Status:** Umsetzung erledigt (Code + Tests, 26.07.2026); **Livesetzung
+ausstehend** (Ralfs Dashboard-Schritt + neue `.env`-Keys + `_NATIVE_ACCOUNT_IDS`,
+dann `scripts/reset_competition.py` auf der Box). Migration `8a25be33a9fe`
+(`portfolio.archived_at`) noch nicht auf die Box deployt.
 **Phase:** 5, Block 4 (Abschluss der Phase — letzter P5-DoD-Punkt "Wettbewerb
 offiziell gestartet")
 **Abhängigkeiten:** [ADR-0009](../adr/0009-alpaca-paper-reset-via-new-accounts.md)

@@ -77,7 +77,14 @@ def _get_persona_and_portfolio(
         raise HTTPException(status_code=404, detail=f"Unknown persona: {name!r}")
 
     portfolio = session.scalar(
-        select(Portfolio).where(Portfolio.persona_id == persona.id, Portfolio.mode == mode)
+        # F090: archived_at IS NULL — after a competition reset a persona has both an
+        # archived pre-season portfolio and the active one in the same mode; the API
+        # must resolve to the active one (and stay single-valued).
+        select(Portfolio).where(
+            Portfolio.persona_id == persona.id,
+            Portfolio.mode == mode,
+            Portfolio.archived_at.is_(None),
+        )
     )
     if portfolio is None:
         raise HTTPException(

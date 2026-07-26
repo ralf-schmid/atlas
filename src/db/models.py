@@ -112,6 +112,11 @@ class Portfolio(Base):
     broker_account_ref: Mapped[str] = mapped_column(String(100))
     base_ccy: Mapped[str] = mapped_column(String(3), default="USD")
     start_value: Mapped[Decimal] = mapped_column(Numeric(18, 2))
+    # F090: NULL = active (current competition season), a timestamp = archived
+    # pre-season. Every portfolio selection (orchestrator fan-out, API, seed)
+    # filters archived_at IS NULL so a persona can carry an archived pre-season
+    # portfolio alongside its fresh 5000-USD competition one.
+    archived_at: Mapped[datetime | None] = mapped_column(nullable=True, default=None)
 
 
 class Cycle(Base):

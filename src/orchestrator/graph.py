@@ -65,7 +65,9 @@ def list_active_portfolios(session: Session) -> list[tuple[Portfolio, str]]:
     stmt = (
         select(Portfolio, Persona.name)
         .join(Persona, Portfolio.persona_id == Persona.id)
-        .where(Persona.active.is_(True))
+        # F090: only the active-season portfolios — an archived pre-season one
+        # (archived_at set) must never be fanned out over again.
+        .where(Persona.active.is_(True), Portfolio.archived_at.is_(None))
     )
     return [(portfolio, name) for portfolio, name in session.execute(stmt).all()]
 
