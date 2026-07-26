@@ -88,12 +88,12 @@ wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
       beantwortete Anfragen anwendet (kommt mit dem letzten P4-Feature,
       Zyklen-Scheduling). Fail-closed in der Zwischenzeit: eine unbeantwortete
       Anfrage bleibt `HITL_PENDING`, nie `APPROVED`.
-- [ ] 5 Handelstage in Folge: alle geplanten Zyklen (4/Tag Aktien +
+- [x] 5 Handelstage in Folge: alle geplanten Zyklen (4/Tag Aktien +
       CRYPTOR-Plan) gelaufen, 0 unbehandelte Exceptions; Crash-Recovery getestet
       (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer)
-      **Teilweise erledigt (25.07.2026):** 8 Handelstage Dauerlauf (15.–24.07.)
-      ohne Restart/unbehandelte Exception nachgewiesen, siehe Update unten.
-      **Offen:** nur noch der Crash-Recovery-Test.
+      **Erledigt:** 8 Handelstage Dauerlauf (15.–24.07.) ohne
+      Restart/unbehandelte Exception (Update 25.07.2026 unten) **und**
+      Crash-Recovery nachgewiesen (Update 26.07.2026 unten) — beide Teile stehen.
       **Teilweise:** [F025](../features/F025-cycle-scheduling.md) —
       `config/cycles.yaml` + `build_scheduler` (APScheduler, alle 4 Aktien-Zyklen +
       CRYPTOR Werktags-/Wochenend-Zeiten) fertig und getestet (Job-Registrierung,
@@ -376,16 +376,13 @@ bleibt offen).** Befund und Ralfs Bewertungsentscheidung:
   Broker-Adapter statt schon in der Sizing-/Risk-Schicht; außerdem sollte der
   Sweep permanente Fehler (`ValueError`) von transienten unterscheiden und
   Erstere terminal markieren, statt endlos zu retryen (P5-Kandidat).
-- **Weiterhin offen aus diesem DoD-Punkt:** der **Crash-Recovery-Test**
-  (Container-Kill mitten im Zyklus → Resume via Postgres-Checkpointer) wurde
-  bewusst nicht während des Dauerlauf-Zeitraums durchgeführt (wäre selbst
-  eine Unterbrechung). Er ist jetzt, da der 5-Tage-Nachweis steht, gefahrlos
-  nachholbar.
+- **Crash-Recovery-Test:** am 26.07.2026 nachgeholt und bestanden — siehe
+  eigenes Update unten.
 
-**Einordnung ggü. ARCHITECTURE.md §8:** Phase 4 ist damit fast abgeschlossen —
-von den DoD-Punkten fehlt nur noch der Crash-Recovery-Test (Teil des
-Dauerlauf-Punkts); 5-Tage-Dauerlauf und Kosten-Cap-Stichprobe sind seit
-25.07.2026 nachgewiesen (siehe Updates oben). Phase 5 (§8, "Review, Journal & Wettbewerbsstart" —
+**Einordnung ggü. ARCHITECTURE.md §8:** Phase 4 ist damit **abgeschlossen** —
+alle DoD-Punkte inkl. Crash-Recovery stehen; 5-Tage-Dauerlauf und
+Kosten-Cap-Stichprobe seit 25.07.2026, Crash-Recovery seit 26.07.2026
+nachgewiesen (siehe Updates oben/unten). Phase 5 (§8, "Review, Journal & Wettbewerbsstart" —
 Review-Agent, Slippage-Malus, Leaderboard, offizieller Start des
 8-Wochen-Wettbewerbs) hat inhaltlich noch nicht begonnen; F072 trägt zwar
 `Phase: 5` im Feature-Dokument (Ralfs spontane Betriebsentscheidung, keine
@@ -394,3 +391,50 @@ P5-Feature im Sinne von ARCHITECTURE.md §8. Der 8-Wochen-Wettbewerbs-Zähler
 (ARCHITECTURE.md §4.7) hat noch nicht offiziell begonnen — das ist laut §8
 selbst ein P5-DoD-Punkt ("Wettbewerb offiziell gestartet: Stichtag
 dokumentiert, alle 6 Portfolios auf 5.000 USD").
+
+**Update (26.07.2026): Crash-Recovery-Test bestanden — letzter offener
+P4-DoD-Punkt geschlossen.** Durchgeführt auf dem realen Stack (`atlas-ugreen`),
+nicht lokal. Ablauf und Nachweise:
+
+- **Außerplanmäßiger Sonderlauf statt Container-Cron:** ein Ad-hoc-Zyklus mit
+  `seq=99` (frischer `thread_id` `2026-07-26-99-us_equity`, kollidiert nicht mit
+  den regulären Wochenend-CRYPTOR-Zyklen 06/18 UTC) via `scripts/run_cycle.py`
+  im `atlas-scheduler-1`-Container. Ein erster regulärer Sonderlauf (`seq=1`) lief
+  in ~6 s komplett durch — zu schnell für einen zuverlässig getimten
+  Mid-Cycle-Kill.
+- **Deterministisches Einfrieren mitten im Zyklus:** `docker pause
+  atlas-litellm-1` friert den LiteLLM-Proxy ein; der Zyklus läuft dann bis zum
+  ersten LLM-abhängigen Superstep und blockiert dort. `start_cycle` (DB-Insert des
+  cycle-Eintrags) und `shared_research` (Aggregation, hier ohne blockierenden
+  LLM-Call) liefen durch, der `persona_analysis`-Fan-out (6× Sonnet) blockierte an
+  der pausierten litellm.
+- **Container-Kill:** `docker kill atlas-scheduler-1` → Exit **137** (SIGKILL).
+  Beobachtung: trotz `restart: unless-stopped` startete Docker den Container
+  **nicht** automatisch neu (bei `docker kill` wertet der Daemon das als manuellen
+  Eingriff) — bestätigt zugleich, dass **nichts von selbst resumed** (ein
+  neu gestarteter Scheduler registriert ohnehin nur Cron mit neuem `thread_id`,
+  siehe `scripts/resume_cycle.py`). Container danach manuell via `docker start`
+  zurückgeholt, litellm via `docker unpause` freigegeben; regulärer Betrieb
+  (nächster CRYPTOR-Zyklus 18:00 UTC) unberührt.
+- **Checkpoint hielt den Mid-Cycle-Zustand (read-only geprüft, ohne Resume):**
+  `next=('persona_analysis'×6)`, `state.cycle_id=86842410-…`,
+  `research_item_ids=294` — d. h. `start_cycle` + `shared_research` abgeschlossen,
+  6 `persona_analysis` pending.
+- **Resume via Postgres-Checkpointer:** `scripts/resume_cycle.py
+  2026-07-26-99-us_equity` fand den Checkpoint und führte **nur** die 6 pending
+  `persona_analysis` fort (`input=None`, keine Wiederholung abgeschlossener Nodes).
+  Nachweise nach dem Resume:
+  - `cycle` mit `seq=99`: weiterhin **genau 1 Zeile** → `start_cycle` **nicht**
+    re-run, kein doppelter cycle-Eintrag.
+  - `agent_run` für den cycle: **6 total, 6 distinct portfolios** → alle 6
+    Personas gelaufen.
+  - `decision` für den cycle: 6 (1 BUY, 4 HOLD, 1 REJECT_IDEA).
+  - Finaler Checkpoint-State: `next=()`, keine pending tasks → Lauf vollständig
+    abgeschlossen.
+- **Einschränkung/Notiz:** Das auf der Box laufende Docker-Image ist älter als
+  Commit `c578158` (25.07.), enthält `scripts/resume_cycle.py` noch nicht — das
+  Script wurde für den Test per `docker cp` in den Container gelegt. Beim nächsten
+  Image-Rebuild/Redeploy (fällig ohnehin für den F080/Cost-Cap-Stand) ist es
+  regulär enthalten. Der Ad-hoc-`seq=99`-Zyklus samt seinen Decisions bleibt als
+  Testartefakt in der Vorsaison-DB; er verschwindet beim Wettbewerbs-Reset am
+  03.08.2026.
