@@ -36,7 +36,7 @@ Gesamt: ${{ format_currency(total_portfolio_value_usd) }}
 LLM-Kosten gesamt: ${{ format_cost(total_llm_cost_usd) }}\
 """
 
-_env = Environment(autoescape=False)  # noqa: S701 — plain text digest, not HTML, no untrusted input
+_env = Environment(autoescape=False)  # noqa: S701  # nosec B701 — plain text digest, not HTML, no untrusted input
 _template = _env.from_string(_TEMPLATE_SOURCE)
 
 

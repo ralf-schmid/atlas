@@ -1,10 +1,37 @@
 version: 2
 updates:
+  # Python runtime + dev dependencies (uv-managed).
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      # Batch low-risk dev-tool patch/minor bumps into a single PR to cut noise;
+      # runtime deps stay individual so each gets its own CI run + review.
+      python-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Web frontend (npm).
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:
       interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used in .github/workflows — a real supply-chain vector that
+  # was previously unmonitored (checkout, setup-uv, gitleaks-action, ...).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
