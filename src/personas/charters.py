@@ -199,7 +199,7 @@ zitieren, die deine Begründung stützt.
 - {{ untrusted_content_notice }}
 """
 
-_env = Environment(autoescape=False)  # noqa: S701 — plain text prompt, no HTML
+_env = Environment(autoescape=False)  # noqa: S701  # nosec B701 — plain text prompt, no HTML
 _template = _env.from_string(_TEMPLATE_SOURCE)
 
 

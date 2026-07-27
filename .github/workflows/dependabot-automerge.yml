@@ -1,0 +1,31 @@
+name: Dependabot auto-merge
+
+# Auto-merges only low-risk Dependabot PRs: development dependencies on a patch
+# bump. Runtime dependencies (fastapi, langgraph, broker SDKs, ...) and every
+# minor/major update stay a human decision, per the money-handling invariants in
+# CLAUDE.md. Merge still waits for the required checks (lint, test, web, gitleaks)
+# via the branch-protection ruleset — this only sets --auto, it never bypasses CI.
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: github.actor == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Enable auto-merge for dev-dependency patch updates
+        if: >-
+          steps.meta.outputs.dependency-type == 'direct:development' &&
+          steps.meta.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

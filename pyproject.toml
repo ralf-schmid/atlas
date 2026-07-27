@@ -33,6 +33,7 @@ dev = [
     "types-pyyaml>=6.0,<7.0",
     "types-defusedxml>=0.7.0.20260504",
     "pip-audit>=2.7,<3.0",
+    "bandit>=1.8,<2.0",
 ]
 
 [tool.ruff]
@@ -53,6 +54,12 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.format]
 exclude = ["alembic/versions/*.py"]
+
+[tool.bandit]
+# Static application-security scan of our own Python code (complements pip-audit,
+# which only covers third-party CVEs). Tests are excluded — assert-based test code
+# trips B101 without being a production risk.
+exclude_dirs = ["tests", "alembic"]
 
 [tool.mypy]
 python_version = "3.12"
