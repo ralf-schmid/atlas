@@ -106,7 +106,12 @@ class AlpacaPaperAdapter:
     requires_whole_shares = True
 
     def __init__(self, api_key: str, secret_key: str) -> None:
+        self._api_key = api_key
+        self._secret_key = secret_key
         self._client = TradingClient(api_key, secret_key, paper=True)
+
+    def validate_credentials(self) -> None:
+        self._client.get_account()
 
     def place_order(
         self,

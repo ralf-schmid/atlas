@@ -15,10 +15,13 @@ Usage: DATABASE_URL=... TELEGRAM_BOT_TOKEN=... TELEGRAM_CHAT_ID=... \
 
 from __future__ import annotations
 
+import logging
 import os
+import sys
 
 from langgraph.checkpoint.postgres import PostgresSaver
 
+from src.broker.registry import validate_all_credentials
 from src.db.base import get_session_factory
 from src.llm.client import LiteLLMClient
 from src.llm.config import load_llm_config
@@ -27,6 +30,8 @@ from src.orchestrator.graph import build_and_compile_graph
 from src.telegram.bot import build_application
 from src.telegram.config import load_config as load_telegram_config
 
+logger = logging.getLogger(__name__)
+
 
 def main() -> None:
     configure_logging()
@@ -34,6 +39,12 @@ def main() -> None:
     session_factory = get_session_factory()
 
     llm_config = load_llm_config()
+
+    try:
+        validate_all_credentials()
+    except Exception as exc:
+        logger.critical("F092: Alpaca credential validation failed — %s", exc)
+        sys.exit(1)
     llm_client = LiteLLMClient(
         base_url=llm_config.base_url, api_key=os.environ["LITELLM_MASTER_KEY"]
     )

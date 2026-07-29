@@ -31,3 +31,20 @@ def test_crypto_provider_returns_last_trade_price():
 
         mock_cls.assert_called_once_with("key", "secret")
         assert price == 65000.0
+
+
+# --- F092: validate_credentials ---
+
+
+def test_stock_provider_validate_credentials_calls_api():
+    with patch("src.broker.market_data.StockHistoricalDataClient") as mock_cls:
+        provider = AlpacaStockMarketDataProvider(api_key="key", secret_key="secret")
+        provider.validate_credentials()
+        mock_cls.return_value.get_stock_latest_trade.assert_called_once()
+
+
+def test_crypto_provider_validate_credentials_calls_api():
+    with patch("src.broker.market_data.CryptoHistoricalDataClient") as mock_cls:
+        provider = AlpacaCryptoMarketDataProvider(api_key="key", secret_key="secret")
+        provider.validate_credentials()
+        mock_cls.return_value.get_crypto_latest_trade.assert_called_once()

@@ -52,6 +52,9 @@ class InternalLedgerAdapter:
         self._store = store
         self._starting_cash = starting_cash
 
+    def validate_credentials(self) -> None:
+        pass
+
     def place_order(
         self,
         *,

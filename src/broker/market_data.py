@@ -17,10 +17,15 @@ from alpaca.data.requests import CryptoLatestTradeRequest, StockLatestTradeReque
 class MarketDataProvider(Protocol):
     def get_last_price(self, symbol: str) -> float: ...
 
+    def validate_credentials(self) -> None: ...
+
 
 class AlpacaStockMarketDataProvider:
     def __init__(self, api_key: str, secret_key: str) -> None:
         self._client = StockHistoricalDataClient(api_key, secret_key)
+
+    def validate_credentials(self) -> None:
+        self._client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols="SPY"))
 
     def get_last_price(self, symbol: str) -> float:
         trades = self._client.get_stock_latest_trade(
@@ -34,6 +39,9 @@ class AlpacaStockMarketDataProvider:
 class AlpacaCryptoMarketDataProvider:
     def __init__(self, api_key: str, secret_key: str) -> None:
         self._client = CryptoHistoricalDataClient(api_key, secret_key)
+
+    def validate_credentials(self) -> None:
+        self._client.get_crypto_latest_trade(CryptoLatestTradeRequest(symbol_or_symbols="BTC/USD"))
 
     def get_last_price(self, symbol: str) -> float:
         trades = self._client.get_crypto_latest_trade(

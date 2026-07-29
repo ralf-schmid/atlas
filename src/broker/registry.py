@@ -82,6 +82,39 @@ def build_market_data_provider(
     raise ValueError(f"Unknown market type {market!r}")
 
 
+def validate_market_data_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:
+    """F092: validate only the shared market-data key. Called by the ingestion
+    market-data sync job on each run (not just at startup), so a key that expires
+    mid-deployment is caught before the next StockBarsRequest, not after."""
+    config = yaml.safe_load(config_path.read_text())
+    stock_provider = build_market_data_provider("stock", config["market_data"])
+    stock_provider.validate_credentials()
+
+
+def validate_all_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:
+    """F092: validate ALL configured Alpaca keys at startup. Raises on the first
+    invalid key — the caller should exit with a clear message.
+
+    Personas with `internal_ledger` adapter are skipped (no external credentials).
+    Market data credentials are validated against both stock and crypto endpoints
+    (same key, different API client).
+    """
+    config = yaml.safe_load(config_path.read_text())
+    personas = config["personas"]
+
+    for _, entry in sorted(personas.items()):
+        if entry["adapter"] != "alpaca_paper":
+            continue
+        key_id = _require_env(entry["key_id_env"])
+        secret_key = _require_env(entry["secret_key_env"])
+        adapter = AlpacaPaperAdapter(api_key=key_id, secret_key=secret_key)
+        adapter.validate_credentials()
+
+    market_data = config["market_data"]
+    stock_provider = build_market_data_provider("stock", market_data)
+    stock_provider.validate_credentials()
+
+
 def _require_env(var_name: str) -> str:
     value = os.environ.get(var_name)
     if not value:
