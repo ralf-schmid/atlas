@@ -1,7 +1,8 @@
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from alpaca.common.exceptions import APIError
 
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
@@ -143,3 +144,27 @@ def test_validate_market_data_credentials_passes(monkeypatch):
     monkeypatch.setenv("ALPACA_MARKET_DATA_SECRET_KEY", "md-secret")
 
     validate_market_data_credentials()
+
+
+def test_validate_all_credentials_propagates_api_error(monkeypatch):
+    monkeypatch.setenv("ALPACA_PAPER_VULTURE_KEY_ID", "v-key")
+    monkeypatch.setenv("ALPACA_PAPER_VULTURE_SECRET_KEY", "v-secret")
+    monkeypatch.setenv("ALPACA_PAPER_GUARDIAN_KEY_ID", "g-key")
+    monkeypatch.setenv("ALPACA_PAPER_GUARDIAN_SECRET_KEY", "g-secret")
+    monkeypatch.setenv("ALPACA_PAPER_CHARTIST_KEY_ID", "c-key")
+    monkeypatch.setenv("ALPACA_PAPER_CHARTIST_SECRET_KEY", "c-secret")
+
+    with patch.object(
+        AlpacaPaperAdapter,
+        "validate_credentials",
+        side_effect=APIError("401 Unauthorized", MagicMock()),
+    ):
+        with pytest.raises(APIError, match="401"):
+            validate_all_credentials()
+
+
+def test_validate_market_data_credentials_missing_env_raises(monkeypatch):
+    monkeypatch.delenv("ALPACA_MARKET_DATA_KEY_ID", raising=False)
+
+    with pytest.raises(ValueError, match="ALPACA_MARKET_DATA_KEY_ID"):
+        validate_market_data_credentials()

@@ -1,7 +1,8 @@
 # F092 — Fail-Fast bei ungültigem Alpaca-Key
 
-**Status:** Draft
+**Status:** Implemented
 **Phase:** 5 (Härtung)
+**Deployed:** 2026-07-29 (#42)
 **Abhängigkeiten:** `src/broker/protocol.py`, `src/broker/alpaca_paper.py`,
 `src/broker/registry.py`, `scripts/run_scheduler.py`
 Berührt Invariante **#5** (Paper/Live-Trennung) und **#6** (Secrets nie im Repo).

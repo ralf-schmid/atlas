@@ -1,5 +1,7 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import pytest
+from alpaca.common.exceptions import APIError
 from alpaca.data.models.trades import Trade
 
 from src.broker.market_data import AlpacaCryptoMarketDataProvider, AlpacaStockMarketDataProvider
@@ -48,3 +50,23 @@ def test_crypto_provider_validate_credentials_calls_api():
         provider = AlpacaCryptoMarketDataProvider(api_key="key", secret_key="secret")
         provider.validate_credentials()
         mock_cls.return_value.get_crypto_latest_trade.assert_called_once()
+
+
+def test_stock_provider_validate_credentials_propagates_api_error():
+    with patch("src.broker.market_data.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_latest_trade.side_effect = APIError(
+            "401 Unauthorized", MagicMock()
+        )
+        provider = AlpacaStockMarketDataProvider(api_key="bad-key", secret_key="bad-secret")
+        with pytest.raises(APIError, match="401"):
+            provider.validate_credentials()
+
+
+def test_crypto_provider_validate_credentials_propagates_api_error():
+    with patch("src.broker.market_data.CryptoHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_crypto_latest_trade.side_effect = APIError(
+            "401 Unauthorized", MagicMock()
+        )
+        provider = AlpacaCryptoMarketDataProvider(api_key="bad-key", secret_key="bad-secret")
+        with pytest.raises(APIError, match="401"):
+            provider.validate_credentials()
