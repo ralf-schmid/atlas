@@ -386,3 +386,10 @@ def test_close_position_selling_more_than_held_raises_no_shorting(adapter):
 
     with pytest.raises(ValueError, match="no shorting"):
         adapter.close_position(decision_id=2, symbol="AAPL", qty=10, stop_order_ids=[])
+
+
+# --- F092: validate_credentials ---
+
+
+def test_validate_credentials_does_not_raise(adapter):
+    adapter.validate_credentials()
