@@ -188,7 +188,9 @@ def _market_data_job(session_factory: Callable[[], Session], config_path: Path) 
             # market_data.watchlist — see resolve_stock_seed_watchlist.
             seed_watchlist = resolve_stock_seed_watchlist(config)
             lookback_days: int = market_data_config.get("lookback_days", 1)
-            watchlist = resolve_symbol_universe(session, seed_watchlist)
+            watchlist = sorted(
+                s for s in resolve_symbol_universe(session, seed_watchlist) if "/" not in s
+            )
             run_daily_sync(
                 session,
                 datetime.date.today(),
