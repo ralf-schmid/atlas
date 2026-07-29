@@ -6,7 +6,13 @@ import pytest
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.market_data import AlpacaCryptoMarketDataProvider, AlpacaStockMarketDataProvider
-from src.broker.registry import get_adapter, get_adapter_type, load_market_data_config
+from src.broker.registry import (
+    get_adapter,
+    get_adapter_type,
+    load_market_data_config,
+    validate_all_credentials,
+    validate_market_data_credentials,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -107,3 +113,33 @@ def test_get_adapter_unknown_market_type_raises(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Unknown market type"):
         get_adapter("FOO", config_path=config_path)
+
+
+# --- F092: validate_all_credentials ---
+
+
+def test_validate_all_credentials_passes_when_all_keys_valid(monkeypatch):
+    monkeypatch.setenv("ALPACA_PAPER_VULTURE_KEY_ID", "v-key")
+    monkeypatch.setenv("ALPACA_PAPER_VULTURE_SECRET_KEY", "v-secret")
+    monkeypatch.setenv("ALPACA_PAPER_GUARDIAN_KEY_ID", "g-key")
+    monkeypatch.setenv("ALPACA_PAPER_GUARDIAN_SECRET_KEY", "g-secret")
+    monkeypatch.setenv("ALPACA_PAPER_CHARTIST_KEY_ID", "c-key")
+    monkeypatch.setenv("ALPACA_PAPER_CHARTIST_SECRET_KEY", "c-secret")
+
+    # All four adapters (3 paper + 1 market data stock) are mocked by _no_real_trading_client.
+    validate_all_credentials()
+
+
+def test_validate_all_credentials_missing_env_raises(monkeypatch):
+    monkeypatch.delenv("ALPACA_PAPER_CHARTIST_KEY_ID", raising=False)
+    monkeypatch.delenv("ALPACA_PAPER_CHARTIST_SECRET_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="ALPACA_PAPER_CHARTIST_KEY_ID"):
+        validate_all_credentials()
+
+
+def test_validate_market_data_credentials_passes(monkeypatch):
+    monkeypatch.setenv("ALPACA_MARKET_DATA_KEY_ID", "md-key")
+    monkeypatch.setenv("ALPACA_MARKET_DATA_SECRET_KEY", "md-secret")
+
+    validate_market_data_credentials()

@@ -440,3 +440,20 @@ def test_close_position_rejects_unexpected_response_type(adapter, mock_client):
 
     with pytest.raises(TypeError, match="Unexpected submit_order response"):
         adapter.close_position(decision_id=99, symbol="AAPL", qty=10, stop_order_ids=[])
+
+
+# --- F092: validate_credentials ---
+
+
+def test_validate_credentials_ok_calls_get_account(adapter, mock_client):
+    adapter.validate_credentials()
+    mock_client.get_account.assert_called_once()
+
+
+def test_validate_credentials_propagates_api_error(adapter, mock_client):
+    http_error = MagicMock()
+    http_error.response.status_code = 401
+    mock_client.get_account.side_effect = APIError("401 Unauthorized", http_error)
+
+    with pytest.raises(APIError, match="401"):
+        adapter.validate_credentials()

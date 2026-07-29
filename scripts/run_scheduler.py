@@ -11,13 +11,17 @@ Usage: DATABASE_URL=... uv run python scripts/run_scheduler.py
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import signal
+import sys
 import time
 from types import FrameType
 
 from langgraph.checkpoint.postgres import PostgresSaver
 
+from src.broker.registry import validate_all_credentials
 from src.db.base import get_session_factory
 from src.ingestion.scheduler import register_ingestion_jobs
 from src.llm.client import LiteLLMClient
@@ -26,13 +30,26 @@ from src.logging_config import configure_logging
 from src.orchestrator.cycles_config import load_cycles_config
 from src.orchestrator.graph import build_and_compile_graph
 from src.orchestrator.scheduler import build_scheduler
+from src.telegram.config import load_config as load_telegram_config
 
+logger = logging.getLogger(__name__)
 _shutdown = False
 
 
 def _handle_signal(signum: int, frame: FrameType | None) -> None:
     global _shutdown
     _shutdown = True
+
+
+def _send_startup_alert(text: str) -> None:
+    """Best-effort Telegram alert on startup failure."""
+    try:
+        telegram_config = load_telegram_config()
+        from src.telegram.alerts import send_alert
+
+        asyncio.run(send_alert(telegram_config, f"🚨 {text}"))
+    except Exception:
+        logger.warning("failed to send startup-failure Telegram alert", exc_info=True)
 
 
 def main() -> None:
@@ -44,6 +61,15 @@ def main() -> None:
     llm_client = LiteLLMClient(
         base_url=llm_config.base_url, api_key=os.environ["LITELLM_MASTER_KEY"]
     )
+
+    try:
+        validate_all_credentials()
+    except Exception as exc:
+        msg = f"F092: Alpaca credential validation failed — {exc}"
+        logger.critical(msg)
+        _send_startup_alert(msg)
+        sys.exit(1)
+
     cycles_config = load_cycles_config()
 
     checkpointer_conninfo = database_url.replace("postgresql+psycopg://", "postgresql://")

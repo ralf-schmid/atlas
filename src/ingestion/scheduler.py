@@ -22,6 +22,7 @@ import yaml
 from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy.orm import Session
 
+from src.broker.registry import validate_market_data_credentials
 from src.ingestion.aktienfinder_blog import run_aktienfinder_blog_sync
 from src.ingestion.aktienfinder_grabbing import run_daily_grab_configured
 from src.ingestion.aktienfinder_screener import run_screener_discovery_configured
@@ -179,6 +180,7 @@ def _screener_job(session_factory: Callable[[], Session], config_path: Path) -> 
 
 def _market_data_job(session_factory: Callable[[], Session], config_path: Path) -> None:
     def _run() -> None:
+        validate_market_data_credentials(config_path)
         with session_factory() as session:
             config = yaml.safe_load(config_path.read_text())
             market_data_config = config["market_data"]
