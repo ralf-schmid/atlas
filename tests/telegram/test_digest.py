@@ -103,6 +103,21 @@ def test_build_digest_data_excludes_inactive_personas(session: Session) -> None:
     assert [p.name for p in data.personas] == ["VULTURE"]
 
 
+def test_build_digest_data_excludes_archived_pre_season_portfolios(session: Session) -> None:
+    # F090 regression: after a competition reset a persona owns both its archived
+    # pre-season portfolio and a fresh active-season one. The digest must count the
+    # active one only — otherwise the persona appears twice in the daily overview.
+    persona = make_persona(session, name="VULTURE")
+    archived = make_portfolio(session, persona)
+    archived.archived_at = datetime.datetime(2026, 7, 27, 0, 0)
+    make_portfolio(session, persona)  # fresh active-season portfolio (archived_at IS NULL)
+    session.flush()
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert [p.name for p in data.personas] == ["VULTURE"]
+
+
 def test_build_digest_data_counts_only_filled_orders_within_the_day(session: Session) -> None:
     persona = make_persona(session, name="VULTURE")
     portfolio = make_portfolio(session, persona)
