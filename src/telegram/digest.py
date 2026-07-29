@@ -113,7 +113,12 @@ def build_digest_data(session: Session, trading_day: datetime.date) -> DigestDat
     portfolios = session.execute(
         select(Portfolio, Persona.id, Persona.name)
         .join(Persona, Portfolio.persona_id == Persona.id)
-        .where(Persona.active.is_(True))
+        # F090: only the active-season portfolio (archived_at IS NULL). After a
+        # competition reset a persona also owns its archived pre-season portfolio,
+        # so without this filter the join yields two rows per persona and every
+        # agent shows up twice in the digest — the same guard the orchestrator
+        # fan-out (graph.list_active_portfolios), the API and seed already apply.
+        .where(Persona.active.is_(True), Portfolio.archived_at.is_(None))
         .order_by(Persona.name)
     ).all()
 
