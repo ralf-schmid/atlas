@@ -138,8 +138,7 @@ Selbstzweck gewesen).
 2. **Täglicher Sweep statt Sonntag-Wochenlauf.** Die DoD lautet „binnen 7 Tagen";
    ein Wochenlauf träfe das nur mit einem exakt 7-Tage-engen Fenster, der
    Tageslauf mit Reserve.
-3. **Kein Bestandslauf.** §2 verlangt dafür Ralfs ausdrückliches Go — es lief genau
-   **ein** Review als Smoke-Test. 16 weitere sind fällig.
+3. **Bestandslauf** nach Ralfs Go am 31.07.2026 durchgeführt — siehe §5.1.
 
 ## 5. Test & Verifikation
 
@@ -200,4 +199,51 @@ ist geschrieben, aber noch nicht geschlossen.
 
 **Meta-Review für `reject_idea`** (§5.2, max. 5/Woche stichprobenartig) — bewusst
 nicht mitgebaut, eigener Zuschnitt.
+
+## 5.1 Bestandslauf (31.07.2026, nach Ralfs ausdrücklichem Go)
+
+17 fällige Decisions, in vier Sweeps abgearbeitet:
+
+| Lauf | Ergebnis |
+|---|---|
+| Smoke-Test | 1 reviewed |
+| Lauf 1 | 7 reviewed, **9 failed** |
+| Lauf 2 (nach Thinking-Fix) | 7 reviewed, 2 failed |
+| Lauf 3 | 1 reviewed, 1 failed |
+
+**16 von 17 Reviews geschrieben. Kosten gesamt: 0,2514 USD** (inkl. der
+fehlgeschlagenen Calls) — gegen die §2-Schätzung von 1,20–1,90 USD.
+
+```
+ persona  | reviews | confirmed | failed | inconcl | avg_dev
+----------+---------+-----------+--------+---------+---------
+ CHARTIST |       6 |         6 |      0 |       0 |  0.0556
+ CONTRA   |       4 |         0 |      0 |       4 | -0.1424
+ VULTURE  |       4 |         0 |      4 |       0 | -0.1726
+ CRYPTOR  |       1 |         0 |      1 |       0 | -0.0284
+ GUARDIAN |       1 |         0 |      0 |       1 | -0.0088
+```
+
+### Der Fehler in Lauf 1: F073, nicht mitgenommen
+
+9 von 16 Calls scheiterten mit `no JSON object in review response`. Die
+`cost_ledger`-Zeilen zeigen bis **2937 Completion-Tokens bei leerem Content** —
+F073s exakte Signatur. `persona_analysis` schickt seit F073
+`thinking={"type": "disabled"}`; der Review-Agent nicht, weil diese Lehre beim
+Schreiben nicht mitgenommen wurde. Behoben, Regressionstest ergänzt, der die
+Weitergabe des Parameters an den Client festhält.
+
+### Rest-Fehlerquote ist intermittierend, nicht systematisch
+
+Auch mit abgeschaltetem Thinking scheitert gelegentlich ein Call. Der direkte
+Nachtest derselben Decision lieferte sauberes JSON (`finish_reason: stop`, 365
+Tokens) — es ist Modell-Varianz, kein Datenproblem. Weil die Fälligkeits-Query
+zustandsfrei ist, holt der tägliche Sweep solche Fälle von selbst nach; **eine
+Decision steht derzeit noch aus** und wird beim nächsten Lauf erneut versucht.
+
+### Nebenbefund aus einem Review
+
+Das Modell merkte an: *„Die Position wurde offenbar nie gefüllt (fill_price null,
+position_open true)"* — es gibt also mindestens eine `EXECUTED`-Decision mit
+`FILLED`-Order, aber ohne `fill_price`. Eigener Prüfauftrag, nicht Teil von F084.
 
