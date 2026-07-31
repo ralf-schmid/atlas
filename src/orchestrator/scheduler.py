@@ -35,10 +35,13 @@ from src.db.models import (
     Persona,
     Portfolio,
 )
+from src.llm.client import LiteLLMClient
+from src.llm.config import LlmConfig
 from src.orchestrator.cycles_config import CyclesConfig
 from src.orchestrator.graph import CycleState
 from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.trading import execute_decision
+from src.review.agent import run_review_sweep
 from src.telegram.config import load_config as load_telegram_config
 from src.telegram.digest import build_digest_data, render_daily_digest
 from src.telegram.hitl import HitlDecision, HitlOutcome
@@ -123,11 +126,24 @@ def notify_pending_hitl_decisions(
             asyncio.run(send_hitl_approval_request(telegram_config, request))
 
 
+# F084: daily, not the §5.2 Sunday-only run. The DoD is "every closed position has
+# a review within 7 days"; a daily sweep meets that with margin, and a weekly one
+# would need a 7-day-tight window to do the same. Timed after the last US cycle so
+# the day's fills are already reconciled.
+_REVIEW_SWEEP_HOUR = 17
+_REVIEW_SWEEP_MINUTE = 30
+
+
 def build_scheduler(
     graph: CompiledStateGraph[CycleState, None, CycleState, CycleState],
     session_factory: Callable[[], Session],
     cycles_config: CyclesConfig,
+    llm_client: LiteLLMClient | None = None,
+    llm_config: LlmConfig | None = None,
 ) -> BackgroundScheduler:
+    """`llm_client`/`llm_config` are optional so the existing callers and the
+    scheduler-registration tests keep working; the F084 review job is only
+    registered when both are supplied."""
     scheduler = BackgroundScheduler()
 
     for cycle in cycles_config.stock_cycles:
@@ -244,6 +260,18 @@ def build_scheduler(
         id="daily-digest",
         replace_existing=True,
     )
+
+    if llm_client is not None and llm_config is not None:
+        scheduler.add_job(
+            _review_sweep_job,
+            trigger="cron",
+            hour=_REVIEW_SWEEP_HOUR,
+            minute=_REVIEW_SWEEP_MINUTE,
+            timezone=cycles_config.stock_timezone,
+            args=[session_factory, llm_client, llm_config],
+            id="review-sweep",
+            replace_existing=True,
+        )
 
     return scheduler
 
@@ -554,6 +582,33 @@ def retry_stuck_decisions(
                     extra={"decision_id": str(decision.id)},
                 )
     return executed
+
+
+def _review_sweep_job(
+    session_factory: Callable[[], Session],
+    llm_client: LiteLLMClient,
+    llm_config: LlmConfig,
+) -> None:
+    """F084: reviews due decisions. Non-fatal like every other sweep — a review is a
+    learning artefact, not a trading action, and must never stop the scheduler."""
+    try:
+        with session_factory() as session:
+            result = run_review_sweep(
+                session,
+                llm_client,
+                llm_config,
+                datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+            )
+            session.commit()
+        if result.reviewed or result.deferred or result.failed:
+            logger.info(
+                "review sweep: %d reviewed, %d deferred (budget), %d failed",
+                result.reviewed,
+                result.deferred,
+                result.failed,
+            )
+    except Exception:
+        logger.error("review sweep failed", exc_info=True)
 
 
 def _reconcile_order_fills_job(session_factory: Callable[[], Session]) -> None:

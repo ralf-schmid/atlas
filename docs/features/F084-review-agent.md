@@ -1,6 +1,7 @@
 # F084 — Review-Agent
 
-**Status:** Entwurf (Feature-Schnitt 25.07.2026, Phase 5 noch nicht gestartet)
+**Status:** Implemented (31.07.2026) — Kern umgesetzt, pgvector-Lessons-Pfad
+bewusst ausgeklammert (§7)
 **Phase:** 5, Block 2 (Kern der Phase)
 **Abhängigkeiten:** F083 (Slippage-Malus, wird hier geschrieben), F082
 (Kennzahlen-Modul: nicht zwingend, aber Review nutzt ggf. Roh-Rendite-Helper).
@@ -104,3 +105,99 @@ Deviation, Slippage-Malus via F083); **LLM liefert nur** `verdict` +
 Bei Umsetzung. Rollback-Pfad (geplant): Scheduler-Job per Config-Flag
 (`review.enabled: false`) deaktivierbar; bereits geschriebene Reviews bleiben
 (reine Daten, kein Schaden).
+
+---
+
+# Umsetzung (31.07.2026)
+
+## 4. Implementierung
+
+`src/review/agent.py` (nicht `src/agents/review.py` wie oben geplant — `src/review/`
+existiert bereits mit `slippage.py`, ein zweites Verzeichnis für eine Datei wäre
+Selbstzweck gewesen).
+
+* `find_due_decisions` — zustandsfrei („EXECUTED, gefüllt, kein Review"), gedrosselt
+* `compute_review_inputs` — **Code rechnet**: expected/actual/deviation/slippage_malus
+  aus `expected_outcome`, `order_record`, `position_snapshot` + F083
+* `build_review_messages` / `parse_review_output` — **LLM urteilt nur**
+* `review_decision` — idempotent, eine `review`-Zeile
+* `run_review_sweep` — der Job; wirft nie
+* Scheduler-Job `review-sweep`, täglich 17:30 ET
+* Migration `a1b2c3d4e5f6`: Unique-Index `uq_review_decision_id`
+* Config `review:` in `config/llm.yaml` (`enabled`, `max_reviews_per_run`,
+  `intermediate_after_days`)
+
+### Abweichungen von der Planung oben — mit Begründung
+
+1. **Kein wiederkehrendes 14-Tage-Zwischen-Review.** §1 forderte „danach alle 14
+   Tage", §1 forderte gleichzeitig „genau eine `review`-Zeile je Decision
+   (idempotent)". Beides zusammen ist mit einem Unique-Constraint unmöglich. Gewählt:
+   **ein Review je Decision**. Die Lernschleife bleibt vollständig, weil die
+   schließende Sell/Close-Decision ihr *eigenes* Review bekommt — die offene
+   Buy-Position bekommt ihres nach 14 Tagen Haltedauer.
+2. **Täglicher Sweep statt Sonntag-Wochenlauf.** Die DoD lautet „binnen 7 Tagen";
+   ein Wochenlauf träfe das nur mit einem exakt 7-Tage-engen Fenster, der
+   Tageslauf mit Reserve.
+3. **Kein Bestandslauf.** §2 verlangt dafür Ralfs ausdrückliches Go — es lief genau
+   **ein** Review als Smoke-Test. 16 weitere sind fällig.
+
+## 5. Test & Verifikation
+
+24 Tests in `tests/review/test_review_agent.py` entlang §3; Gesamtsuite **776
+passed** (vorher 751), `ruff` und `mypy` sauber.
+
+### Paper-Smoke-Test (§3.7), live auf `atlas-ugreen`
+
+§3.7 setzte „1 echte geschlossene Position (existiert seit F077)" voraus — die gibt
+es aktuell **nicht**: der Bestand sind 28 gefüllte BUYs, keine gefüllte
+Sell/Close-Decision. Getestet wurde daher am Zwischen-Review einer offenen Position.
+
+```
+persona        | VULTURE
+instrument     | ALDX  (BUY)
+verdict        | THESIS_FAILED
+deviation      | -0.2000
+slippage_malus | 0.0141
+expected       | {"conviction": 0.4, "entry_price": 2.29, "stop_loss_price": 1.7175}
+actual         | {"fill_price": 2.16, "last_price": 1.8319, "position_open": true,
+                  "pnl_unrealized": -8.53, "fees": 0.0}
+lessons        | "Der Kurs fiel von 2.16 auf 1.83 (-15%) ... Die Recherche-Basis
+                  bestand nur aus reinen Indikatorwerten ohne fundamentalen
+                  Kontext oder Katalysator ..."
+```
+
+`deviation` gegengerechnet: (1.8319 − 2.29) / 2.29 = −0.2000 ✓ — gemessen gegen die
+**erwartete** Entry-Price der These, nicht gegen den Fill. Kosten: **0,0056 USD**,
+also rund ein Zehntel der §2-Schätzung (0,05–0,08). Der Bestandslauf über die
+restlichen 16 kostet damit ~0,09 USD statt 1,20–1,90.
+
+### Beim Smoke-Test gefunden und behoben
+
+`find_due_decisions` prüfte die Mengengrenze **nach** dem Anhängen — `limit=0`
+lieferte deshalb genau eine Decision statt keiner und hat ein echtes Review
+gekostet. Grenzprüfung an den Schleifenanfang gezogen, Regressionstest ergänzt,
+live gegengeprüft (`limit=0` → `reviewed=0`).
+
+## 6. Rollback
+
+`review.enabled: false` in `config/llm.yaml` + Rebuild (Config ist ins Image
+gebacken). Geschriebene Reviews bleiben — reine Daten. Die Migration ist
+rückwärts-lauffähig (`downgrade` löscht nur den Index).
+
+## 7. Ausgeklammert — mit Begründung
+
+**Der pgvector-Lessons-Pfad.** §1 fordert „Lessons → pgvector-Embedding, damit
+`research_search.py`-Retrieval sie in künftige Persona-Analysen einspeisen kann
+(Anbindung prüfen)". Geprüft: **es existiert keinerlei Embedding-Infrastruktur** —
+keine `vector`-Spalte in der DB, kein bge-m3, kein Embedding-Code, und
+`research_search.py` kennt weder Embeddings noch einen `persona_id`-Filter.
+
+Das ist ein eigenes Feature (lokales Embedding-Modell, Vektor-Spalte, Migration,
+Retrieval, plus der in §2 geforderte Fairness-Filter auf `persona_id` als
+Pflicht-Testfall) und nicht der Review-Agent. **Folge:** Lessons werden heute
+persistiert, fließen aber noch in keine Persona-Analyse zurück — die Lernschleife
+ist geschrieben, aber noch nicht geschlossen.
+
+**Meta-Review für `reject_idea`** (§5.2, max. 5/Woche stichprobenartig) — bewusst
+nicht mitgebaut, eigener Zuschnitt.
+

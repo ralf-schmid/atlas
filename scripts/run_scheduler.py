@@ -79,7 +79,7 @@ def main() -> None:
             session_factory, llm_client, llm_config, checkpointer=checkpointer
         )
 
-        scheduler = build_scheduler(graph, session_factory, cycles_config)
+        scheduler = build_scheduler(graph, session_factory, cycles_config, llm_client, llm_config)
         register_ingestion_jobs(scheduler, session_factory)
         signal.signal(signal.SIGTERM, _handle_signal)
         signal.signal(signal.SIGINT, _handle_signal)

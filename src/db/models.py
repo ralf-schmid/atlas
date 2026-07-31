@@ -243,6 +243,10 @@ class PortfolioSnapshot(Base):
 
 class Review(Base):
     __tablename__ = "review"
+    # F084: one review per decision. The agent's idempotency check ("no review yet")
+    # is application-level and races with a manually triggered sweep; this makes the
+    # duplicate an IntegrityError instead of a second row.
+    __table_args__ = (UniqueConstraint("decision_id", name="uq_review_decision_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decision.id"), nullable=False)

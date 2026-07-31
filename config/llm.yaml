@@ -31,6 +31,17 @@ research_agents:
   news_batch_size: 25
   market_enabled: true
 
+# F084: Review-Agent. Sonnet, laeuft als Scheduler-Job, nicht im Zyklus-Graphen.
+# `enabled: false` schaltet nur kuenftige Laeufe ab; geschriebene Reviews bleiben
+# (reine Daten) — das ist der Rollback-Pfad.
+review:
+  enabled: true
+  # Drosselung: der Bestand (24 EXECUTED-Decisions) soll sich ueber mehrere Laeufe
+  # verteilen statt in einem Schlag ~1,90 USD zu ziehen.
+  max_reviews_per_run: 10
+  # Haltedauer, ab der eine noch offene Buy-Position ein Zwischen-Review bekommt.
+  intermediate_after_days: 14
+
 roles:
   market_research:
     model: claude-haiku-4-5

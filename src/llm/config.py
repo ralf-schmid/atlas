@@ -55,6 +55,25 @@ class ResearchAgentsConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewConfig:
+    """F084 knobs. `enabled: false` is the rollback path — already-written reviews
+    stay, they are pure data and harm nothing."""
+
+    enabled: bool
+    max_reviews_per_run: int
+    intermediate_after_days: int
+
+    @classmethod
+    def from_raw(cls, raw: object) -> ReviewConfig:
+        values = raw if isinstance(raw, dict) else {}
+        return cls(
+            enabled=bool(values.get("enabled", False)),
+            max_reviews_per_run=int(values.get("max_reviews_per_run", 10)),
+            intermediate_after_days=int(values.get("intermediate_after_days", 14)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LlmConfig:
     base_url: str
     caps: CostCaps
@@ -63,6 +82,7 @@ class LlmConfig:
         # Missing section = feature off, so an older config file keeps working.
         default_factory=lambda: ResearchAgentsConfig.from_raw(None)
     )
+    review: ReviewConfig = field(default_factory=lambda: ReviewConfig.from_raw(None))
 
 
 def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
@@ -94,4 +114,5 @@ def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
         caps=caps,
         roles=roles,
         research_agents=ResearchAgentsConfig.from_raw(raw.get("research_agents")),
+        review=ReviewConfig.from_raw(raw.get("review")),
     )
