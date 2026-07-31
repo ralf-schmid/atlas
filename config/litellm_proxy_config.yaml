@@ -3,34 +3,11 @@
 # Keys kommen ausschliesslich aus Environment-Variablen (Invariante 6).
 
 model_list:
+  # Kanonisch: die Namen, auf die config/llm.yaml zeigt. Seit 31.07.2026 auf
+  # OpenCode Zen statt Anthropic direkt (F094/ADR-0011) — Anthropic-Guthaben war
+  # erschoepft. Rollback: diesen Block und den -anthropic-Block unten tauschen,
+  # dann `docker compose restart litellm` (Bind-Mount, kein Image-Rebuild).
   - model_name: claude-sonnet-5
-    litellm_params:
-      model: anthropic/claude-sonnet-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: claude-haiku-4-5
-    litellm_params:
-      model: anthropic/claude-haiku-4-5
-      api_key: os.environ/ANTHROPIC_API_KEY
-  - model_name: claude-haiku-4-5-groq
-    litellm_params:
-      model: groq/llama-3.3-70b-versatile
-      api_key: os.environ/GROQ_API_KEY
-
-  # --- OpenCode Zen (F094), noch nicht kanonisch geschaltet -------------------
-  # Absichtlich unter eigenen Namen: solange die Rollen in config/llm.yaml auf
-  # claude-sonnet-5 / claude-haiku-4-5 zeigen, aendert sich fuer ATLAS nichts.
-  # Umschalten = die Namen tauschen + `docker compose restart litellm`.
-  #
-  # api_base OHNE /v1: LiteLLM haengt "/v1/messages" selbst an (litellm/main.py,
-  # get_secret_bool("LITELLM_ANTHROPIC_DISABLE_URL_SUFFIX")-Zweig) — mit /v1
-  # wuerde daraus /v1/v1/messages. Auth ist x-api-key (Anthropic-nativ), live
-  # gegen den Endpunkt verifiziert; use_bearer_for_custom_base bleibt aus.
-  #
-  # model_info-Preise sind Pflicht, nicht Kosmetik: LiteLLM rechnet sonst mit
-  # Anthropics Preistabelle (oder gar nicht) und schreibt ueber den Header
-  # x-litellm-response-cost falsche/0.0-Kosten ins cost_ledger — das ist Ebene 2
-  # der doppelten Kostenbremse (Invariante 7). Stand 31.07.2026, Zen-Listenpreis.
-  - model_name: claude-sonnet-5-zen
     litellm_params:
       model: anthropic/claude-sonnet-5
       api_base: https://opencode.ai/zen
@@ -38,7 +15,7 @@ model_list:
     model_info:
       input_cost_per_token: 0.000002    # $2.00 / 1M
       output_cost_per_token: 0.00001    # $10.00 / 1M
-  - model_name: claude-haiku-4-5-zen
+  - model_name: claude-haiku-4-5
     litellm_params:
       model: anthropic/claude-haiku-4-5
       api_base: https://opencode.ai/zen
@@ -46,6 +23,36 @@ model_list:
     model_info:
       input_cost_per_token: 0.000001    # $1.00 / 1M
       output_cost_per_token: 0.000005   # $5.00 / 1M
+
+  # Rueckfallweg: Anthropic direkt. Bleibt dauerhaft konfiguriert, damit ein
+  # Zen-Ausfall (Gateway, Cloudflare) ein Namenstausch statt einer Recherche ist.
+  - model_name: claude-sonnet-5-anthropic
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+  - model_name: claude-haiku-4-5-anthropic
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+
+  - model_name: claude-haiku-4-5-groq
+    litellm_params:
+      model: groq/llama-3.3-70b-versatile
+      api_key: os.environ/GROQ_API_KEY
+
+# Zen-Routing-Details, live verifiziert (F094 §3.2), damit sie beim naechsten
+# Anfassen nicht neu erarbeitet werden muessen:
+#   * api_base OHNE /v1 — LiteLLM haengt "/v1/messages" selbst an
+#     (litellm/main.py:2605); mit /v1 wuerde /v1/v1/messages daraus.
+#   * Auth ist x-api-key (Anthropic-nativ), nicht Bearer —
+#     use_bearer_for_custom_base bleibt aus.
+#   * Modell-IDs mit Bindestrich. Die Web-Doku zeigt "claude-haiku-4.5" mit
+#     Punkt, das lehnt die API ab; GET /zen/v1/models ist die belastbare Quelle.
+#   * model_info-Preise sind tragend, nicht kosmetisch: sonst rechnet LiteLLM mit
+#     Anthropics Preistabelle und schreibt ueber x-litellm-response-cost falsche
+#     Kosten ins cost_ledger — Ebene 2 der Kostenbremse (Invariante 7), laut
+#     ADR-0010 die einzige aktive. Stand 31.07.2026, Zen-Listenpreis.
+#     Cache-Multiplikatoren (1.25x Write, 0.1x Read) wendet LiteLLM selbst an.
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY

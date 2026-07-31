@@ -1,7 +1,6 @@
-# ADR-0011: OpenCode Zen als alternative LLM-Route (vorbereitet, nicht kanonisch)
+# ADR-0011: OpenCode Zen als LLM-Route statt Anthropic direkt
 
-* Status: proposed — technisch verdrahtet und verifiziert, Umschaltung blockiert
-  durch fehlende Zahlungsmethode im Zen-Workspace
+* Status: accepted — kanonisch geschaltet am 31.07.2026
 * Deciders: Ralf Schmid
 * Datum: 2026-07-31
 * Betrifft Invariante(n): **#6** (Secrets), **#7** (Kosten-Caps), **#10** (Fairness)
@@ -32,15 +31,15 @@ nicht als Ersatz.
 
 ## Entscheidung
 
-Zen-Routen werden **vorbereitet, aber nicht kanonisch geschaltet**: sie liegen in
-`config/litellm_proxy_config.yaml` unter eigenen Namen (`claude-sonnet-5-zen`,
-`claude-haiku-4-5-zen`). Die Rollen in `config/llm.yaml` zeigen unverändert auf
-`claude-sonnet-5` / `claude-haiku-4-5`. Für ATLAS ändert sich damit nichts, bis die
-Namen getauscht werden.
+**Option 2.** Die kanonischen Modellnamen (`claude-sonnet-5`, `claude-haiku-4-5`),
+auf die `config/llm.yaml` zeigt, routen seit dem 31.07.2026 auf OpenCode Zen. Die
+Anthropic-Direktrouten bleiben unter `-anthropic`-Namen dauerhaft konfiguriert; ein
+Rückfall ist ein Namenstausch plus Proxy-Restart, keine Recherche.
 
-Begründung für das Staging: Zens Workspace hat keine Zahlungsmethode, jeder Call
-endet in `CreditsError`. Eine kanonische Umschaltung würde eine kaputte Route gegen
-eine andere kaputte Route tauschen und die Diagnose verschlechtern.
+Zwischenschritt (dokumentiert, weil er die Verifikation getragen hat): die
+Zen-Routen liefen zunächst unter eigenen `-zen`-Namen, solange Zens Workspace keine
+Zahlungsmethode hatte. Eine sofortige Umschaltung hätte damals nur eine kaputte
+Route gegen eine andere getauscht.
 
 ## Live verifizierte Fakten (31.07.2026)
 
@@ -50,7 +49,9 @@ eine andere kaputte Route tauschen und die Diagnose verschlechtern.
 | Modell-IDs | `claude-sonnet-5`, `claude-haiku-4-5` — **identisch** zu ATLAS' heutigen Namen | `GET /zen/v1/models` |
 | Cloudflare-Bot-Schutz | `httpx` und `curl` kommen durch, Python-`urllib` bekommt 403/1010 | Aufruf aus dem `atlas-litellm-1`-Container |
 | URL-Konstruktion | `api_base: …/zen` → LiteLLM hängt `/v1/messages` an | `litellm/main.py:2605`, Log-URL gegengeprüft |
-| Ende-zu-Ende durch den Proxy | erreicht Zen, scheitert **nur** an `CreditsError` | Call über `atlas-scheduler-1` → Proxy → Zen |
+| Ende-zu-Ende durch den Proxy | funktioniert | Call über `atlas-scheduler-1` → Proxy → Zen |
+| Kostenerfassung | `x-litellm-response-cost` gesetzt und **auf den Cent korrekt** | Haiku 14 in/4 out → `3.4e-05`; Sonnet 15/4 → `7e-05` — exakt die `model_info`-Preise |
+| Prompt Caching | funktioniert, inkl. korrekter Cache-Multiplikatoren | 2 Läufe mit `cache_control`: Lauf 1 `cache_write=7484` / $0.018776, Lauf 2 `cache_read=7484` / $0.0015628 (12× günstiger) |
 
 Die Doku auf opencode.ai zeigt die Haiku-ID als `claude-haiku-4.5` (mit Punkt) — das
 ist **falsch**, die API kennt nur `claude-haiku-4-5`. `GET /v1/models` ist die
@@ -63,8 +64,12 @@ verlässliche Quelle.
 * Modell-IDs identisch → **keine Änderung an `config/llm.yaml`**, kein Rebuild der
   App-Services. Umschalten ist ein Namenstausch + `docker compose restart litellm`
   (Bind-Mount, kein Image-Rebuild), Rollback ebenso, ~10 Sekunden.
-* Prompt Caching (laut CLAUDE.md Pflicht) läuft nativ durch — LiteLLM reicht
-  `cache_control` unverändert an den Anthropic-Spec-Endpunkt weiter.
+* Prompt Caching läuft nativ durch — LiteLLM reicht `cache_control` unverändert an
+  den Anthropic-Spec-Endpunkt weiter, Zen bucht Write/Read korrekt ab. **Achtung:**
+  ATLAS *sendet* heute gar kein `cache_control` — `prompt_caching` in
+  `config/llm.yaml` ist ein Flag ohne Auswirkung (F006 sagt das selbst). Das ist eine
+  vorbestehende Lücke gegenüber CLAUDE.md, kein Zen-Thema, und durch diesen Wechsel
+  weder besser noch schlechter geworden.
 * Zweite, unabhängige Bezugsquelle für dieselben Modelle.
 
 ### Negativ / Risiken
@@ -75,8 +80,9 @@ verlässliche Quelle.
   fällt dann bewusst auf `0.0` zurück (Security-Audit P7) und `cost_ledger` würde
   still Nullen schreiben — die einzige aktive Kostenbremse (ADR-0010: Ebene 1 ist
   nicht scharf) wäre wirkungslos. **Gegenmaßnahme:** `model_info`-Preise explizit
-  gesetzt. **Offen:** muss nach dem ersten echten Call gegen die Zen-Abrechnung
-  verifiziert werden — Preise sind ein Stand vom 31.07.2026 und driften.
+  gesetzt und live gegengerechnet (siehe Tabelle oben). **Rest-Risiko:** die Preise
+  sind ein Stand vom 31.07.2026. Ändert Zen die Liste, driftet `cost_ledger`
+  lautlos — die Werte gehören bei jeder Preisänderung nachgezogen.
 * **Fairness (Invariante #10).** Alle sechs Personas laufen über dieselbe Route, kein
   Persona bekommt einen Vorteil — die Invariante im engeren Sinn ist gewahrt. Der
   Vergleich über die 8 Wochen bekommt aber einen Provider-Bruch. Bei identischem
@@ -92,10 +98,12 @@ verlässliche Quelle.
   belastbarer Vorteil — der Wechsel ist heute eine Frage der Verfügbarkeit, nicht
   des Preises.
 
-## Offene Punkte vor kanonischer Umschaltung
+## Offene Punkte
 
-1. Zahlungsmethode im Zen-Workspace hinterlegen (nur Ralf).
-2. Echter Call → prüfen, dass `cost_usd` ≠ 0.0 im `cost_ledger` landet.
-3. Prüfen, dass Cache-Tokens gezählt werden (Prompt Caching wirksam).
-4. Paper-Smoke-Test: ein vollständiger Zyklus über die Zen-Route.
-5. Erst danach Namen tauschen, ADR-Status auf `accepted`.
+1. **Provider-Bruch ins Wettbewerbsprotokoll** eintragen (31.07.2026, Zyklus-Ebene).
+2. **`model_info`-Preise bei jeder Zen-Preisänderung nachziehen** — sonst driftet
+   `cost_ledger` lautlos.
+3. **Prompt Caching tatsächlich senden** — heute ist es nur ein Config-Flag. Eigenes
+   Feature, nicht Teil von F094.
+4. **Nach dem 31.08.2026 neu bewerten:** erst mit dem Ablauf des
+   Sonnet-5-Einführungspreises (ADR-0008) wird der Preisvergleich aussagekräftig.
