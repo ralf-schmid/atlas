@@ -187,15 +187,61 @@ Zyklenschutz über eine `seen`-Menge — `raise X from X` würde sonst endlos la
 | 19 | Innerste Ursache aus verschachtelter Kette | ebd. |
 | 20 | Ursache einzeilig + gekürzt | ebd. |
 | 21 | Selbstreferentielle `__cause__`-Kette terminiert | ebd. |
+| 22 | Angereicherte Message übersteht den Cause-Walk (§5.1) | `tests/llm/test_client.py` |
 
-**Ergebnis:** 726 passed, 26 deselected. `ruff check` sauber,
+**Ergebnis:** 727 passed, 26 deselected. `ruff check` sauber,
 `mypy src/risk src/broker` sauber.
 
-## 5. Verifikation live
+## 5. Verifikation live (31.07.2026, `atlas-ugreen`)
 
-- `aktienfinder`-Job manuell im Container ausgelöst → siehe §6, Nachweise.
-- EDGAR/CoinGecko: Retry-Pfad greift nur bei transientem Upstream-Fehler,
-  Beobachtung über die Alarm-Frequenz der Folgetage.
+Deployt per `scp` der sechs Quelldateien (jede einzeln mit vollem Zielpfad,
+SHA-256 gegengeprüft) + `docker compose build api scheduler telegram-bot` +
+`up -d`. Keine Compose-/Port-/Env-Änderung, daher **keine** Nachführung in
+`ugreen-Box/Informationen/TRUENAS_HOMELAB.md` nötig.
+
+**aktienfinder — der eigentliche Nachweis.** Job manuell im Container gestartet:
+
+```
+SNAPSHOTS: 6
+ snapshot_date | count        symbol    | div_rows |   price
+---------------+------     -------------+----------+------------
+ 2026-07-31    |     6      DE0007164600 |        8 | 158.22 EUR
+ 2026-07-29    |     6      DE0008430026 |        8 | 522.40 EUR
+ 2026-07-27    |     6      US0378331005 |        8 | 258.79 EUR
+```
+
+6/6 ISINs, jeweils mit echtem Kurs und 8 Dividendenzeilen — die Selector-Waits
+liefern also vollständige Daten, nicht bloß leere Felder. 30./31.07. waren zuvor
+0/6. Die Lücke vom 30.07. bleibt bestehen (nicht rückwirkend nachholbar).
+
+**EDGAR / CoinGecko** gegen die echten Upstreams im neuen Image:
+
+```
+EDGAR new filings: 3
+CoinGecko rows: 1
+```
+
+**Fehler-Diagnose** — im Container gegen den real fehlschlagenden LiteLLM-Call:
+
+```
+ALERT WOULD SAY -> HTTPStatusError: Client error '400 Bad Request' for url
+'http://litellm:4000/chat/completions' ... Response body: {"error":{"message":
+"litellm.BadRequestError: AnthropicException - ... Your credit balance is too low
+```
+
+### 5.1 Beim Live-Test gefunden und behoben
+
+Die erste Fassung von §3.5 und §3.6 hoben sich gegenseitig auf: der Body wurde per
+`raise httpx.HTTPStatusError(...) from exc` an eine **neue** Exception gehängt,
+während `format_cycle_failure_cause` bis zur innersten `__cause__` läuft — und
+damit genau an der Anreicherung vorbei, zurück auf die nackte Originalmeldung.
+Der erste Live-Lauf zeigte weiterhin nur `Client error '400 Bad Request'`.
+
+Behoben, indem `_raise_for_status_with_body` die **bestehende** Exception per
+`exc.args` anreichert und mit blankem `raise` weiterwirft — keine neue Exception,
+keine Kettenänderung. Regressionstest
+`test_error_body_survives_the_cycle_alert_cause_walk` deckt genau dieses
+Zusammenspiel ab (Test 22).
 
 ## 6. Rollback
 

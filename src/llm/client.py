@@ -106,13 +106,14 @@ def _raise_for_status_with_body(response: httpx.Response) -> None:
         response.raise_for_status()
     except httpx.HTTPStatusError as exc:
         body = response.text.strip()
-        if not body:
-            raise
-        raise httpx.HTTPStatusError(
-            f"{exc}\nResponse body: {body[:_MAX_ERROR_BODY_CHARS]}",
-            request=exc.request,
-            response=exc.response,
-        ) from exc
+        if body:
+            # Enrich in place and re-raise the *same* exception rather than
+            # chaining a new one: `format_cycle_failure_cause` walks to the
+            # innermost `__cause__` to get past LangGraph's wrapping, so a
+            # `raise ... from exc` here would put the enriched message on the
+            # outer exception and hand the alert the bare original back.
+            exc.args = (f"{exc.args[0]}\nResponse body: {body[:_MAX_ERROR_BODY_CHARS]}",)
+        raise
 
 
 def _parse_tool_call(raw: dict[str, object]) -> ToolCall:

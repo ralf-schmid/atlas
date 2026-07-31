@@ -362,3 +362,27 @@ def test_http_error_with_empty_body_still_raises_the_original_error():
         assert exc.response.status_code == 502
     else:
         raise AssertionError("expected HTTPStatusError")
+
+
+def test_error_body_survives_the_cycle_alert_cause_walk():
+    """Regression (F093): `format_cycle_failure_cause` walks to the innermost
+    `__cause__` to get past LangGraph's wrapping. Chaining a *new* enriched
+    exception here put the body on the outer one and handed the alert the bare
+    original back — caught live on the box, the alert read only
+    "Client error '400 Bad Request'"."""
+    from src.orchestrator.scheduler import format_cycle_failure_cause
+
+    body = '{"error":{"message":"Your credit balance is too low."}}'
+    client = LiteLLMClient(
+        base_url="http://localhost:4000", api_key="test-key", http_client=_error_client(400, body)
+    )
+
+    try:
+        try:
+            client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+        except httpx.HTTPStatusError as inner:
+            raise RuntimeError("During task with name 'persona_analysis'") from inner
+    except RuntimeError as outer:
+        cause = format_cycle_failure_cause(outer)
+
+    assert "credit balance is too low" in cause
