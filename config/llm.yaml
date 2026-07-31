@@ -17,6 +17,20 @@ caps:
   monthly_soft_cap_usd: 240.0
   monthly_soft_cap_warn_pct: 0.8
 
+# F095: Budget-Grenzen der beiden Recherche-Agenten. Bewusst Config statt Code —
+# ein Kostenausrutscher ist damit eine Config-Aenderung, kein Deploy.
+# `enabled: false` stellt exakt das Verhalten vor F095 wieder her (der
+# deterministische Synthese-Pfad bleibt unangetastet) und ist der Rollback-Weg.
+research_agents:
+  enabled: true
+  # Ein Zyklus erzeugt ~1050 News-Items. Alle anzureichern waere bei 8 Zyklen/Tag
+  # ~4 USD/Tag allein hierfuer; 200 neueste Items je Zyklus landen bei ~0.6 USD/Tag
+  # und decken die aktuellen Nachrichten ab. Nach oben anpassen, sobald die
+  # gemessenen Tageskosten Luft lassen (Cap: 10 USD/Tag System).
+  news_max_items_per_cycle: 200
+  news_batch_size: 25
+  market_enabled: true
+
 roles:
   market_research:
     model: claude-haiku-4-5

@@ -26,6 +26,7 @@ from src.db.models import Cycle, MarketSession, Persona, Portfolio
 from src.llm.client import LiteLLMClient
 from src.llm.config import LlmConfig
 from src.orchestrator.persona_analysis import analyze_persona_cycle
+from src.orchestrator.research_agents import enrich_research_items
 from src.orchestrator.research_synthesis import synthesize_research_items
 
 
@@ -99,6 +100,12 @@ def build_and_compile_graph(
         with session_factory() as session:
             cycle = session.get_one(Cycle, uuid.UUID(state["cycle_id"]))
             items = synthesize_research_items(session, cycle)
+            # F095: the LLM research roles run on top of the deterministic pass and
+            # never raise — a pool without sentiment still beats no pool at all, so
+            # persona_analysis must not be blocked by an enrichment failure.
+            enrich_research_items(
+                session, cycle, items, llm_client, llm_config, llm_config.research_agents
+            )
             session.commit()
             return {"research_item_ids": [str(item.id) for item in items]}
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -29,10 +29,40 @@ class CostCaps:
 
 
 @dataclass(frozen=True, slots=True)
+class ResearchAgentsConfig:
+    """F095 budget knobs for the two shared research roles.
+
+    Lives here rather than next to the agents themselves so `LlmConfig` can carry it
+    without `src/llm` importing from `src/orchestrator`. `enabled: false` restores
+    the pre-F095 behaviour exactly — the deterministic synthesis pass is untouched —
+    and is the documented rollback path.
+    """
+
+    enabled: bool
+    news_max_items_per_cycle: int
+    news_batch_size: int
+    market_enabled: bool
+
+    @classmethod
+    def from_raw(cls, raw: object) -> ResearchAgentsConfig:
+        values = raw if isinstance(raw, dict) else {}
+        return cls(
+            enabled=bool(values.get("enabled", False)),
+            news_max_items_per_cycle=int(values.get("news_max_items_per_cycle", 200)),
+            news_batch_size=int(values.get("news_batch_size", 25)),
+            market_enabled=bool(values.get("market_enabled", True)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LlmConfig:
     base_url: str
     caps: CostCaps
     roles: dict[str, RoleConfig]
+    research_agents: ResearchAgentsConfig = field(
+        # Missing section = feature off, so an older config file keeps working.
+        default_factory=lambda: ResearchAgentsConfig.from_raw(None)
+    )
 
 
 def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
@@ -59,4 +89,9 @@ def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
     # own network namespace — the scheduler container overrides it via this env var
     # to reach the litellm service by its Compose DNS name.
     base_url = os.environ.get("LITELLM_BASE_URL", raw["base_url"])
-    return LlmConfig(base_url=base_url, caps=caps, roles=roles)
+    return LlmConfig(
+        base_url=base_url,
+        caps=caps,
+        roles=roles,
+        research_agents=ResearchAgentsConfig.from_raw(raw.get("research_agents")),
+    )
