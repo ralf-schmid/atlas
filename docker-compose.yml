@@ -29,6 +29,9 @@ services:
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       GROQ_API_KEY: ${GROQ_API_KEY}
+      # F094: OpenCode-Zen-Route. Leer lassen ist ok, solange die Zen-Eintraege in
+      # config/litellm_proxy_config.yaml nicht kanonisch geschaltet sind.
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY:-}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
     volumes:
       - ./config/litellm_proxy_config.yaml:/app/config.yaml
