@@ -19,8 +19,14 @@ import yaml
 from sqlalchemy.orm import Session
 
 from src.db.models import BtcDominanceSnapshot
+from src.ingestion.http_retry import RETRYABLE_STATUSES, get_with_retry
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
+_TIMEOUT = 20.0
+# F093: the free tier throttles at its edge with 503 *and* 400. `/global` takes no
+# request parameters at all, so a 400 here cannot be a genuine client error —
+# it is upstream throttling wearing the wrong status code, and worth a retry.
+_RETRYABLE_STATUSES = RETRYABLE_STATUSES | {400}
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,8 +44,11 @@ class HttpCoinGeckoProvider:
         self._base_url = base_url
 
     def fetch_global_market(self) -> GlobalMarketReading:
-        response = httpx.get(self._base_url, timeout=10.0)
-        response.raise_for_status()
+        response = get_with_retry(
+            lambda: httpx.get(self._base_url, timeout=_TIMEOUT),
+            label="CoinGecko-Global",
+            retryable_statuses=_RETRYABLE_STATUSES,
+        )
         return parse_global_response(response.json())
 
 

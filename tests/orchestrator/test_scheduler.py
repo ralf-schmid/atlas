@@ -4,12 +4,18 @@ never `.start()`ed — pure job-registration inspection, no real time trigger.""
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from src.db.models import MarketSession
 from src.orchestrator import scheduler as scheduler_module
 from src.orchestrator.cycles_config import CyclesConfig, StockCycle, load_cycles_config
-from src.orchestrator.scheduler import _daily_digest_job, _run_cycle_job, build_scheduler
+from src.orchestrator.scheduler import (
+    _daily_digest_job,
+    _run_cycle_job,
+    build_scheduler,
+    format_cycle_failure_cause,
+)
 from src.telegram.config import TelegramConfig
 
 
@@ -167,6 +173,42 @@ def test_run_cycle_job_alerts_on_second_consecutive_failure(
 
     assert len(sent) == 1
     assert "2x in Folge" in sent[0]
+    assert "Ursache: RuntimeError: x" in sent[0]
+
+
+def test_cycle_failure_alert_reports_the_innermost_cause() -> None:
+    """F093: LangGraph wraps the real error, so the outer exception says nothing.
+    Live, 34h of "Zyklus 2x fehlgeschlagen" hid a single actionable cause."""
+    try:
+        try:
+            raise httpx.HTTPStatusError(
+                "Client error '400 Bad Request'\nResponse body: credit balance is too low",
+                request=httpx.Request("POST", "http://litellm:4000/chat/completions"),
+                response=httpx.Response(400),
+            )
+        except httpx.HTTPStatusError as inner:
+            raise RuntimeError("During task with name 'persona_analysis'") from inner
+    except RuntimeError as outer:
+        cause = format_cycle_failure_cause(outer)
+
+    assert cause.startswith("HTTPStatusError: ")
+    assert "credit balance is too low" in cause
+
+
+def test_cycle_failure_alert_cause_is_truncated_and_single_line() -> None:
+    cause = format_cycle_failure_cause(RuntimeError("a\nb " + "x" * 1000))
+
+    assert "\n" not in cause
+    assert cause.startswith("RuntimeError: a b ")
+    assert len(cause) <= 400
+
+
+def test_cycle_failure_alert_survives_a_self_referential_cause_chain() -> None:
+    """`raise X from X` would otherwise loop forever inside the alert path."""
+    exc = RuntimeError("boom")
+    exc.__cause__ = exc
+
+    assert format_cycle_failure_cause(exc) == "RuntimeError: boom"
 
 
 def test_run_cycle_job_resets_failure_streak_on_success(monkeypatch, _fake_telegram_config) -> None:

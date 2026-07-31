@@ -1,5 +1,6 @@
 import datetime
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -7,6 +8,7 @@ from src.ingestion import aktienfinder_grabbing as aktienfinder_grabbing_module
 from src.ingestion.aktienfinder_grabbing import (
     AktienfinderLoginError,
     Snapshot,
+    _grab_isins,
     _map_screener_row,
     _merge_fields,
     extract_dividend_history,
@@ -303,3 +305,58 @@ def test_extract_dividend_history_skips_malformed_rows():
     assert history == [
         {"ex_date": "11.05.2026", "pay_date": "14.05.2026", "amount": "0,27 USD", "type": "Regulär"}
     ]
+
+
+class _StubPage:
+    """Minimal stand-in for the Playwright `Page` handed to `_grab_isins` — only
+    identity matters, the grab itself is patched out."""
+
+
+def _snapshot(symbol: str) -> Snapshot:
+    return Snapshot(symbol=symbol, fields={"price": "1"}, screenshot_path=f"/tmp/{symbol}.png")
+
+
+def test_grab_isins_skips_a_failing_isin_and_keeps_the_rest():
+    """F093: a single flaky profile page used to abort the whole daily grab —
+    live on 2026-07-30/31 that cost all six ISINs their snapshot."""
+
+    def fake_grab(page, isin, field_selectors, screenshot_dir, snapshot_date):
+        if isin == "BAD":
+            raise TimeoutError("navigation timeout")
+        return _snapshot(isin)
+
+    with patch("src.ingestion.aktienfinder_grabbing.grab_isin_snapshot", fake_grab):
+        snapshots = _grab_isins(
+            _StubPage(), ["A", "BAD", "B"], {}, {}, Path("/tmp"), datetime.date(2026, 7, 31)
+        )
+
+    assert [s.symbol for s in snapshots] == ["A", "B"]
+
+
+def test_grab_isins_merges_screener_fields_into_the_kept_snapshots():
+    with patch(
+        "src.ingestion.aktienfinder_grabbing.grab_isin_snapshot",
+        lambda *a, **k: _snapshot(a[1]),
+    ):
+        snapshots = _grab_isins(
+            _StubPage(),
+            ["A"],
+            {},
+            {"A": {"pe_ratio": "12"}},
+            Path("/tmp"),
+            datetime.date(2026, 7, 31),
+        )
+
+    assert snapshots[0].fields == {"price": "1", "pe_ratio": "12"}
+
+
+def test_grab_isins_reraises_when_every_isin_fails():
+    """A real outage (site down, login broken) must still reach the scheduler's
+    failure alert instead of silently persisting zero rows."""
+
+    def always_fail(*args, **kwargs):
+        raise TimeoutError("navigation timeout")
+
+    with patch("src.ingestion.aktienfinder_grabbing.grab_isin_snapshot", always_fail):
+        with pytest.raises(TimeoutError):
+            _grab_isins(_StubPage(), ["A", "B"], {}, {}, Path("/tmp"), datetime.date(2026, 7, 31))

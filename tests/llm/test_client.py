@@ -305,3 +305,60 @@ def test_complete_returns_empty_tool_calls_when_absent():
 
 def httpx_json(request: httpx.Request) -> dict:
     return json.loads(request.content)
+
+
+def _error_client(status: int, body: str) -> httpx.Client:
+    return httpx.Client(
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, text=body))
+    )
+
+
+def test_http_error_message_carries_the_response_body():
+    """F093: LiteLLM answers a rejected upstream call with a bare 400 — the reason
+    lives only in the body. Live, 34h of failed cycles logged nothing but
+    "Client error '400 Bad Request'" while the body named the actual cause."""
+    body = (
+        '{"error":{"message":"Your credit balance is too low to access the '
+        'Anthropic API.","type":"invalid_request_error"}}'
+    )
+    client = LiteLLMClient(
+        base_url="http://localhost:4000", api_key="test-key", http_client=_error_client(400, body)
+    )
+
+    try:
+        client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+    except httpx.HTTPStatusError as exc:
+        assert "400 Bad Request" in str(exc)
+        assert "credit balance is too low" in str(exc)
+        assert exc.response.status_code == 400
+    else:
+        raise AssertionError("expected HTTPStatusError")
+
+
+def test_http_error_body_is_truncated():
+    client = LiteLLMClient(
+        base_url="http://localhost:4000",
+        api_key="test-key",
+        http_client=_error_client(500, "x" * 5_000),
+    )
+
+    try:
+        client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+    except httpx.HTTPStatusError as exc:
+        assert len(str(exc)) < 2_000
+    else:
+        raise AssertionError("expected HTTPStatusError")
+
+
+def test_http_error_with_empty_body_still_raises_the_original_error():
+    client = LiteLLMClient(
+        base_url="http://localhost:4000", api_key="test-key", http_client=_error_client(502, "")
+    )
+
+    try:
+        client.complete(model="claude-sonnet-5", messages=[{"role": "user", "content": "hi"}])
+    except httpx.HTTPStatusError as exc:
+        assert "Response body" not in str(exc)
+        assert exc.response.status_code == 502
+    else:
+        raise AssertionError("expected HTTPStatusError")

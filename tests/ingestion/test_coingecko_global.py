@@ -82,3 +82,26 @@ def test_run_coingecko_sync_reads_config_and_calls_provider(session, tmp_path):
     rows = session.scalars(select(BtcDominanceSnapshot)).all()
     assert len(rows) == 1
     assert rows[0].btc_dominance_pct == Decimal("54.231")
+
+
+def test_run_coingecko_sync_retries_upstream_throttling(session, tmp_path):
+    """F093: the free tier answers 503 *and* 400 when it throttles — `/global`
+    takes no parameters, so neither can be a genuine client error."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text('coingecko:\n  base_url: "https://api.coingecko.com/api/v3/global"\n')
+    request = httpx.Request("GET", "https://api.coingecko.com/api/v3/global")
+    responses = [
+        httpx.Response(503, request=request),
+        httpx.Response(400, request=request),
+        httpx.Response(200, json=_SAMPLE_RESPONSE, request=request),
+    ]
+
+    with (
+        patch(
+            "src.ingestion.coingecko_global.httpx.get", side_effect=lambda *a, **k: responses.pop(0)
+        ),
+        patch("src.ingestion.http_retry.time.sleep"),
+    ):
+        assert run_coingecko_sync(session, config_path=config_path) == 1
+
+    assert responses == []

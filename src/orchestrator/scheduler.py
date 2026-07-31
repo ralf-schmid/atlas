@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 # this scheduler process is a long-lived singleton, restarts are rare, and losing
 # a streak on restart only delays the next alert by up to one extra failure.
 _CONSECUTIVE_FAILURE_ALERT_THRESHOLD = 2
+_MAX_ALERT_CAUSE_CHARS = 400
 _consecutive_failures: dict[str, int] = {}
 
 
@@ -264,7 +265,7 @@ def _run_cycle_job(
     try:
         run_one_cycle(graph, session_factory, trading_day, seq, market_session)
         _consecutive_failures[job_key] = 0
-    except Exception:
+    except Exception as exc:
         logger.error(
             "cycle failed",
             exc_info=True,
@@ -278,17 +279,41 @@ def _run_cycle_job(
         _consecutive_failures[job_key] = failure_count
         if failure_count >= _CONSECUTIVE_FAILURE_ALERT_THRESHOLD:
             _consecutive_failures[job_key] = 0  # re-arm: alert again after 2 more fails
-            _send_cycle_failure_alert(job_key, failure_count)
+            _send_cycle_failure_alert(job_key, failure_count, exc)
 
 
-def _send_cycle_failure_alert(job_key: str, failure_count: int) -> None:
+def format_cycle_failure_cause(exc: BaseException) -> str:
+    """One-line root cause for the alert (F093).
+
+    "Zyklus X ist 2x fehlgeschlagen" alone sent Ralf to the container logs every
+    time — live, 34h of identical alerts hid a single cause (exhausted Anthropic
+    credits). LangGraph wraps the real error, so walk to the innermost `__cause__`/
+    `__context__`, which is where the provider's message actually sits.
+    """
+    root: BaseException = exc
+    seen = {id(exc)}
+    while True:
+        nxt = root.__cause__ or root.__context__
+        if nxt is None or id(nxt) in seen:
+            break
+        seen.add(id(nxt))
+        root = nxt
+
+    text = " ".join(str(root).split()) or root.__class__.__name__
+    return f"{root.__class__.__name__}: {text}"[:_MAX_ALERT_CAUSE_CHARS]
+
+
+def _send_cycle_failure_alert(job_key: str, failure_count: int, exc: BaseException) -> None:
     """Best-effort — a Telegram outage must not take down the scheduler thread
     either (same non-fatal contract as the cycle failure itself)."""
     from src.telegram.alerts import send_alert
 
     try:
         telegram_config = load_telegram_config()
-        text = f"⚠️ ATLAS-Zyklus {job_key} ist {failure_count}x in Folge fehlgeschlagen."
+        text = (
+            f"⚠️ ATLAS-Zyklus {job_key} ist {failure_count}x in Folge fehlgeschlagen.\n"
+            f"Ursache: {format_cycle_failure_cause(exc)}"
+        )
         asyncio.run(send_alert(telegram_config, text))
     except Exception:
         logger.error("failed to send cycle-failure Telegram alert", exc_info=True)

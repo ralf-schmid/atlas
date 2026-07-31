@@ -88,13 +88,16 @@ def test_http_edgar_feed_provider_sends_user_agent():
         mock_get.assert_called_once_with(
             "https://www.sec.gov/feed",
             headers={"User-Agent": "ATLAS/1.0 (ralf@example.com)"},
-            timeout=10.0,
+            timeout=30.0,
         )
         assert len(filings) == 2
 
 
 def test_http_edgar_feed_provider_raises_on_http_error():
-    with patch("src.ingestion.edgar_rss.httpx.get") as mock_get:
+    with (
+        patch("src.ingestion.edgar_rss.httpx.get") as mock_get,
+        patch("src.ingestion.http_retry.time.sleep"),
+    ):
         mock_get.return_value = httpx.Response(
             503, request=httpx.Request("GET", "https://www.sec.gov/feed")
         )
@@ -104,6 +107,33 @@ def test_http_edgar_feed_provider_raises_on_http_error():
         )
         with pytest.raises(httpx.HTTPStatusError):
             provider.fetch_current_filings()
+
+
+def test_http_edgar_feed_provider_retries_a_read_timeout(monkeypatch):
+    """F093: sec.gov regularly answers slower than the read timeout (12 failures
+    in 30h live) — one transient timeout must not fail the whole ingestion job."""
+    outcomes: list[object] = [
+        httpx.ReadTimeout("timed out"),
+        httpx.Response(
+            200, text=_SAMPLE_FEED, request=httpx.Request("GET", "https://www.sec.gov/feed")
+        ),
+    ]
+
+    def fake_get(*args, **kwargs):
+        result = outcomes.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr("src.ingestion.edgar_rss.httpx.get", fake_get)
+    with patch("src.ingestion.http_retry.time.sleep"):
+        provider = HttpEdgarFeedProvider(
+            feed_url="https://www.sec.gov/feed", user_agent="ATLAS/1.0"
+        )
+        filings = provider.fetch_current_filings()
+
+    assert len(filings) == 2
+    assert outcomes == []
 
 
 def test_sync_edgar_filings_returns_zero_for_empty_list(session):
@@ -187,7 +217,7 @@ def test_http_edgar_feed_provider_appends_form_type_to_url():
         mock_get.assert_called_once_with(
             "https://www.sec.gov/feed&type=SC+13D",
             headers={"User-Agent": "ATLAS/1.0"},
-            timeout=10.0,
+            timeout=30.0,
         )
 
 
@@ -297,5 +327,5 @@ def test_run_current_filings_sync_without_form_types_makes_a_single_unfiltered_r
         mock_get.assert_called_once_with(
             "https://www.sec.gov/feed",
             headers={"User-Agent": "ATLAS/1.0 (test@example.com)"},
-            timeout=10.0,
+            timeout=30.0,
         )

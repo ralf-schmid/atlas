@@ -42,6 +42,7 @@ class LLMResponse:
 # before answering — live-measured against Groq's 12k-TPM free tier (F046); a
 # shorter read timeout turns every such retry window into a lost response.
 _DEFAULT_TIMEOUT = httpx.Timeout(300.0, connect=10.0)
+_MAX_ERROR_BODY_CHARS = 1_000
 
 
 class LiteLLMClient:
@@ -73,7 +74,7 @@ class LiteLLMClient:
             json=body,
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
-        response.raise_for_status()
+        _raise_for_status_with_body(response)
         data = response.json()
         usage = data["usage"]
         cost_usd = _parse_cost_header(response.headers.get("x-litellm-response-cost"))
@@ -90,6 +91,28 @@ class LiteLLMClient:
             tool_calls=tool_calls,
             finish_reason=str(finish_reason) if finish_reason is not None else None,
         )
+
+
+def _raise_for_status_with_body(response: httpx.Response) -> None:
+    """`raise_for_status()` alone loses the only part that says *why* (F093).
+
+    LiteLLM answers a rejected upstream call with a plain 400 whose body carries
+    the provider's real message. Live: every cycle failed for 34h with nothing in
+    the log but "Client error '400 Bad Request'", while the body said the Anthropic
+    credit balance was exhausted. Truncated because a provider error can echo the
+    whole request back, and this ends up in a log line and a Telegram alert.
+    """
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        body = response.text.strip()
+        if not body:
+            raise
+        raise httpx.HTTPStatusError(
+            f"{exc}\nResponse body: {body[:_MAX_ERROR_BODY_CHARS]}",
+            request=exc.request,
+            response=exc.response,
+        ) from exc
 
 
 def _parse_tool_call(raw: dict[str, object]) -> ToolCall:

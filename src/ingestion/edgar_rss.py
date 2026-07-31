@@ -22,8 +22,12 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.db.models import EdgarFiling
+from src.ingestion.http_retry import get_with_retry
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
+# F093: 10s was too tight for sec.gov under load — the feed is a live query against
+# the whole filing index and regularly needs 10-20s (12 read timeouts in 30h live).
+_TIMEOUT = 30.0
 _ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 _ACCESSION_RE = re.compile(r"accession-number=([\d-]+)")
 _TITLE_RE = re.compile(r"^(?P<form>\S+)\s+-\s+(?P<name>.+?)\s+\((?P<cik>\d+)\)")
@@ -66,8 +70,10 @@ class HttpEdgarFeedProvider:
         url = self._feed_url
         if form_type is not None:
             url = f"{url}&type={quote_plus(form_type)}"
-        response = httpx.get(url, headers={"User-Agent": self._user_agent}, timeout=10.0)
-        response.raise_for_status()
+        response = get_with_retry(
+            lambda: httpx.get(url, headers={"User-Agent": self._user_agent}, timeout=_TIMEOUT),
+            label="EDGAR-RSS",
+        )
         return parse_atom_feed(response.text)
 
 

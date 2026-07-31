@@ -18,6 +18,7 @@ functions are.
 from __future__ import annotations
 
 import datetime
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,19 @@ from src.db.models import AktienfinderSnapshot
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 _BASE_URL = "https://aktienfinder.net"
+
+logger = logging.getLogger(__name__)
+
+_NAV_MS = 45_000
+# F093: `wait_until="networkidle"` was the wrong readiness signal for these pages —
+# they keep background traffic alive (charts, analytics), so "no request for 500ms"
+# is never reliably reached and the grab died on a 30s navigation timeout on two
+# consecutive days, losing all six ISINs each time. Wait for the element the
+# extractor actually needs instead: the profile's tile list (every entry in
+# `aktienfinder.field_selectors` hangs off it) and the dividend table
+# `extract_dividend_history` reads.
+_PROFILE_READY_SELECTOR = "li.stockprofile-tiles__list-item"
+_DIVIDEND_READY_SELECTOR = "table tbody tr"
 
 
 class AktienfinderLoginError(RuntimeError):
@@ -147,14 +161,16 @@ def grab_isin_snapshot(
     """Full real grab for one ISIN: navigates to the stock-profile view (scalar
     fields + screenshot via `extract_snapshot`), then the dividend-profile view
     (dividend history table), merges both into one `Snapshot`."""
-    page.goto(f"{_BASE_URL}/aktien-profil/{isin}", wait_until="networkidle", timeout=30_000)
-    page.wait_for_timeout(1_000)
+    page.goto(f"{_BASE_URL}/aktien-profil/{isin}", wait_until="domcontentloaded", timeout=_NAV_MS)
+    page.wait_for_selector(_PROFILE_READY_SELECTOR, timeout=_NAV_MS)
     snapshot = extract_snapshot(
         PlaywrightAktienfinderPage(page), isin, field_selectors, screenshot_dir, snapshot_date
     )
 
-    page.goto(f"{_BASE_URL}/dividenden-profil/{isin}", wait_until="networkidle", timeout=30_000)
-    page.wait_for_timeout(1_000)
+    page.goto(
+        f"{_BASE_URL}/dividenden-profil/{isin}", wait_until="domcontentloaded", timeout=_NAV_MS
+    )
+    page.wait_for_selector(_DIVIDEND_READY_SELECTOR, timeout=_NAV_MS)
     dividend_history = extract_dividend_history(page)
 
     return Snapshot(
@@ -319,17 +335,54 @@ def run_daily_grab_live(
                     isin: extract_screener_row(page, isin, screener_fields) for isin in isins
                 }
 
-            snapshots = [
-                _merge_fields(
-                    grab_isin_snapshot(page, isin, field_selectors, screenshot_dir, snapshot_date),
-                    screener_data.get(isin, {}),
-                )
-                for isin in isins
-            ]
+            snapshots = _grab_isins(
+                page, isins, field_selectors, screener_data, screenshot_dir, snapshot_date
+            )
         finally:
             browser.close()
 
     return sync_aktienfinder_snapshots(session, snapshot_date, snapshots)
+
+
+def _grab_isins(
+    page: Page,
+    isins: list[str],
+    field_selectors: dict[str, str],
+    screener_data: dict[str, dict[str, object]],
+    screenshot_dir: Path,
+    snapshot_date: datetime.date,
+) -> list[Snapshot]:
+    """Grabs every ISIN, isolating per-ISIN failures (F093).
+
+    One flaky profile page used to abort the whole daily grab and persist nothing —
+    live on 2026-07-30/31 a single navigation timeout cost all six ISINs their
+    snapshot. Same reasoning as `extract_snapshot`'s tolerance for a missing
+    selector: a partial day beats no day. If *every* ISIN fails the error still
+    propagates, so the scheduler's failure alert keeps firing for a real outage
+    (site down, login broken) rather than silently writing zero rows.
+    """
+    snapshots: list[Snapshot] = []
+    first_error: Exception | None = None
+
+    for isin in isins:
+        try:
+            snapshot = grab_isin_snapshot(
+                page, isin, field_selectors, screenshot_dir, snapshot_date
+            )
+        except Exception as exc:
+            logger.error(
+                "aktienfinder grab failed for %s, skipping",
+                isin,
+                exc_info=True,
+                extra={"isin": isin},
+            )
+            first_error = first_error or exc
+            continue
+        snapshots.append(_merge_fields(snapshot, screener_data.get(isin, {})))
+
+    if not snapshots and first_error is not None:
+        raise first_error
+    return snapshots
 
 
 def run_daily_grab_configured(
