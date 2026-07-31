@@ -1,8 +1,8 @@
 # F094 — OpenCode Zen als LLM-Route
 
-**Status:** Staged — verdrahtet und verifiziert, kanonische Umschaltung offen
+**Status:** Implemented — kanonisch geschaltet
 **Phase:** 5 (Härtung)
-**Deployed:** 2026-07-31 (nur die nicht-kanonischen `-zen`-Routen)
+**Deployed:** 2026-07-31
 **Abhängigkeiten:** `config/litellm_proxy_config.yaml`, `docker-compose.yml`,
 `.env.example`
 **ADR:** [ADR-0011](../adr/0011-opencode-zen-as-llm-route.md)
@@ -35,15 +35,15 @@ ausschließlich im Proxy-Routing statt.
 
 ## 3. Design
 
-### 3.1 Staging statt Umschaltung
+### 3.1 Umschaltung über Namen, mit erhaltener Rückfallroute
 
-Zen-Routen liegen unter eigenen Namen (`claude-sonnet-5-zen`,
-`claude-haiku-4-5-zen`) neben den unveränderten Anthropic-Routen. `config/llm.yaml`
-zeigt weiter auf `claude-sonnet-5` / `claude-haiku-4-5` → für ATLAS ändert sich
-nichts. Umschalten = Namen tauschen.
+Die kanonischen Namen (`claude-sonnet-5`, `claude-haiku-4-5`), auf die
+`config/llm.yaml` zeigt, routen auf Zen. Die Anthropic-Direktrouten bleiben unter
+`-anthropic` konfiguriert — Rollback ist ein Namenstausch plus Proxy-Restart.
 
-Grund: Zens Workspace hat keine Zahlungsmethode. Eine kanonische Umschaltung würde
-eine kaputte Route gegen eine andere kaputte tauschen.
+Zwischenschritt: bis die Zahlungsmethode hinterlegt war, liefen die Zen-Routen unter
+eigenen `-zen`-Namen. Das hat die gesamte Verifikation getragen, ohne den laufenden
+Betrieb anzufassen.
 
 ### 3.2 Routing-Details (am installierten LiteLLM verifiziert, nicht aus der Doku)
 
@@ -72,21 +72,63 @@ solange die Zen-Routen nicht kanonisch sind.
 | 4 | URL-Konstruktion | ✅ `https://opencode.ai/zen/v1/messages`, kein doppeltes `/v1` |
 | 5 | Ende-zu-Ende Scheduler → Proxy → Zen | ✅ erreicht Zen |
 | 6 | Bestehende Routen unbeschädigt | ✅ `/models` listet alle 5 Einträge, Proxy `healthy`, keine Config-Fehler |
-| 7 | Echter Completion-Call | ❌ **`CreditsError: No payment method`** |
-| 8 | `cost_usd` ≠ 0.0 im `cost_ledger` | ⏳ blockiert durch 7 |
-| 9 | Prompt Caching wirksam | ⏳ blockiert durch 7 |
-| 10 | Paper-Smoke-Test (ein Zyklus) | ⏳ blockiert durch 7 |
+| 7 | Echter Completion-Call | ✅ beide Modelle HTTP 200 |
+| 8 | Kostenerfassung exakt | ✅ Haiku 14 in/4 out → `3.4e-05`, Sonnet 15/4 → `7e-05` — cent-genau die `model_info`-Preise |
+| 9 | Prompt Caching wirksam | ✅ Lauf 1 `cache_write=7484` / $0.018776, Lauf 2 `cache_read=7484` / $0.0015628 (12× günstiger) — LiteLLM wendet die 1,25×/0,1×-Multiplikatoren korrekt an |
+| 10 | Paper-Smoke-Test (ein Zyklus) | ✅ siehe §4.1 |
 
-Nebenbefund: die Fehlermeldung aus Prüfung 7 war im Klartext lesbar — das ist der
-F093-Fix (Response-Body an der Exception), der hier direkt seinen Zweck erfüllt hat.
+### 4.1 Paper-Smoke-Test (`scripts/run_cycle.py`, 31.07.2026)
 
-## 5. Offene Schritte
+Ein vollständiger Zyklus über die Zen-Route, 0 Tracebacks:
 
-1. **Ralf:** Zahlungsmethode im Zen-Workspace hinterlegen.
-2. Prüfungen 8–10 nachziehen.
-3. Namen in `config/litellm_proxy_config.yaml` tauschen, `docker compose restart
-   litellm`.
-4. ADR-0011 auf `accepted` setzen, Provider-Bruch im Wettbewerbsprotokoll vermerken.
+```
+   name   |      agent       |  status   |  usd
+----------+------------------+-----------+--------
+ CHARTIST | persona_analysis | SUCCEEDED | 0.0490
+ CONTRA   | persona_analysis | SUCCEEDED | 0.0483
+ CRYPTOR  | persona_analysis | SUCCEEDED | 0.0461
+ GUARDIAN | persona_analysis | SUCCEEDED | 0.0531
+ HYPE     | persona_analysis | SUCCEEDED | 0.0671
+ VULTURE  | persona_analysis | SUCCEEDED | 0.0676
+
+   name   |   action    |  status  | instrument | research_refs
+----------+-------------+----------+------------+---------------
+ CHARTIST | REJECT_IDEA | RECORDED | AAPL       |             1
+ CONTRA   | REJECT_IDEA | RECORDED | AAOI       |             1
+ CRYPTOR  | HOLD        | RECORDED | PORTFOLIO  |             4
+ GUARDIAN | HOLD        | RECORDED | PORTFOLIO  |             3
+ HYPE     | REJECT_IDEA | RECORDED | AAPL       |             3
+ VULTURE  | HOLD        | RECORDED | PORTFOLIO  |             4
+```
+
+Alle sechs Personas erfolgreich, jede Decision mit `input_research_ids`
+(Invariante #3). **Einschränkung:** keine Persona hat BUY/SELL entschieden, also
+0 Orders — der Order-Pfad (Risk-Gate → Broker → Stop-Loss) wurde von diesem Zyklus
+**nicht** durchlaufen. Das ist ein legitimes Zyklus-Ergebnis, aber kein Nachweis für
+den Order-Pfad über die neue Route; der kommt erst mit dem ersten echten Trade.
+
+Nebenbefund: die `CreditsError`-Meldung aus der Vor-Verifikation war im Klartext
+lesbar — das ist der F093-Fix (Response-Body an der Exception), der hier direkt
+seinen Zweck erfüllt hat.
+
+## 5. Offene Punkte (nicht Teil dieses Features)
+
+1. **`cost_ledger.provider` sagt weiterhin `anthropic`.** Das Feld kommt aus
+   `config/llm.yaml` und beschreibt die Modellfamilie — die Modelle *sind*
+   Anthropic-Modelle, aber das Geld fließt jetzt an OpenCode. Für ein System, dessen
+   Zweck Nachvollziehbarkeit ist, ist das eine Ungenauigkeit in der Buchführung.
+   Korrektur wäre ein Config-Feld plus Image-Rebuild (config ist gebacken) und
+   berührt die Kostenzuordnung — bewusst nicht nebenbei erledigt.
+2. **Prompt Caching wird nicht gesendet.** `prompt_caching: true` in
+   `config/llm.yaml` wird nirgends im Code ausgewertet (F006 §Tabelle sagt das
+   selbst). Zen *kann* es (Prüfung 9), ATLAS nutzt es nicht — auf keinem Provider,
+   auch vorher nicht. Vorbestehende Lücke gegenüber CLAUDE.md, eigenes Feature.
+3. **Order-Pfad über die neue Route ungeprüft** (siehe §4.1).
+4. **Provider-Bruch ins Wettbewerbsprotokoll** eintragen.
+5. **`model_info`-Preise bei Zen-Preisänderungen nachziehen**, sonst driftet
+   `cost_ledger` lautlos.
+6. **`docker-compose.yml` geändert** → `TRUENAS_HOMELAB.md` im `ugreen-Box`-Repo
+   nachziehen (CLAUDE.md).
 
 ## 6. Rollback
 
