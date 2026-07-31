@@ -136,3 +136,63 @@ Namen zurücktauschen + `docker compose restart litellm` (~10 s). Die Datei ist
 bind-gemountet, kein Image-Rebuild nötig. Die Anthropic-Direktrouten bleiben
 dauerhaft konfiguriert und werden nicht entfernt — sie sind der Rückfallweg, falls
 Zen (Cloudflare, Gateway-Ausfall) wegbricht.
+
+## 7. Nachtrag 31.07.2026 — `big-pickle` als Experiment-Slot
+
+Ralfs Wunsch: „nutze das big-pickle-Modell bei opencode".
+
+### 7.1 Was `big-pickle` ist
+
+Ein **Deckname**. Die API antwortet mit `"model":"deepseek-v4-flash"` — es ist
+DeepSeek V4 Flash, nicht ein eigenes Modell. Laut Zen „free for a limited time";
+Zen liefert für dieses Modell **keine** Kosten-Header.
+
+Technisch tut es, was ATLAS bräuchte: Tool-Calling ✅ (über den Proxy verifiziert),
+sauberes JSON im `content` ✅. Läuft über Zens OpenAI-kompatiblen
+`/v1/chat/completions`-Pfad, nicht über `/v1/messages` wie die Claude-Modelle —
+daher `openai/`-Präfix und `api_base` **mit** `/v1`.
+
+### 7.2 Warum es nicht in `persona_analysis` kommt
+
+1. **Reasoning-Modell ohne abschaltbares Thinking.** Bei `max_tokens=20` lieferte es
+   live `content: ""` bei `finish_reason: "length"` und gefülltem
+   `reasoning_content` — exakt das Muster aus
+   [F073](F073-disable-adaptive-thinking-parse-error-root-cause.md) (25 von 215
+   Decisions mit `llm_output_parse_error`). ATLAS' Gegenmittel dort ist
+   `thinking={"type":"disabled"}`, ein **Anthropic-spezifischer** Parameter, den
+   DeepSeek nicht kennt. Die Bremse greift auf diesem Modell nicht.
+2. **Andere Modellfamilie.** Mitten im 8-Wochen-Wettbewerb wäre das ein Bruch des
+   Vergleichs, nicht nur ein Provider-Wechsel wie F094 selbst.
+
+Registriert ist es deshalb als Route, auf die **keine Rolle zeigt** — bereit für den
+in CLAUDE.md (Entscheidungsstand Punkt 7) ohnehin geplanten P7-A/B-Test mit GUARDIAN.
+
+### 7.3 Befund beim Umsetzen: vier von fünf Rollen in `config/llm.yaml` sind tot
+
+Ursprünglich sollte `big-pickle` nur die Research-Rollen übernehmen. Beim Umsetzen
+zeigte sich, dass das **wirkungslos** gewesen wäre:
+
+```
+cost_ledger, alle Zeiten:
+ claude-sonnet-5       | PERSONA | 1749
+ claude-haiku-4-5-groq | PERSONA |    5
+```
+
+`claude-haiku-4-5` wurde **nie** aufgerufen. Ursache:
+
+* `guarded_complete` wird ausschließlich aus `src/orchestrator/persona_analysis.py`
+  gerufen.
+* Nur `llm_config.roles["persona_analysis"]` wird je nachgeschlagen.
+* `src/orchestrator/research_synthesis.py` sagt in seinem Modul-Docstring selbst:
+  *„Deliberately no LLM calls: every `summary` is a deterministic text template"*.
+
+`market_research`, `news_research`, `trading` und `review` sind damit
+**Konfiguration ohne Wirkung**. Sie beschreiben Rollen, die als LLM-Aufrufer noch
+nicht existieren.
+
+**Konsequenz für die Doku, nicht für den Code:** CLAUDE.md und ARCHITECTURE.md §3.3
+lesen sich so, als liefe „Haiku für Recherche/Reporting" bereits. Tut es nicht — der
+gesamte LLM-Verbrauch von ATLAS ist heute `persona_analysis` auf Sonnet 5. Das
+gehört richtiggestellt, ist aber eine Entscheidung für Ralf: entweder die Rollen
+implementieren oder die Doku an den Ist-Zustand anpassen.
+

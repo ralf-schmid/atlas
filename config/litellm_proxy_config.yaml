@@ -40,6 +40,35 @@ model_list:
       model: groq/llama-3.3-70b-versatile
       api_key: os.environ/GROQ_API_KEY
 
+  # Experiment-Slot, bewusst NICHT produktiv geschaltet: keine Rolle in
+  # config/llm.yaml zeigt hierauf. Gedacht fuer den P7-A/B-Test mit GUARDIAN
+  # (CLAUDE.md Entscheidungsstand Punkt 7). Umstellen waere eine bewusste
+  # Entscheidung mit ADR, kein Config-Nebeneffekt.
+  #
+  # "big-pickle" ist ein Deckname: die API antwortet mit model=deepseek-v4-flash.
+  # Zwei Gruende, das nicht in persona_analysis zu haengen:
+  #   1. Reasoning-Modell ohne abschaltbares Thinking. F073s Gegenmittel
+  #      (thinking={"type":"disabled"}) ist Anthropic-spezifisch und wirkt hier
+  #      nicht — dasselbe Muster (leerer content bei verbrauchtem Token-Budget)
+  #      ist live reproduzierbar, sobald max_tokens knapp wird.
+  #   2. Anderer Modellfamilie als Sonnet: mitten im 8-Wochen-Wettbewerb waere
+  #      das ein Bruch des Vergleichs, nicht nur ein Provider-Wechsel.
+  #
+  # openai/-Praefix + api_base MIT /v1: dieses Modell laeuft ueber Zens
+  # OpenAI-kompatiblen /chat/completions-Pfad, nicht ueber /messages wie die
+  # Claude-Modelle oben. Beide Auth-Formate funktionieren, LiteLLM nutzt Bearer.
+  - model_name: big-pickle
+    litellm_params:
+      model: openai/big-pickle
+      api_base: https://opencode.ai/zen/v1
+      api_key: os.environ/OPENCODE_API_KEY
+    model_info:
+      # Stand 31.07.2026 kostenlos ("free for a limited time"), Zen liefert keine
+      # Kosten-Header. Endet die Gratisphase, bucht cost_ledger lautlos 0.00 —
+      # vor produktiver Nutzung zwingend gegen die dann gueltige Preisliste pruefen.
+      input_cost_per_token: 0.0
+      output_cost_per_token: 0.0
+
 # Zen-Routing-Details, live verifiziert (F094 §3.2), damit sie beim naechsten
 # Anfassen nicht neu erarbeitet werden muessen:
 #   * api_base OHNE /v1 — LiteLLM haengt "/v1/messages" selbst an
