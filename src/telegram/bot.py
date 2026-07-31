@@ -21,7 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes
 
-from src.db.models import Persona
+from src.db.models import Persona, PortfolioMode
+from src.orchestrator.hitl_config import set_hitl_required
 from src.telegram.commands import parse_hitl_command, parse_persona_command
 from src.telegram.config import TelegramConfig
 from src.telegram.digest import build_digest_data, render_daily_digest
@@ -171,8 +172,14 @@ async def _handle_hitl(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except ValueError as exc:
         await update.message.reply_text(str(exc))
         return
-    # TODO(Folgearbeit): hitl.yaml / Config-Flag setzen.
-    await update.message.reply_text(f"HITL {'aktiviert' if enabled else 'deaktiviert'}.")
+    # F078: paper only — see set_hitl_required's docstring for why `live` is never
+    # reachable from this command.
+    try:
+        set_hitl_required(enabled, mode=PortfolioMode.PAPER)
+    except (OSError, ValueError) as exc:
+        await update.message.reply_text(f"HITL-Umschaltung fehlgeschlagen: {exc}")
+        return
+    await update.message.reply_text(f"HITL für Paper {'aktiviert' if enabled else 'deaktiviert'}.")
 
 
 async def _handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

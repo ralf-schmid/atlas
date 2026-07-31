@@ -282,11 +282,13 @@ def test_review_prompt_tags_research_as_untrusted_and_forbids_recomputation(sess
 class _FakeClient:
     def __init__(self, content='{"verdict":"thesis_confirmed","lessons_text":"L"}', exc=None):
         self.calls = 0
+        self.last_thinking = None
         self._content = content
         self._exc = exc
 
     def complete(self, *, model, messages, tools=None, tool_choice=None, thinking=None):
         self.calls += 1
+        self.last_thinking = thinking
         if self._exc:
             raise self._exc
         return LLMResponse(
@@ -387,3 +389,17 @@ def test_disabled_config_is_the_rollback_path(session):
 
     assert result == type(result)(0, 0, 0, 0)
     assert client.calls == 0
+
+
+def test_adaptive_thinking_is_disabled(session):
+    """F073, beim F084-Bestandslauf erneut live getroffen: claude-sonnet-5 nutzt
+    server-seitig adaptives Thinking und liefert dann `content: ""` bei nonzero
+    tokens_out. 9 von 16 Reviews sind genau daran gescheitert."""
+    p = _portfolio(session)
+    d = _decision(session, p, action=DecisionAction.CLOSE)
+    _fill(session, d, filled_at=_NOW)
+    client = _FakeClient()
+
+    review_decision(session, d, client, _llm_config(), _NOW)
+
+    assert client.last_thinking == {"type": "disabled"}

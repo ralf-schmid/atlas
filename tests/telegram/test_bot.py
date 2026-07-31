@@ -3,6 +3,8 @@ import datetime
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
+from src.db.models import PortfolioMode
+from src.orchestrator.hitl_config import is_hitl_required, set_hitl_required
 from src.telegram.bot import (
     _handle_digest,
     _handle_hitl,
@@ -235,12 +237,45 @@ def test_handle_resume_does_nothing_without_message_text():
     update.message.reply_text.assert_not_called()
 
 
-def test_handle_hitl_replies_with_activation_state():
+def test_handle_hitl_replies_with_activation_state(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "src.telegram.bot.set_hitl_required", lambda enabled, mode: calls.append((enabled, mode))
+    )
     update = _mock_update(chat_id=42, text="/hitl on")
 
     asyncio.run(_handle_hitl(update, MagicMock()))
 
-    update.message.reply_text.assert_called_once_with("HITL aktiviert.")
+    assert calls == [(True, PortfolioMode.PAPER)]
+    update.message.reply_text.assert_called_once_with("HITL für Paper aktiviert.")
+
+
+def test_handle_hitl_writes_config_file(monkeypatch, tmp_path):
+    """F078: regression guard for the original bug — the command must actually
+    persist the change, not just reply as if it had."""
+    hitl_config_path = tmp_path / "hitl.yaml"
+    hitl_config_path.write_text("paper: false\nlive: true\n")
+    monkeypatch.setattr(
+        "src.telegram.bot.set_hitl_required",
+        lambda enabled, mode: set_hitl_required(enabled, mode=mode, path=hitl_config_path),
+    )
+    update = _mock_update(chat_id=42, text="/hitl on")
+
+    asyncio.run(_handle_hitl(update, MagicMock()))
+
+    assert is_hitl_required(PortfolioMode.PAPER, path=hitl_config_path) is True
+
+
+def test_handle_hitl_reports_write_failure(monkeypatch):
+    def _raise(enabled, mode):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("src.telegram.bot.set_hitl_required", _raise)
+    update = _mock_update(chat_id=42, text="/hitl on")
+
+    asyncio.run(_handle_hitl(update, MagicMock()))
+
+    update.message.reply_text.assert_called_once_with("HITL-Umschaltung fehlgeschlagen: disk full")
 
 
 def test_handle_hitl_replies_with_usage_on_invalid_input():

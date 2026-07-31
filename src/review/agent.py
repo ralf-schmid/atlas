@@ -53,6 +53,13 @@ logger = logging.getLogger(__name__)
 # A closing decision (sell/close) has its market outcome the moment it fills.
 _CLOSING_ACTIONS = frozenset({DecisionAction.SELL, DecisionAction.CLOSE})
 _MAX_RESEARCH_EXCERPTS = 8
+# F073, hier beim Bestandslauf am 31.07.2026 erneut live getroffen: claude-sonnet-5
+# nutzt server-seitig *adaptive* thinking und kann sein komplettes Completion-Budget
+# in einen internen Denkblock stecken — Ergebnis ist `content: ""` bei nonzero
+# tokens_out (gemessen bis 2937) und damit ein Parse-Fehler. 9 von 16 Reviews sind
+# genau daran gescheitert. Der Review-Task braucht kein verstecktes Reasoning: das
+# sichtbare Urteil steht in `lessons_text`.
+_THINKING_DISABLED: dict[str, object] = {"type": "disabled"}
 _EXCERPT_MAX_CHARS = 400
 
 
@@ -268,6 +275,7 @@ def review_decision(
         llm_config.caps,
         build_review_messages(decision, inputs, persona_name, research),
         persona_id=None if role.shared else persona_id,
+        thinking=_THINKING_DISABLED,
     )
     verdict, lessons = parse_review_output(result.response.content)
 
