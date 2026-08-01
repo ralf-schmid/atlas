@@ -81,11 +81,35 @@ entsprechend erweitert und der Grund im Test dokumentiert.
 ## 5. Live-Verifikation (2026-08-01)
 
 ```
-pg_extension: vector          ✓
+pg_extension: vector                    ✓
 review.lessons_embedding: vector(1024)  ✓
+Modell-Cache auf dem Volume:         2,1 GB (überlebt Rebuilds)
 ```
 
-Modell-Ladung und semantische Qualität: siehe §5.1.
+Semantische Probe im Container, deutsche Sätze:
+
+```
+DIM         1024
+AEHNLICH    0.8747   ("kein valides Signal"  vs. "RSI/MACD falsches Kaufsignal")
+UNAEHNLICH  0.7521   ("kein valides Signal"  vs. "Wetter in Hamburg")
+```
+
+Die Rangfolge stimmt — und nur die zählt für Nearest-Neighbour-Retrieval. Der
+absolute Abstand ist mit 0,12 moderat; e5-Modelle liefern generell hohe
+Basis-Ähnlichkeiten. Sollte sich das Retrieval im Betrieb als unscharf erweisen,
+wäre der nächste Schritt getrennte `query:`/`passage:`-Präfixe für Lesson und
+Abfrage statt der aktuell symmetrischen Variante (ADR-0013).
+
+### 5.1 Zwei Stolpersteine beim Deployment
+
+**`Permission denied` auf dem Mount, nicht DNS.** Der erste Fehlschlag sah nach
+einem Netzwerkproblem aus (`cdn-lfs.huggingface.co` löst im Container nicht auf),
+war aber das bekannte UID-Muster dieser Box: Host-UID 3000 vs. Container-UID 3001.
+`chgrp familie` + `chmod 775` auf `data/models` — dieselbe Behandlung, die
+`data/ledger` schon hat.
+
+**Der Download dauert.** ~2,1 GB beim ersten Lauf. Ohne das Volume würde das jeder
+Container-Neustart wiederholen.
 
 ## 6. Rollback
 
