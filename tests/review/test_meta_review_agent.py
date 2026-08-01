@@ -223,6 +223,69 @@ def test_an_already_meta_reviewed_decision_is_not_sampled_again(session):
     assert find_meta_review_candidates(session, limit=10) == []
 
 
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "position_too_small_for_whole_share",
+        "insufficient_price_history",
+        "risk_gate_rejected",
+        "llm_output_parse_error",
+        "unsupported_action:short",
+    ],
+)
+def test_deterministic_rejections_are_not_sampled(session, reason):
+    """Sizing-Mathematik, fehlende Kurshistorie, Risk-Gate: die Recherche hat daran
+    keinen Anteil. Ein Meta-Review darauf kostet einen Sonnet-Call und einen der
+    fuenf Wochen-Slots fuer die Antwort 'der Pool war irrelevant'. Live waren das
+    beim ersten Dry-Run auf der Box 2 von 5 Kandidaten."""
+    p = _portfolio(session)
+    d = _rejected(session, p)
+    d.rejection_reason = reason
+    session.flush()
+
+    assert find_meta_review_candidates(session, limit=10) == []
+
+
+def test_a_decision_without_a_rejection_reason_is_still_sampled(session):
+    """SQL-Falle: `NULL NOT IN (...)` ist NULL, nicht true. Ohne den expliziten
+    IS-NULL-Zweig faellt genau die Menge raus, die gemeint ist."""
+    p = _portfolio(session)
+    d = _rejected(session, p)
+    d.rejection_reason = None
+    session.flush()
+
+    assert [c.id for c in find_meta_review_candidates(session, limit=10)] == [d.id]
+
+
+def test_every_deterministic_rejection_reason_is_excluded():
+    """Waechter gegen Drift: ein neuer Maschinen-Code in `persona_analysis` wuerde
+    sonst still anfangen, Wochenkontingent zu fressen. Liest die Literale aus dem
+    Quelltext, statt sie zu importieren."""
+    import ast
+    from pathlib import Path
+
+    from src.review import meta_agent
+
+    source = Path(meta_agent.__file__).resolve().parents[2] / "src/orchestrator/persona_analysis.py"
+    tree = ast.parse(source.read_text())
+    literals = {
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.keyword)
+        and node.arg == "rejection_reason"
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+    # "not specified" is the fallback for an LLM rejection that named no reason —
+    # a real judgement call, so it belongs in the sample.
+    literals.discard("not specified")
+
+    assert literals <= meta_agent._DETERMINISTIC_REJECTION_REASONS, (
+        f"neue deterministische rejection_reason(s) in persona_analysis.py, nicht im "
+        f"Deny-Set: {sorted(literals - meta_agent._DETERMINISTIC_REJECTION_REASONS)}"
+    )
+
+
 def test_the_cap_holds_mid_round(session):
     """Der Round-Robin darf nicht erst am Rundenende abbrechen — sonst liefert ein
     ungerades Limit bei mehreren Personas eine Stichprobe zu viel, und jede zu viel
