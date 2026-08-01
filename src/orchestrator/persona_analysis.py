@@ -159,8 +159,14 @@ def analyze_persona_cycle(
     cycle = session.get_one(Cycle, cycle_id)
     charter = render_charter(persona_name)
     positions = broker_adapter.get_positions()
-    messages = _build_messages(charter, research_items, positions, cycle.started_at)
     role = llm_config.roles["persona_analysis"]
+    messages = _build_messages(
+        charter,
+        research_items,
+        positions,
+        cycle.started_at,
+        prompt_caching=role.prompt_caching,
+    )
     available_ids = {str(item.id) for item in research_items}
 
     try:
@@ -966,6 +972,7 @@ def _build_messages(
     research_items: list[ResearchItem],
     positions: list[Position],
     reference_time: datetime.datetime,
+    prompt_caching: bool = False,
 ) -> list[dict[str, object]]:
     prompt_items = _select_prompt_items(research_items, _MAX_PROMPT_RESEARCH_ITEMS)
 
@@ -1003,9 +1010,33 @@ def _build_messages(
         f"{_TOOL_USAGE_HINT}\n\n"
         f"{_OUTPUT_SCHEMA_INSTRUCTIONS}"
     )
+    if not prompt_caching:
+        return [
+            {"role": "system", "content": charter},
+            {"role": "user", "content": user_content},
+        ]
+
+    # F097: the cache breakpoint goes at the end of the *first user message*, not on
+    # the charter. Anthropic only caches a prefix of >= 1024 tokens and the charters
+    # measure ~570 (live: VULTURE 2274 chars, GUARDIAN 2354) — marking the system
+    # block alone would be a silent no-op. Marking here caches charter + research
+    # payload together, which is what every later round of `_run_llm_with_tools`
+    # (and every F065 parse retry, which restarts from this same prefix) replays
+    # unchanged. Live-measured on this stack: cached reads cost 0.1x, cache writes
+    # 1.25x, so the break-even is the second call of a run and the observed average
+    # is ~3.8.
     return [
         {"role": "system", "content": charter},
-        {"role": "user", "content": user_content},
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": user_content,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        },
     ]
 
 
