@@ -42,6 +42,19 @@ review:
   # Haltedauer, ab der eine noch offene Buy-Position ein Zwischen-Review bekommt.
   intermediate_after_days: 14
 
+# F099: Meta-Review der Recherche-Qualitaet fuer reject_idea-Decisions
+# (ARCHITECTURE.md §5.2, "stichprobenartig im Wochenlauf"). Laeuft sonntags, nutzt
+# dieselbe review-Rolle (Sonnet). `enabled: false` = Rollback, geschriebene
+# meta_review-Zeilen bleiben.
+meta_review:
+  enabled: true
+  # §5.2-Stichprobe: max. 5 pro Wochenlauf. Bei ~90 reject_idea-Decisions je Saison
+  # ist das bewusst eine Stichprobe und keine Vollerhebung — der Zweck ist, Luecken
+  # im Recherche-Pool zu finden, nicht jede Ablehnung zu protokollieren.
+  # Kostenrahmen: ~0.015 USD je Meta-Review (Sonnet, Prompt in der Groesse eines
+  # Reviews), also ~0.08 USD/Woche.
+  max_per_run: 5
+
 roles:
   market_research:
     model: claude-haiku-4-5

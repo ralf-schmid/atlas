@@ -203,9 +203,10 @@ def _apply_entry(item: ResearchItem, entry: dict[str, object]) -> bool:
             for value in instruments
             if isinstance(value, str) and 0 < len(value.strip()) <= _MAX_SYMBOL_LEN
         ]
-        # Deduplicate but keep order, so the first (most prominent) symbol stays first.
-        seen: set[str] = set()
-        unique = [s for s in symbols if not (s in seen or seen.add(s))]
+        # Deduplicate but keep order, so the first (most prominent) symbol stays
+        # first. dict.fromkeys does this without the `seen.add(...) or` trick, which
+        # mypy rejects because set.add returns None.
+        unique = list(dict.fromkeys(symbols))
         if unique:
             item.instruments = unique[:_MAX_INSTRUMENTS_PER_ITEM]
             changed = True

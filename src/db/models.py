@@ -90,6 +90,26 @@ class ReviewVerdict(enum.Enum):
     INCONCLUSIVE = "inconclusive"
 
 
+class MetaReviewVerdict(enum.Enum):
+    """F099. Judges the *research pool*, not a market outcome.
+
+    A `reject_idea` decision never reached a market, so `ReviewVerdict` (which is
+    entirely about whether a thesis played out) has nothing to say about it. What
+    can be judged is whether the persona had enough to decide on:
+
+    * `RESEARCH_SUFFICIENT` — the pool carried the decision; the rejection is
+      defensible on the evidence that was there.
+    * `RESEARCH_GAP` — the rejection was really "I had no data". Actionable for the
+      ingestion pipeline, not for the persona.
+    * `RESEARCH_IGNORED` — the pool *did* contain relevant material and the persona
+      did not use it. Actionable for the persona.
+    """
+
+    RESEARCH_SUFFICIENT = "research_sufficient"
+    RESEARCH_GAP = "research_gap"
+    RESEARCH_IGNORED = "research_ignored"
+
+
 class Persona(Base):
     __tablename__ = "persona"
 
@@ -258,7 +278,41 @@ class Review(Base):
     slippage_malus: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
     verdict: Mapped[ReviewVerdict] = mapped_column(Enum(ReviewVerdict, name="review_verdict"))
     lessons_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # F098: bge-m3 (1024). NULL when the review produced no lesson worth embedding.
+    # F098: multilingual-e5-large (1024, ADR-0013 — CLAUDE.md's bge-m3 is not
+    # available in fastembed). NULL when the review produced no lesson worth
+    # embedding.
+    lessons_embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
+
+
+class MetaReview(Base):
+    """F099: the §5.2 sampled meta-review of `reject_idea` decisions.
+
+    Deliberately **not** a row in `review`. That table is the competition's
+    evaluation record — every aggregate over it (leaderboard, per-persona verdict
+    counts, the F098 lessons retrieval) assumes a decision that reached a market.
+    Folding in decisions that never traded would skew all of them at once and would
+    force a thesis-outcome verdict onto something that has no outcome.
+    """
+
+    __tablename__ = "meta_review"
+    # Same reasoning as `review`: the agent's "not reviewed yet" check is
+    # application-level and races a manually triggered sweep.
+    __table_args__ = (UniqueConstraint("decision_id", name="uq_meta_review_decision_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    decision_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("decision.id"), nullable=False)
+    reviewed_at: Mapped[datetime]
+    verdict: Mapped[MetaReviewVerdict] = mapped_column(
+        Enum(MetaReviewVerdict, name="meta_review_verdict")
+    )
+    #: Which source the pool was missing, when the verdict is RESEARCH_GAP. Free
+    #: text from the model, so it is a hint for Ralf's ingestion backlog — not a
+    #: key anything joins on.
+    missing_source: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lessons_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Written, but deliberately not yet read: wiring meta-lessons into
+    #: `persona_analysis` changes what personas see mid-season and needs Ralf's
+    #: explicit go (F099 §6). The column exists so that stays a one-liner.
     lessons_embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
 
 

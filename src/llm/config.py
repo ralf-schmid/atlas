@@ -74,6 +74,27 @@ class ReviewConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MetaReviewConfig:
+    """F099 knobs. Same rollback contract as `ReviewConfig`: `enabled: false` stops
+    future runs, written meta-reviews stay.
+
+    `max_per_run` is the §5.2 sample size (max. 5/Woche) and the only cost brake
+    that matters here — the sweep fires weekly, so per-run == per-week.
+    """
+
+    enabled: bool
+    max_per_run: int
+
+    @classmethod
+    def from_raw(cls, raw: object) -> MetaReviewConfig:
+        values = raw if isinstance(raw, dict) else {}
+        return cls(
+            enabled=bool(values.get("enabled", False)),
+            max_per_run=int(values.get("max_per_run", 5)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class LlmConfig:
     base_url: str
     caps: CostCaps
@@ -83,6 +104,7 @@ class LlmConfig:
         default_factory=lambda: ResearchAgentsConfig.from_raw(None)
     )
     review: ReviewConfig = field(default_factory=lambda: ReviewConfig.from_raw(None))
+    meta_review: MetaReviewConfig = field(default_factory=lambda: MetaReviewConfig.from_raw(None))
 
 
 def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
@@ -115,4 +137,5 @@ def load_llm_config(path: Path = _DEFAULT_CONFIG_PATH) -> LlmConfig:
         roles=roles,
         research_agents=ResearchAgentsConfig.from_raw(raw.get("research_agents")),
         review=ReviewConfig.from_raw(raw.get("review")),
+        meta_review=MetaReviewConfig.from_raw(raw.get("meta_review")),
     )

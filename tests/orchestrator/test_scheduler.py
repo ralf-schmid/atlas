@@ -16,6 +16,8 @@ from src.orchestrator.scheduler import (
     build_scheduler,
     format_cycle_failure_cause,
 )
+from src.review.agent import SweepResult
+from src.review.meta_agent import MetaSweepResult
 from src.telegram.config import TelegramConfig
 
 
@@ -265,3 +267,89 @@ def test_daily_digest_job_logs_and_does_not_raise_on_failure(monkeypatch) -> Non
     _daily_digest_job(lambda: _FakeDigestSession())  # type: ignore[arg-type]
 
     assert calls  # did not propagate the exception
+
+
+# ------------------------------------------------------------- F084/F099 sweep jobs
+
+
+class _FakeSweepSession(_FakeDigestSession):
+    """The sweep jobs commit; the digest job does not."""
+
+    def commit(self) -> None:
+        return None
+
+
+def test_review_sweep_job_stays_quiet_when_nothing_was_due(monkeypatch) -> None:
+    """Regression: the summary line read `result.deferred`, but `SweepResult` calls
+    that field `deferred_budget`. With `reviewed == 0` — the normal state once the
+    backlog is worked off — the `or` chain reached the missing attribute, raised,
+    and every idle sweep logged "review sweep failed" with a traceback. mypy flagged
+    it; no test did."""
+    monkeypatch.setattr(
+        scheduler_module, "run_review_sweep", lambda *a, **k: SweepResult(0, 0, 0, 0)
+    )
+    errors: list[object] = []
+    monkeypatch.setattr(scheduler_module.logger, "error", lambda *a, **k: errors.append(a))
+
+    scheduler_module._review_sweep_job(lambda: _FakeSweepSession(), None, None)  # type: ignore[arg-type]
+
+    assert errors == []
+
+
+def test_meta_review_sweep_job_is_registered_for_sunday_evening() -> None:
+    """§5.2 puts the meta-review in the Sunday run, and it is a sample by design —
+    a daily job would only spend the budget faster on the same 5 rows."""
+    scheduler = build_scheduler(
+        graph=None,  # type: ignore[arg-type]
+        session_factory=lambda: None,  # type: ignore[arg-type]
+        cycles_config=load_cycles_config(),
+        llm_client=object(),  # type: ignore[arg-type]
+        llm_config=object(),  # type: ignore[arg-type]
+    )
+
+    job = scheduler.get_job("meta-review-sweep")
+    assert job is not None
+    assert _field(job, "day_of_week") == "sun"
+    assert _field(job, "hour") == "18"
+    # An hour behind the daily review sweep so the two never compete for the cap.
+    assert scheduler.get_job("review-sweep") is not None
+
+
+def test_no_llm_client_means_no_sweep_jobs() -> None:
+    scheduler = build_scheduler(
+        graph=None,  # type: ignore[arg-type]
+        session_factory=lambda: None,  # type: ignore[arg-type]
+        cycles_config=load_cycles_config(),
+    )
+
+    assert scheduler.get_job("meta-review-sweep") is None
+    assert scheduler.get_job("review-sweep") is None
+
+
+def test_meta_review_sweep_job_logs_and_does_not_raise_on_failure(monkeypatch) -> None:
+    """Same non-fatal contract as every other sweep: a diagnostic artefact must not
+    take the scheduler thread down."""
+
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("db unreachable")
+
+    monkeypatch.setattr(scheduler_module, "run_meta_review_sweep", _raise)
+    calls = []
+    monkeypatch.setattr(scheduler_module.logger, "error", lambda *a, **k: calls.append((a, k)))
+
+    scheduler_module._meta_review_sweep_job(lambda: _FakeSweepSession(), None, None)  # type: ignore[arg-type]
+
+    assert calls
+
+
+def test_meta_review_sweep_job_logs_its_summary(monkeypatch) -> None:
+    monkeypatch.setattr(
+        scheduler_module, "run_meta_review_sweep", lambda *a, **k: MetaSweepResult(3, 0, 1, 0)
+    )
+    infos = []
+    monkeypatch.setattr(scheduler_module.logger, "info", lambda *a, **k: infos.append(a))
+
+    scheduler_module._meta_review_sweep_job(lambda: _FakeSweepSession(), None, None)  # type: ignore[arg-type]
+
+    (call,) = infos
+    assert call[1:] == (3, 1, 0)
