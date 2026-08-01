@@ -219,6 +219,23 @@ Erster regulärer Lauf: Sonntag 18:30 ET. Sofortiger Probelauf ginge über
 `run_meta_review_sweep` in einer `docker compose exec`-Shell — kostet dann echte
 LLM-Calls.
 
-**Der §3.1-Filter ist im obigen Deploy noch nicht enthalten** (er ist der Befund
-*aus* dessen Verifikation) und braucht einen zweiten rsync + Rebuild vor Sonntag,
-ohne Migration.
+**Zweiter Deploy 01.08.2026, 15:24** — der §3.1-Filter, der Befund *aus* der
+Verifikation des ersten. Reiner Code-Deploy: rsync (12 Dateien) + Rebuild + `up -d`,
+keine Migration, kein neuer Snapshot nötig (Rollback = Revert + Rebuild).
+
+Gegenprobe mit demselben Dry-Run wie oben, und sie ist eindeutig: die beiden
+Arithmetik-Fälle (`position_too_small_for_whole_share` auf AAPL,
+`insufficient_price_history` auf US5949181045) sind aus der Stichprobe
+verschwunden, an ihrer Stelle stehen jetzt zwei echte Urteilsablehnungen (ACIW
+„RSI14 bei 90.3 signalisiert extreme Überkauftheit…", FLEX „kein explizites
+Zeitschriften-Tipp- oder Analyst-Upgrade-Signal…"). Alle fünf Kandidaten tragen
+damit einen inhaltlichen Ablehnungsgrund.
+
+Nebenbeobachtung: zwei der fünf kommen jetzt aus demselben Portfolio. Nach dem
+Filter haben schlicht nicht mehr fünf Personas einen offenen Kandidaten, der
+Round-Robin geht dann in die zweite Runde — genau so gebaut, das Kontingent
+verfällt nicht.
+
+Nach dem Deploy verifiziert: alle 6 Container Up, `api` healthy,
+`_meta_review_sweep_job` registriert, 0 Errors im Log, `alembic current` unverändert
+`d4e5f6a7b8c9 (head)`, LAN-Health auf allen drei Ports grün.
