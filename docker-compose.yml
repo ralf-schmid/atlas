@@ -146,7 +146,13 @@ services:
       REDDIT_CLIENT_ID: ${REDDIT_CLIENT_ID}
       REDDIT_CLIENT_SECRET: ${REDDIT_CLIENT_SECRET}
       REDDIT_USER_AGENT: ${REDDIT_USER_AGENT}
+      # F098: cache dir for the local embedding model (~2.2 GB). Backed by the
+      # volume below — without it every container restart re-downloads it.
+      EMBEDDING_CACHE_DIR: /data/models
     volumes:
+      # F098: embedding-model cache. Same reasoning as the ledger mount below —
+      # a container rebuild must not throw away 2.2 GB of downloaded weights.
+      - ./data/models:/data/models
       # F037: screenshot evidence (F012 lineage) — host-persistent across
       # deploys, same convention as the api service's publications volume.
       - ./data/ingest/aktienfinder/screenshots:/data/ingest/aktienfinder/screenshots

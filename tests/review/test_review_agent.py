@@ -430,3 +430,97 @@ def test_active_season_decisions_are_still_due(session):
     assert [
         x.id for x in find_due_decisions(session, _NOW, intermediate_after_days=14, limit=10)
     ] == [d.id]
+
+
+# --- F098: Lessons-Rückfluss --------------------------------------------------
+
+
+class _FakeEmbedder:
+    """Deterministisch und ohne Modell-Download: die Ähnlichkeit ergibt sich aus
+    dem ersten Zeichen, das reicht für Nachbarschafts-Assertions."""
+
+    def embed(self, text: str) -> list[float]:
+        seed = (ord(text.strip()[0]) % 10) / 10 if text.strip() else 0.0
+        return [seed] + [0.0] * 1023
+
+
+def _review_with_lesson(session, portfolio, lesson: str) -> Review:
+    d = _decision(session, portfolio, action=DecisionAction.CLOSE)
+    _fill(session, d, filled_at=_NOW)
+    review = review_decision(
+        session,
+        d,
+        _FakeClient(content=f'{{"verdict":"thesis_failed","lessons_text":"{lesson}"}}'),
+        _llm_config(),
+        _NOW,
+        embedding_provider=_FakeEmbedder(),
+    )
+    assert review is not None
+    return review
+
+
+def test_lessons_of_one_persona_never_reach_another(session):
+    """Invariante #10 — der Kern des ganzen Features. Lessons sind privates Lernen
+    einer Persona; würden sie personaübergreifend abgerufen, wäre der 8-Wochen-
+    Vergleich wertlos. F084 §2 nennt das als Pflicht-Testfall."""
+    from src.review.agent import find_lessons_for_persona
+
+    a = _portfolio(session)
+    b = _portfolio(session)
+    _review_with_lesson(session, a, "Alpha-Lektion von Persona A")
+    _review_with_lesson(session, b, "Beta-Lektion von Persona B")
+
+    from src.db.models import Persona
+
+    persona_a = session.get(Persona, a.persona_id)
+    assert persona_a is not None
+
+    found = find_lessons_for_persona(session, persona_a.id, "Alpha", _FakeEmbedder(), limit=10)
+
+    assert [r.lessons_text for r in found] == ["Alpha-Lektion von Persona A"]
+
+
+def test_lessons_from_archived_seasons_are_not_retrieved(session):
+    """Gleiche Begründung wie F096: eine Saison, die nicht mehr zählt, darf den
+    laufenden Wettbewerb nicht beeinflussen."""
+    from src.db.models import Persona
+    from src.review.agent import find_lessons_for_persona
+
+    p = _portfolio(session)
+    _review_with_lesson(session, p, "Lektion aus der Vorsaison")
+    p.archived_at = datetime.datetime(2026, 7, 27)
+    session.flush()
+
+    persona = session.get(Persona, p.persona_id)
+    assert persona is not None
+
+    assert find_lessons_for_persona(session, persona.id, "Lektion", _FakeEmbedder()) == []
+
+
+def test_review_stores_an_embedding_for_its_lesson(session):
+    p = _portfolio(session)
+    review = _review_with_lesson(session, p, "Konkrete Lektion")
+
+    assert review.lessons_embedding is not None
+    assert len(review.lessons_embedding) == 1024
+
+
+def test_an_embedding_failure_does_not_cost_the_review(session):
+    """Das Review ist das Wertvolle; ein NULL-Embedding heißt nur, dass die Zeile
+    bis zu einem Backfill für das Retrieval unsichtbar ist."""
+
+    class _Broken:
+        def embed(self, text: str) -> list[float]:
+            raise RuntimeError("model unavailable")
+
+    p = _portfolio(session)
+    d = _decision(session, p, action=DecisionAction.CLOSE)
+    _fill(session, d, filled_at=_NOW)
+
+    review = review_decision(
+        session, d, _FakeClient(), _llm_config(), _NOW, embedding_provider=_Broken()
+    )
+
+    assert review is not None
+    assert review.lessons_text == "L"
+    assert review.lessons_embedding is None

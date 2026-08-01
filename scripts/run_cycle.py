@@ -23,6 +23,7 @@ from src.llm.client import LiteLLMClient
 from src.llm.config import load_llm_config
 from src.orchestrator.graph import build_and_compile_graph
 from src.orchestrator.scheduler import run_one_cycle
+from src.review.embeddings import FastEmbedProvider
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,11 @@ def main() -> None:
     with PostgresSaver.from_conn_string(checkpointer_conninfo) as checkpointer:
         checkpointer.setup()
         graph = build_and_compile_graph(
-            session_factory, llm_client, llm_config, checkpointer=checkpointer
+            session_factory,
+            llm_client,
+            llm_config,
+            checkpointer=checkpointer,
+            embedding_provider=FastEmbedProvider(),
         )
 
         final_state = run_one_cycle(

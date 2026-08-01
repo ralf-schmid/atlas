@@ -30,6 +30,7 @@ from src.logging_config import configure_logging
 from src.orchestrator.cycles_config import load_cycles_config
 from src.orchestrator.graph import build_and_compile_graph
 from src.orchestrator.scheduler import build_scheduler
+from src.review.embeddings import FastEmbedProvider
 from src.telegram.config import load_config as load_telegram_config
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,11 @@ def main() -> None:
     with PostgresSaver.from_conn_string(checkpointer_conninfo) as checkpointer:
         checkpointer.setup()
         graph = build_and_compile_graph(
-            session_factory, llm_client, llm_config, checkpointer=checkpointer
+            session_factory,
+            llm_client,
+            llm_config,
+            checkpointer=checkpointer,
+            embedding_provider=FastEmbedProvider(),
         )
 
         scheduler = build_scheduler(graph, session_factory, cycles_config, llm_client, llm_config)

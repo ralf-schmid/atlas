@@ -46,6 +46,7 @@ from src.db.models import (
 from src.llm.client import LiteLLMClient
 from src.llm.config import LlmConfig
 from src.llm.ledger import BudgetExceededError, guarded_complete
+from src.review.embeddings import EmbeddingProvider, embed_lesson
 from src.review.slippage import compute_slippage_malus
 
 logger = logging.getLogger(__name__)
@@ -266,6 +267,7 @@ def review_decision(
     client: LiteLLMClient,
     llm_config: LlmConfig,
     now: datetime.datetime,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> Review | None:
     """Reviews one decision. Returns None if a review already exists (idempotent)."""
     existing = session.scalar(select(Review).where(Review.decision_id == decision.id))
@@ -288,6 +290,16 @@ def review_decision(
     )
     verdict, lessons = parse_review_output(result.response.content)
 
+    # F098: embedding failures must not cost the review. The lesson is written
+    # either way; a NULL embedding only means this row is invisible to retrieval
+    # until it is backfilled.
+    embedding: list[float] | None = None
+    if embedding_provider is not None:
+        try:
+            embedding = embed_lesson(embedding_provider, lessons)
+        except Exception:
+            logger.error("lesson embedding failed", exc_info=True)
+
     review = Review(
         decision_id=decision.id,
         reviewed_at=now,
@@ -297,6 +309,7 @@ def review_decision(
         slippage_malus=inputs.slippage_malus,
         verdict=verdict,
         lessons_text=lessons,
+        lessons_embedding=embedding,
     )
     session.add(review)
     session.flush()
@@ -383,3 +396,36 @@ def _parse_json_object(content: str) -> dict[str, object] | None:
         except json.JSONDecodeError:
             return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def find_lessons_for_persona(
+    session: Session,
+    persona_id: uuid.UUID,
+    query_text: str,
+    provider: EmbeddingProvider,
+    limit: int = 3,
+) -> list[Review]:
+    """The persona's own past lessons, nearest-neighbour to `query_text` (F098).
+
+    **The `persona_id` filter is the Fairness invariant (#10), not an optimisation.**
+    Lessons are a persona's private learning; surfacing VULTURE's lessons to GUARDIAN
+    would hand one persona another's insight and destroy the comparison the whole
+    8-week experiment rests on. F084 §2 names this as a mandatory test case.
+
+    Archived pre-season portfolios are excluded for the same reason F096 excluded
+    them from review: that season no longer counts.
+    """
+    query_vector = provider.embed(query_text)
+    stmt = (
+        select(Review)
+        .join(Decision, Decision.id == Review.decision_id)
+        .join(Portfolio, Portfolio.id == Decision.portfolio_id)
+        .where(
+            Portfolio.persona_id == persona_id,
+            Portfolio.archived_at.is_(None),
+            Review.lessons_embedding.is_not(None),
+        )
+        .order_by(Review.lessons_embedding.cosine_distance(query_vector))
+        .limit(limit)
+    )
+    return list(session.scalars(stmt).all())

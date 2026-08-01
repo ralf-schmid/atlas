@@ -79,10 +79,15 @@ def build_and_compile_graph(
     llm_config: LlmConfig,
     checkpointer: BaseCheckpointSaver[str] | None = None,
     adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
+    embedding_provider: object | None = None,
 ) -> CompiledStateGraph[CycleState, None, CycleState, CycleState]:
     """`adapter_factory` defaults to the real broker registry — tests that resume a
     `buy` interrupt to "approved" must inject a fake here (see F023 §2), otherwise
-    F023's trading module will place a real Alpaca Paper order."""
+    F023's trading module will place a real Alpaca Paper order.
+
+    `embedding_provider` defaults to None so no test ever triggers the ~2 GB model
+    download; `scripts/run_scheduler.py` and `run_cycle.py` pass a real one.
+    """
 
     def _start_cycle_node(state: CycleState) -> dict[str, object]:
         with session_factory() as session:
@@ -138,6 +143,7 @@ def build_and_compile_graph(
                 uuid.UUID(state["persona_id"]),
                 state["persona_name"],
                 broker_adapter,
+                embedding_provider=embedding_provider,
             )
             session.commit()
             return {}

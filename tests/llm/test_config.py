@@ -45,5 +45,9 @@ def test_no_local_llm_providers_in_trading_path():
     config = load_llm_config()
 
     providers = {role.provider for role in config.roles.values()}
+    # Die Invariante ist "keine LOKALEN LLMs im Trading-Pfad" (CLAUDE.md), nicht
+    # "nur Anthropic". `opencode-zen` ist ein Remote-Gateway auf dieselben Modelle
+    # (ADR-0011); lokal waere ollama/llama.cpp — genau darauf zielt das Deny.
     assert "ollama" not in providers
-    assert providers <= {"anthropic", "groq"}
+    assert "llamacpp" not in providers
+    assert providers <= {"anthropic", "groq", "opencode-zen"}

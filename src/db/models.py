@@ -15,6 +15,7 @@ import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import CheckConstraint, Enum, ForeignKey, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -257,9 +258,20 @@ class Review(Base):
     slippage_malus: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
     verdict: Mapped[ReviewVerdict] = mapped_column(Enum(ReviewVerdict, name="review_verdict"))
     lessons_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # F098: bge-m3 (1024). NULL when the review produced no lesson worth embedding.
+    lessons_embedding: Mapped[list[float] | None] = mapped_column(Vector(1024), nullable=True)
 
 
 class CostLedger(Base):
+    """`provider` is the configured *route*, not the model vendor.
+
+    ATLAS reaches every model through the LiteLLM proxy precisely so the route can
+    change without touching agent code (ADR-0011 moved the canonical names from
+    Anthropic direct to OpenCode Zen). Recording the vendor would have made the
+    ledger claim money went to Anthropic while it was billed by OpenCode. The value
+    comes from `config/llm.yaml` per role, so a routing change is a config change.
+    """
+
     __tablename__ = "cost_ledger"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
