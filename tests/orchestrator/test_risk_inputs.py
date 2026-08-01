@@ -177,6 +177,8 @@ def _make_decision_with_order(
             mode=PortfolioMode.PAPER,
             submitted_at=submitted_at,
             status=OrderRecordStatus.FILLED,
+            # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+            fill_price=Decimal("150.0"),
         )
     )
     session.flush()

@@ -672,6 +672,16 @@ def reconcile_order_fills(
             if new_status is None:  # still open at Alpaca — nothing to update yet
                 continue
 
+            # F096: a FILLED status without a price is not a usable fill — leave the
+            # row NEW so the next sweep polls it again rather than freezing a
+            # half-recorded fill that review/slippage/charts cannot price.
+            if new_status is OrderRecordStatus.FILLED and fill_status.fill_price is None:
+                logger.warning(
+                    "alpaca reported FILLED without a fill price, leaving order NEW",
+                    extra={"order_record_id": str(order_record.id)},
+                )
+                continue
+
             order_record.status = new_status
             order_record.filled_at = fill_status.filled_at
             if fill_status.fill_price is not None:

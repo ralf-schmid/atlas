@@ -107,10 +107,19 @@ def find_due_decisions(
     stmt = (
         select(Decision, OrderRecord)
         .join(OrderRecord, OrderRecord.decision_id == Decision.id)
+        .join(Portfolio, Portfolio.id == Decision.portfolio_id)
         .where(
             Decision.status == DecisionStatus.EXECUTED,
             OrderRecord.status == OrderRecordStatus.FILLED,
             OrderRecord.filled_at.is_not(None),
+            OrderRecord.fill_price.is_not(None),
+            # F090 archived the pre-season portfolios; every other selection in the
+            # codebase filters them out (see graph.list_active_portfolios). Without
+            # this the agent reviews a season that no longer counts — the whole
+            # 31.07. backfill (16 reviews, 0.25 USD) did exactly that — and once the
+            # lessons feed exists, pre-season learning would bleed into the running
+            # competition (Invariant #10).
+            Portfolio.archived_at.is_(None),
             Decision.id.not_in(reviewed),
         )
         .order_by(OrderRecord.filled_at.asc())

@@ -26,6 +26,22 @@ from src.db.models import (
 from src.orchestrator.decision_sizing import round_to_tick
 
 
+def _fill_status(
+    filled_at: datetime.datetime | None, fill_price: float | None
+) -> OrderRecordStatus:
+    """FILLED requires both the timestamp and the price (F096).
+
+    An adapter that reports one without the other has not given us a usable fill;
+    leaving the row NEW keeps it in `reconcile_order_fills`' sights instead of
+    freezing a half-recorded fill nobody will ever complete.
+    """
+    return (
+        OrderRecordStatus.FILLED
+        if filled_at is not None and fill_price is not None
+        else OrderRecordStatus.NEW
+    )
+
+
 def execute_decision(
     session: Session, decision: Decision, broker_adapter: BrokerAdapter, broker_type: str
 ) -> OrderRecord:
@@ -65,7 +81,12 @@ def execute_decision(
         # record it immediately instead of leaving the row NEW forever.
         # AlpacaPaperAdapter never sets these (Alpaca confirms asynchronously);
         # those rows stay NEW until `reconcile_order_fills` polls them.
-        status=OrderRecordStatus.FILLED if result.filled_at is not None else OrderRecordStatus.NEW,
+        # F096: both fields are required for FILLED, not just `filled_at`. Deriving
+        # the status from the timestamp alone made "FILLED with no price" a
+        # representable state — two such rows exist from 2026-07-12, and everything
+        # downstream (review deviation, slippage malus, holdings charts) then reads
+        # a fill it cannot price.
+        status=_fill_status(result.filled_at, result.fill_price),
         filled_at=result.filled_at,
         fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
         raw={
@@ -109,7 +130,7 @@ def _execute_close(
         broker_order_id=result.order_id,
         mode=portfolio.mode,
         submitted_at=datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
-        status=OrderRecordStatus.FILLED if result.filled_at is not None else OrderRecordStatus.NEW,
+        status=_fill_status(result.filled_at, result.fill_price),
         filled_at=result.filled_at,
         fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
         raw={"qty": result.qty, "side": result.side.value, "closed": True},

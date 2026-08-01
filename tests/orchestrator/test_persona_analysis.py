@@ -1298,6 +1298,8 @@ def test_buy_response_rejected_by_risk_gate_when_trades_today_exceeded(
                 mode=PortfolioMode.PAPER,
                 submitted_at=datetime.datetime(2026, 7, 7, 9, 0),
                 status=OrderRecordStatus.FILLED,
+                # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+                fill_price=Decimal("150.0"),
             )
         )
     session.flush()
@@ -1485,6 +1487,8 @@ def test_close_rejected_by_risk_gate_when_trades_today_exceeded(session: Session
                 mode=PortfolioMode.PAPER,
                 submitted_at=datetime.datetime(2026, 7, 7, 9, 0),
                 status=OrderRecordStatus.FILLED,
+                # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+                fill_price=Decimal("150.0"),
             )
         )
     session.flush()

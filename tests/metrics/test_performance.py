@@ -166,6 +166,8 @@ class TestTradeCount:
                     mode=PortfolioMode.PAPER,
                     submitted_at=stichtag + datetime.timedelta(days=i + 1),
                     status=OrderRecordStatus.FILLED,
+                    # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+                    fill_price=Decimal("150.0"),
                 )
             )
 
@@ -190,6 +192,8 @@ class TestTradeCount:
                 mode=PortfolioMode.PAPER,
                 submitted_at=stichtag - datetime.timedelta(days=1),
                 status=OrderRecordStatus.FILLED,
+                # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+                fill_price=Decimal("150.0"),
             )
         )
 

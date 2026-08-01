@@ -112,6 +112,15 @@ def make_decision(
 
 
 def make_order_record(session: Session, decision: Decision, **overrides: object) -> OrderRecord:
+    status = overrides.get("status", OrderRecordStatus.FILLED)
+    # F096: a FILLED order must carry a price — the DB now enforces it
+    # (ck_order_record_filled_has_price). The factory used to default to FILLED
+    # while leaving fill_price None, so most fixtures were quietly building a state
+    # production can no longer produce. Callers that care pass their own price.
+    fill_price = overrides.get("fill_price")
+    if fill_price is None and status is OrderRecordStatus.FILLED:
+        fill_price = Decimal("150.0")
+
     order = OrderRecord(
         decision_id=overrides.get("decision_id", decision.id),
         broker="alpaca_paper",
@@ -119,8 +128,8 @@ def make_order_record(session: Session, decision: Decision, **overrides: object)
         mode=PortfolioMode.PAPER,
         submitted_at=overrides.get("submitted_at", datetime.datetime(2026, 7, 4, 9, 1)),
         filled_at=overrides.get("filled_at"),
-        fill_price=overrides.get("fill_price"),
-        status=overrides.get("status", OrderRecordStatus.FILLED),
+        fill_price=fill_price,
+        status=status,
         fees=Decimal("0"),
     )
     session.add(order)

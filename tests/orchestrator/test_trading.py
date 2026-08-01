@@ -249,6 +249,8 @@ def _make_filled_buy_order_record(
         mode=PortfolioMode.PAPER,
         submitted_at=datetime.datetime(2026, 7, 10, 9, 0),
         status=OrderRecordStatus.FILLED,
+        # F096: FILLED braucht einen Preis (ck_order_record_filled_has_price)
+        fill_price=Decimal("150.0"),
         raw={"stop_order_id": stop_order_id, "qty": 2.0, "side": "buy", "stop_loss_price": 140.0},
     )
     session.add(order_record)
@@ -349,3 +351,20 @@ def test_execute_decision_close_rejects_missing_quantity(session: Session) -> No
 
     assert adapter.close_calls == []
     assert session.scalars(select(OrderRecord)).all() == []
+
+
+def test_fill_status_requires_both_timestamp_and_price():
+    """F096: deriving the status from `filled_at` alone made "FILLED with no price"
+    representable — two such rows exist from 2026-07-12, and review deviation,
+    slippage malus and the holdings charts all then read a fill they cannot price."""
+    import datetime as _dt
+
+    from src.db.models import OrderRecordStatus
+    from src.orchestrator.trading import _fill_status
+
+    ts = _dt.datetime(2026, 8, 1, 12, 0)
+
+    assert _fill_status(ts, 12.5) is OrderRecordStatus.FILLED
+    assert _fill_status(ts, None) is OrderRecordStatus.NEW  # der eigentliche Defekt
+    assert _fill_status(None, 12.5) is OrderRecordStatus.NEW
+    assert _fill_status(None, None) is OrderRecordStatus.NEW

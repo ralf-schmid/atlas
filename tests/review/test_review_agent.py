@@ -403,3 +403,30 @@ def test_adaptive_thinking_is_disabled(session):
     review_decision(session, d, client, _llm_config(), _NOW)
 
     assert client.last_thinking == {"type": "disabled"}
+
+
+def test_archived_pre_season_decisions_are_never_due(session):
+    """F090 hat die Vorsaison-Portfolios archiviert; `list_active_portfolios`
+    filtert sie seither überall. Der Review-Agent tat es nicht — der komplette
+    Bestandslauf vom 31.07. (16 Reviews, 0,25 USD) lief gegen Vorsaison-Daten.
+    Sobald der Lessons-Rückfluss existiert, wäre das zusätzlich ein Bruch von
+    Invariante #10."""
+    p = _portfolio(session)
+    p.archived_at = datetime.datetime(2026, 7, 27)
+    session.flush()
+    d = _decision(session, p, action=DecisionAction.CLOSE)
+    _fill(session, d, filled_at=_NOW)
+
+    assert find_due_decisions(session, _NOW, intermediate_after_days=14, limit=10) == []
+
+
+def test_active_season_decisions_are_still_due(session):
+    """Gegenprobe zum Filter oben — er darf nicht alles wegfiltern."""
+    p = _portfolio(session)
+    assert p.archived_at is None
+    d = _decision(session, p, action=DecisionAction.CLOSE)
+    _fill(session, d, filled_at=_NOW)
+
+    assert [
+        x.id for x in find_due_decisions(session, _NOW, intermediate_after_days=14, limit=10)
+    ] == [d.id]
