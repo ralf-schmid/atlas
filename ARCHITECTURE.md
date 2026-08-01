@@ -312,7 +312,7 @@ Vorab fixiert, damit nicht post hoc der sympathischste Agent gewinnt:
 | Persona-Analyse | 6 (je Portfolio) | Sonnet | Research Pool durch die Persona-Brille → decisions (buy/sell/hold/close/**reject_idea**) mit Thesis, Erwartung, Pflicht-Referenzen |
 | Risk-Gate | 1 | **kein LLM** | Zwei-Ebenen-Regelprüfung (§6) je Decision |
 | HITL-Gate | 1 | kein LLM | Telegram-Approval bei aktivem HITL (LangGraph-Interrupt) |
-| Handels-Agent | 1 (portfolio-parametrisiert) | toolgesteuert, minimal-LLM | Orders + GTC-Stops platzieren, Fills überwachen → order_records |
+| Handels-Agent | 1 (portfolio-parametrisiert) | **kein LLM** (ADR-0012) | Orders + GTC-Stops platzieren, Fills überwachen → order_records |
 | Review-Agent | 1 | Sonnet | fällige Decisions vs. Erwartung; Slippage-Malus (Code) + Verdict/Lessons (LLM); Meta-Review der Recherche-Qualität |
 | Reporting-Agent | 1 | Code (+Haiku für Freitext) | Snapshots, Telegram-Tagesdigest, Wochenreport |
 
