@@ -28,6 +28,7 @@ from src.llm.config import LlmConfig
 from src.orchestrator.persona_analysis import analyze_persona_cycle
 from src.orchestrator.research_agents import enrich_research_items
 from src.orchestrator.research_synthesis import synthesize_research_items
+from src.review.embeddings import EmbeddingProvider
 
 
 class CycleState(TypedDict):
@@ -79,7 +80,7 @@ def build_and_compile_graph(
     llm_config: LlmConfig,
     checkpointer: BaseCheckpointSaver[str] | None = None,
     adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
-    embedding_provider: object | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> CompiledStateGraph[CycleState, None, CycleState, CycleState]:
     """`adapter_factory` defaults to the real broker registry — tests that resume a
     `buy` interrupt to "approved" must inject a fake here (see F023 §2), otherwise

@@ -42,6 +42,7 @@ from src.orchestrator.graph import CycleState
 from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.trading import execute_decision
 from src.review.agent import run_review_sweep
+from src.review.meta_agent import run_meta_review_sweep
 from src.telegram.config import load_config as load_telegram_config
 from src.telegram.digest import build_digest_data, render_daily_digest
 from src.telegram.hitl import HitlDecision, HitlOutcome
@@ -132,6 +133,14 @@ def notify_pending_hitl_decisions(
 # the day's fills are already reconciled.
 _REVIEW_SWEEP_HOUR = 17
 _REVIEW_SWEEP_MINUTE = 30
+
+# F099: this one *is* the §5.2 Sunday run — it is a sample by design (max. 5/week),
+# not a completeness obligation like the review sweep above, so running it daily
+# would only spend money faster without covering more ground. An hour after the
+# review sweep, on a day with no cycles, so the two never contend for the daily cap.
+_META_REVIEW_SWEEP_DAY = "sun"
+_META_REVIEW_SWEEP_HOUR = 18
+_META_REVIEW_SWEEP_MINUTE = 30
 
 
 def build_scheduler(
@@ -270,6 +279,20 @@ def build_scheduler(
             timezone=cycles_config.stock_timezone,
             args=[session_factory, llm_client, llm_config],
             id="review-sweep",
+            replace_existing=True,
+        )
+
+        # F099: ARCHITECTURE.md §5.2 "Sonntag: Review-Wochenlauf". Same guard as the
+        # review sweep — without an LLM client there is nothing to run.
+        scheduler.add_job(
+            _meta_review_sweep_job,
+            trigger="cron",
+            day_of_week=_META_REVIEW_SWEEP_DAY,
+            hour=_META_REVIEW_SWEEP_HOUR,
+            minute=_META_REVIEW_SWEEP_MINUTE,
+            timezone=cycles_config.stock_timezone,
+            args=[session_factory, llm_client, llm_config],
+            id="meta-review-sweep",
             replace_existing=True,
         )
 
@@ -600,15 +623,47 @@ def _review_sweep_job(
                 datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
             )
             session.commit()
-        if result.reviewed or result.deferred or result.failed:
+        # `deferred_budget`, not `deferred` — the attribute never existed on
+        # SweepResult. With reviewed == 0 (the normal case once the backlog is
+        # worked off) the `or` chain reached it and raised, so every quiet sweep
+        # logged "review sweep failed" with an AttributeError traceback.
+        if result.reviewed or result.deferred_budget or result.failed:
             logger.info(
                 "review sweep: %d reviewed, %d deferred (budget), %d failed",
                 result.reviewed,
-                result.deferred,
+                result.deferred_budget,
                 result.failed,
             )
     except Exception:
         logger.error("review sweep failed", exc_info=True)
+
+
+def _meta_review_sweep_job(
+    session_factory: Callable[[], Session],
+    llm_client: LiteLLMClient,
+    llm_config: LlmConfig,
+) -> None:
+    """F099: samples `reject_idea` decisions and judges the research pool behind
+    them. Non-fatal for the same reason as the review sweep — it is a diagnostic
+    artefact, not a trading action."""
+    try:
+        with session_factory() as session:
+            result = run_meta_review_sweep(
+                session,
+                llm_client,
+                llm_config,
+                datetime.datetime.now(datetime.UTC).replace(tzinfo=None),
+            )
+            session.commit()
+        if result.reviewed or result.deferred_budget or result.failed:
+            logger.info(
+                "meta-review sweep: %d reviewed, %d deferred (budget), %d failed",
+                result.reviewed,
+                result.deferred_budget,
+                result.failed,
+            )
+    except Exception:
+        logger.error("meta-review sweep failed", exc_info=True)
 
 
 def _reconcile_order_fills_job(session_factory: Callable[[], Session]) -> None:
