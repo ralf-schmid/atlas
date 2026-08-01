@@ -28,7 +28,7 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from src.db.models import (
@@ -58,6 +58,35 @@ _THINKING_DISABLED: dict[str, object] = {"type": "disabled"}
 # because a cycle pool runs to ~1000 items.
 _MAX_POOL_EXCERPTS = 12
 
+#: `reject_idea` rows that `persona_analysis` writes **deterministically** — sizing
+#: maths, a missing price history, a failed parse, the risk gate. The research pool
+#: played no part in any of them, so the only meta-review they can produce is "the
+#: pool was irrelevant here", at the price of a Sonnet call and one of five weekly
+#: slots. Live on the box, 2 of the first 5 sampled candidates were exactly this
+#: (`position_too_small_for_whole_share`, `insufficient_price_history`) — 40 % of the
+#: quota burnt on non-findings.
+#:
+#: Deliberately a literal set and not an import from `src.orchestrator`: this module
+#: is imported by the scheduler alongside persona_analysis, and the coupling would
+#: be circular in spirit even where it is not in Python. The literals are kept
+#: honest by `test_every_deterministic_rejection_reason_is_excluded`, which parses
+#: persona_analysis for them.
+_DETERMINISTIC_REJECTION_REASONS = frozenset(
+    {
+        "llm_output_parse_error",
+        "invalid_research_ids",
+        "missing_instrument",
+        "insufficient_price_history",
+        "position_already_at_target_size",
+        "position_too_small_for_whole_share",
+        "risk_gate_rejected",
+        "no_open_position",
+    }
+)
+#: `unsupported_action:{action}` carries the offending action, so it needs a prefix
+#: match rather than set membership.
+_DETERMINISTIC_REASON_PREFIX = "unsupported_action:"
+
 
 class MetaReviewParseError(RuntimeError):
     """The model's answer did not contain a usable verdict."""
@@ -78,13 +107,15 @@ def find_meta_review_candidates(
 ) -> list[Decision]:
     """A fair, recency-weighted sample of un-meta-reviewed `reject_idea` decisions.
 
-    Three filters and one spread:
+    Four filters and one spread:
 
     * `action == REJECT_IDEA` — the decisions F084 leaves on the table.
     * `Portfolio.archived_at IS NULL` — the running season only, same reason F096
       gave for `review`: an archived season no longer counts.
     * no `meta_review` row yet — makes the sweep stateless and idempotent, so a run
       that dies halfway simply resumes and a re-run never duplicates.
+    * the rejection was a judgement, not arithmetic — see
+      `_DETERMINISTIC_REJECTION_REASONS`.
 
     The spread is **round-robin across personas**, newest cycle first. Without it a
     single persona that rejects a lot (CONTRA rejects far more than it buys) would
@@ -104,6 +135,16 @@ def find_meta_review_candidates(
             Decision.action == DecisionAction.REJECT_IDEA,
             Portfolio.archived_at.is_(None),
             Decision.id.not_in(reviewed),
+            # `IS NULL` explicitly: in SQL `NULL NOT IN (...)` is NULL, not true, so
+            # without this branch every decision without a rejection_reason would be
+            # filtered out — the opposite of what is meant.
+            or_(
+                Decision.rejection_reason.is_(None),
+                and_(
+                    Decision.rejection_reason.not_in(_DETERMINISTIC_REJECTION_REASONS),
+                    ~Decision.rejection_reason.startswith(_DETERMINISTIC_REASON_PREFIX),
+                ),
+            ),
         )
         .order_by(Cycle.started_at.desc())
     )

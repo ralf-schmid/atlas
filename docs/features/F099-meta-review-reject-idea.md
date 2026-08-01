@@ -1,6 +1,6 @@
 # F099 — Meta-Review für `reject_idea`
 
-**Status:** Implemented (nicht deployt — s. §7)
+**Status:** Implemented · **Deployed:** 2026-08-01 (s. §7)
 **Phase:** 5 (Härtung)
 **Abhängigkeiten:** `src/review/meta_agent.py` (neu), `src/db/models.py`,
 `src/orchestrator/scheduler.py`, `src/llm/config.py`, `config/llm.yaml`,
@@ -97,7 +97,7 @@ Ingestion-Backlog wäre schlimmer als ein leeres Feld.
 | Baustein | Entscheidung |
 |---|---|
 | Tabelle | `meta_review`, unique auf `decision_id` (Idempotenz als DB-Constraint) |
-| Auswahl | `reject_idea` + `archived_at IS NULL` + noch kein `meta_review` → Round-Robin je Persona, max. 5 |
+| Auswahl | `reject_idea` + `archived_at IS NULL` + noch kein `meta_review` + kein deterministischer Ablehnungsgrund (§3.1) → Round-Robin je Persona, max. 5 |
 | Rolle | dieselbe `review`-Rolle (Sonnet, shared) — ARCHITECTURE.md §5.1 führt das Meta-Review unter derselben Rolle |
 | Zeitpunkt | Sonntag 18:30 ET, eine Stunde nach dem täglichen Review-Sweep |
 | Thinking | `disabled` (F073/F084 — Sonnet 5 verbrennt sonst das Completion-Budget im internen Denkblock) |
@@ -108,6 +108,32 @@ Die Zustandsfreiheit der Kandidaten-Query ist dieselbe Konstruktion wie in F084:
 Lauf, der auf halber Strecke stirbt, macht beim nächsten Mal weiter, und ein
 Wiederholungslauf dupliziert nie.
 
+### 3.1 Deterministische Ablehnungen gehören nicht in die Stichprobe
+
+Befund aus dem Dry-Run auf der Box (01.08.2026, ohne LLM-Call): von den ersten fünf
+gezogenen Kandidaten waren **zwei** `position_too_small_for_whole_share` und
+`insufficient_price_history`. Das sind keine Urteile, das ist Arithmetik —
+`persona_analysis` schreibt sie deterministisch, wenn die Positionsgröße unter eine
+ganze Aktie fällt oder die Kurshistorie zu kurz ist. Die Recherche hat daran keinen
+Anteil, das einzig mögliche Verdict wäre „der Pool war irrelevant" — für einen
+Sonnet-Call und einen von fünf Wochen-Slots. 40 % des Kontingents für Nicht-Befunde.
+
+`find_meta_review_candidates` filtert deshalb neun Maschinen-Codes heraus
+(`_DETERMINISTIC_REJECTION_REASONS` plus den Präfix `unsupported_action:`).
+Drin bleibt `"not specified"` — das ist der Fallback für eine **LLM**-Ablehnung, die
+keinen Grund genannt hat, also eine echte Urteilsentscheidung, deren These und
+Research-Verknüpfung sehr wohl bewertbar sind.
+
+Zwei Fallen dabei, beide getestet:
+
+* **`NULL NOT IN (...)` ist NULL, nicht true.** Ohne den expliziten
+  `rejection_reason IS NULL`-Zweig hätte der Filter genau die Decisions
+  herausgeworfen, die gar keinen Grund tragen — das Gegenteil der Absicht.
+* **Drift.** Ein neuer Maschinen-Code in `persona_analysis` würde still anfangen,
+  Kontingent zu fressen. `test_every_deterministic_rejection_reason_is_excluded`
+  parst die Datei per `ast` und schlägt an, sobald ein `rejection_reason="…"`-Literal
+  auftaucht, das im Deny-Set fehlt.
+
 ## 4. Tests
 
 | Test | Sichert |
@@ -115,14 +141,16 @@ Wiederholungslauf dupliziert nie.
 | `test_the_sample_is_spread_across_personas` | §2.3, die Fairness der Stichprobe |
 | `test_archived_seasons_are_not_sampled` | F096-Logik gilt auch hier |
 | `test_the_cap_holds_mid_round` / `test_limit_zero_samples_nothing` | jede Stichprobe zu viel ist ein bezahlter Call |
+| `test_deterministic_rejections_are_not_sampled` | §3.1 — kein Wochen-Slot für Arithmetik |
+| `test_a_decision_without_a_rejection_reason_is_still_sampled` | die `NULL NOT IN`-Falle |
+| `test_every_deterministic_rejection_reason_is_excluded` | Drift-Wächter gegen neue Maschinen-Codes |
 | `test_the_prompt_separates_used_research_from_the_available_pool` | §2.2 — ohne beide Blöcke ist `research_ignored` nicht entscheidbar |
 | `test_missing_source_is_dropped_unless_the_verdict_is_a_gap` | §2.4, keine Phantom-Einträge im Backlog |
 | `test_parse_raises_instead_of_defaulting` | kein erfundenes „alles in Ordnung" |
 | `test_a_budget_stop_defers_instead_of_dropping` | Invariante #7 |
 | `test_an_embedding_failure_does_not_cost_the_meta_review` | F098-Vertrag: die Zeile ist das Wertvolle |
 
-**Ergebnis:** 821 passed (vorher 813 mit den zwei Nebenfunden unten, 792 vor F098),
-Coverage 90,11 %, `ruff` und `mypy` sauber.
+**Ergebnis:** 828 passed (792 vor F098), Coverage 90,11 %, `ruff` und `mypy` sauber.
 
 ## 5. Nebenfunde (mitgefixt, nicht Teil des Zuschnitts)
 
@@ -165,10 +193,32 @@ GROUP BY 1, 2
 ORDER BY 3 DESC;
 ```
 
-## 7. Deployment — offen
+## 7. Deployment
 
-Noch nicht auf der Box. Nötig sind rsync + Rebuild aller vier Python-Services +
-`alembic upgrade head` (die Migration legt `meta_review` an), Details in
-`docs/deployment.md` bzw. `TRUENAS_HOMELAB.md` §5.2. Erster Lauf wäre der kommende
-Sonntag 18:30 ET; ein sofortiger Probelauf ginge über `run_meta_review_sweep` in
-einer `docker compose exec`-Shell.
+**Deployt am 01.08.2026, 14:56 MESZ.** Rollback-Anker vorher: ZFS-Snapshots
+`apps/docker@pre-f099-20260801` **und** `apps/ix-apps/docker@pre-f099-20260801` —
+das zweite ist das relevante, weil das Named Volume `atlas_postgres-data` unter
+`/mnt/.ix-apps/docker/volumes/` liegt und damit *nicht* auf dem täglich
+gesnapshotteten `apps/docker`.
+
+Ablauf wie in `TRUENAS_HOMELAB.md` §5.2: rsync (88 Dateien) → `docker compose build
+api web scheduler telegram-bot` → `up -d` → `alembic upgrade head`
+(`c3d4e5f6a7b8 → d4e5f6a7b8c9`).
+
+Verifiziert direkt nach dem Deploy:
+
+| Prüfpunkt | Ergebnis |
+|---|---|
+| Container | alle 6 Up, `postgres`/`litellm`/`api` healthy |
+| Migration | `alembic current` = `d4e5f6a7b8c9 (head)`, Tabelle `meta_review` mit `vector(1024)` + Unique-Constraint |
+| Scheduler | `_meta_review_sweep_job` registriert, 0 Errors im Log |
+| LAN-Health | `:8000/health` ok, `:3001/` 200, `:4000/health/liveliness` ok |
+| Kandidaten-Query (Dry-Run, kein LLM-Call) | 5 Kandidaten aus 5 verschiedenen Portfolios — der Round-Robin greift. Beifang: die 2 deterministischen Ablehnungen, die zu §3.1 geführt haben |
+
+Erster regulärer Lauf: Sonntag 18:30 ET. Sofortiger Probelauf ginge über
+`run_meta_review_sweep` in einer `docker compose exec`-Shell — kostet dann echte
+LLM-Calls.
+
+**Der §3.1-Filter ist im obigen Deploy noch nicht enthalten** (er ist der Befund
+*aus* dessen Verifikation) und braucht einen zweiten rsync + Rebuild vor Sonntag,
+ohne Migration.
