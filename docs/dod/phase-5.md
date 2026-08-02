@@ -10,10 +10,15 @@ nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
       Performance getrennt aus
 - [ ] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
       Impuls-Vergleich, Agent Trace); auf realem Smartphone getestet
-      **Teilweise (02.08.2026):** [F100](../features/F100-portfolio-history-chart.md) —
-      Startseite zeigt Gesamtwert- und Depotwert-Verlauf aller 6 Personas seit
-      Stichtag (`GET /api/portfolios/history`). Leaderboard (F085), Journal
-      (F086), Impuls-Vergleich (F087) und Agent Trace (F088) fehlen weiterhin.
+      **Views vollständig (02.08.2026), Smartphone-Test offen:**
+      [F100](../features/F100-portfolio-history-chart.md) Verlaufs-Charts auf der
+      Startseite, [F085](../features/F085-leaderboard-view.md) Leaderboard (roh
+      und slippage-adjustiert, SPY-Benchmark),
+      [F086](../features/F086-decision-journal.md) Decision Journal mit
+      Rejected-Filter, [F087](../features/F087-impuls-vergleich.md)
+      Impuls-Vergleich, [F088](../features/F088-agent-trace.md) Agent Trace —
+      alle live auf der Box verifiziert. **Offen bleibt allein der DoD-Schritt
+      „auf realem Smartphone getestet" (Ralf, ~390 px).**
 - [ ] Lineage-Probe: für 5 zufällige Trades die Kette
       Quelle→Research→Decision→Order→Fill→Review lückenlos in der UI
       nachvollzogen (Screenshots im DoD-Dokument)
