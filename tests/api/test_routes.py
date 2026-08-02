@@ -5,6 +5,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from src.db.models import DecisionAction, PortfolioMode
+from src.orchestrator.competition_config import load_competition_config
 from tests.db.factories import (
     make_cycle,
     make_decision,
@@ -466,6 +467,106 @@ def test_get_persona_decisions_conviction_present_for_buy_absent_for_hold(
     body = {d["instrument"]: d for d in response.json()}
     assert body["AAPL"]["conviction"] == 0.7
     assert body["MSFT"]["conviction"] is None
+
+
+def _competition_start() -> datetime.datetime:
+    """Anchor the F100 history tests to the configured start date instead of a
+    hardcoded one — the endpoint cuts off there, and the date is Ralf's config."""
+    return datetime.datetime.combine(load_competition_config().start_date, datetime.time.min)
+
+
+def test_get_portfolio_history_returns_series_per_persona(client: TestClient, session):
+    start = _competition_start()
+    for name in ("VULTURE", "HYPE"):
+        portfolio = make_portfolio(session, make_persona(session, name=name))
+        make_portfolio_snapshot(session, portfolio, ts=start + datetime.timedelta(hours=16))
+        make_portfolio_snapshot(session, portfolio, ts=start + datetime.timedelta(days=1))
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["start"] == load_competition_config().start_date.isoformat()
+    assert body["start_capital"] == float(load_competition_config().start_capital_usd)
+    assert [s["persona"] for s in body["series"]] == ["HYPE", "VULTURE"]
+    hype = body["series"][0]
+    assert hype["display_name"].startswith("HYPE")
+    assert [p["ts"] for p in hype["points"]] == sorted(p["ts"] for p in hype["points"])
+    assert len(hype["points"]) == 2
+
+
+def test_get_portfolio_history_computes_position_value(client: TestClient, session):
+    portfolio = make_portfolio(session, make_persona(session, name="GUARDIAN"))
+    make_portfolio_snapshot(
+        session,
+        portfolio,
+        ts=_competition_start() + datetime.timedelta(hours=16),
+        total_value=Decimal("5200.00"),
+        cash=Decimal("1200.00"),
+    )
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    point = response.json()["series"][0]["points"][0]
+    assert point["total_value"] == 5200.0
+    assert point["cash"] == 1200.0
+    assert point["position_value"] == 4000.0
+
+
+def test_get_portfolio_history_excludes_archived_portfolios(client: TestClient, session):
+    persona = make_persona(session, name="CONTRA")
+    archived = make_portfolio(session, persona)
+    archived.archived_at = _competition_start()
+    make_portfolio_snapshot(
+        session, archived, ts=_competition_start() + datetime.timedelta(hours=16)
+    )
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    assert response.json()["series"] == []
+
+
+def test_get_portfolio_history_starts_at_competition_start_date(client: TestClient, session):
+    portfolio = make_portfolio(session, make_persona(session, name="CHARTIST"))
+    make_portfolio_snapshot(
+        session, portfolio, ts=_competition_start() - datetime.timedelta(days=1)
+    )
+    make_portfolio_snapshot(
+        session, portfolio, ts=_competition_start() + datetime.timedelta(days=1)
+    )
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    points = response.json()["series"][0]["points"]
+    assert len(points) == 1
+    assert points[0]["ts"].startswith(
+        (_competition_start() + datetime.timedelta(days=1)).date().isoformat()
+    )
+
+
+def test_get_portfolio_history_defaults_to_paper_mode(client: TestClient, session):
+    persona = make_persona(session, name="CRYPTOR")
+    live = make_portfolio(session, persona, mode=PortfolioMode.LIVE)
+    make_portfolio_snapshot(session, live, ts=_competition_start() + datetime.timedelta(hours=16))
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    assert response.json()["series"] == []
+
+
+def test_get_portfolio_history_without_snapshots_returns_empty_series(client: TestClient, session):
+    make_portfolio(session, make_persona(session, name="VULTURE"))
+    session.flush()
+
+    response = client.get("/api/portfolios/history")
+
+    assert response.status_code == 200
+    assert response.json()["series"] == []
 
 
 def test_health_endpoint(client: TestClient):

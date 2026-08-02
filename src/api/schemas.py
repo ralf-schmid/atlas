@@ -27,6 +27,25 @@ class PortfolioSnapshotOut(BaseModel):
     positions: list[PositionOut]
 
 
+class PortfolioHistoryPointOut(BaseModel):
+    ts: datetime.datetime
+    total_value: float  # cash + positions (broker equity)
+    position_value: float  # total_value - cash, computed server-side (F100)
+    cash: float
+
+
+class PortfolioHistorySeriesOut(BaseModel):
+    persona: str
+    display_name: str
+    points: list[PortfolioHistoryPointOut]
+
+
+class PortfolioHistoryOut(BaseModel):
+    start: datetime.date
+    start_capital: float
+    series: list[PortfolioHistorySeriesOut]
+
+
 class PersonaProfileOut(BaseModel):
     name: str
     display_name: str

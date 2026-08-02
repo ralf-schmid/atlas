@@ -20,6 +20,9 @@ from src.api.schemas import (
     HoldingChartOut,
     HoldingOut,
     PersonaProfileOut,
+    PortfolioHistoryOut,
+    PortfolioHistoryPointOut,
+    PortfolioHistorySeriesOut,
     PortfolioSnapshotOut,
     PositionOut,
     ResearchRefOut,
@@ -42,6 +45,7 @@ from src.db.models import (
     ResearchItem,
 )
 from src.ingestion.market_data_sync import build_default_provider, sync_market_bars
+from src.orchestrator.competition_config import load_competition_config
 from src.orchestrator.persona_analysis import compute_age_days
 from src.personas.charters import get_persona_profile
 
@@ -135,6 +139,64 @@ def get_persona_snapshot(
             )
             for p in positions
         ],
+    )
+
+
+@router.get("/portfolios/history", response_model=PortfolioHistoryOut)
+def get_portfolio_history(
+    mode: PortfolioMode = PortfolioMode.PAPER,
+    session: Session = Depends(get_session),
+) -> PortfolioHistoryOut:
+    """F100: snapshot time series of every active portfolio since the competition
+    start date — the data behind the dashboard's history charts.
+
+    `position_value` is derived here (Decimal arithmetic), not in the frontend:
+    money math belongs in code (CLAUDE.md). Pre-season snapshots are excluded
+    twice over — archived portfolios (F090) and the start-date cutoff (F081).
+    """
+    competition = load_competition_config()
+    start_ts = datetime.datetime.combine(competition.start_date, datetime.time.min)
+
+    rows = session.execute(
+        select(
+            Persona.name,
+            PortfolioSnapshot.ts,
+            PortfolioSnapshot.total_value,
+            PortfolioSnapshot.cash,
+        )
+        .join(Portfolio, Portfolio.persona_id == Persona.id)
+        .join(PortfolioSnapshot, PortfolioSnapshot.portfolio_id == Portfolio.id)
+        .where(
+            Portfolio.mode == mode,
+            Portfolio.archived_at.is_(None),
+            PortfolioSnapshot.ts >= start_ts,
+        )
+        .order_by(Persona.name, PortfolioSnapshot.ts)
+    ).all()
+
+    series: list[PortfolioHistorySeriesOut] = []
+    for persona_name, ts, total_value, cash in rows:
+        if not series or series[-1].persona != persona_name:
+            series.append(
+                PortfolioHistorySeriesOut(
+                    persona=persona_name,
+                    display_name=get_persona_profile(persona_name).display_name,
+                    points=[],
+                )
+            )
+        series[-1].points.append(
+            PortfolioHistoryPointOut(
+                ts=ts,
+                total_value=float(total_value),
+                position_value=float(total_value - cash),
+                cash=float(cash),
+            )
+        )
+
+    return PortfolioHistoryOut(
+        start=competition.start_date,
+        start_capital=float(competition.start_capital_usd),
+        series=series,
     )
 
 

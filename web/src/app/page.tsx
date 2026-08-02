@@ -1,7 +1,9 @@
 import Link from "next/link";
+import PortfolioHistoryChart from "@/components/PortfolioHistoryChart";
 import {
   getPersonaProfile,
   getPersonaSnapshot,
+  getPortfolioHistory,
   type PersonaProfile,
   type PortfolioSnapshot,
 } from "@/lib/api";
@@ -17,16 +19,42 @@ const currency = new Intl.NumberFormat("de-DE", {
 });
 
 export default async function Home() {
-  const cards = await Promise.all(
-    PERSONAS.map(async (persona) => ({
-      persona,
-      profile: await getPersonaProfile(persona),
-      snapshot: await getPersonaSnapshot(persona),
-    })),
-  );
+  const [cards, history] = await Promise.all([
+    Promise.all(
+      PERSONAS.map(async (persona) => ({
+        persona,
+        profile: await getPersonaProfile(persona),
+        snapshot: await getPersonaSnapshot(persona),
+      })),
+    ),
+    getPortfolioHistory(),
+  ]);
+
+  const historyStart =
+    history === null
+      ? ""
+      : new Intl.DateTimeFormat("de-DE").format(new Date(`${history.start}T00:00:00`));
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-6 p-4">
+      {history !== null && (
+        <>
+          <PortfolioHistoryChart
+            series={history.series}
+            metric="total_value"
+            title="Gesamtwert im Zeitverlauf"
+            subtitle={`Depot + Cash je Persona seit ${historyStart}; gestrichelt: Startkapital`}
+            reference={history.start_capital}
+          />
+          <PortfolioHistoryChart
+            series={history.series}
+            metric="position_value"
+            title="Depotwert im Zeitverlauf"
+            subtitle="Nur offene Positionen (Gesamtwert abzüglich Cash)"
+          />
+        </>
+      )}
+
       {cards.map(({ persona, profile, snapshot }) => (
         <PersonaCard
           key={persona}

@@ -17,6 +17,25 @@ export interface PortfolioSnapshot {
   positions: Position[];
 }
 
+export interface PortfolioHistoryPoint {
+  ts: string;
+  total_value: number;
+  position_value: number;
+  cash: number;
+}
+
+export interface PortfolioHistorySeries {
+  persona: string;
+  display_name: string;
+  points: PortfolioHistoryPoint[];
+}
+
+export interface PortfolioHistory {
+  start: string;
+  start_capital: number;
+  series: PortfolioHistorySeries[];
+}
+
 export interface PersonaProfile {
   name: string;
   display_name: string;
@@ -114,6 +133,10 @@ export async function getPersonaSnapshot(
   persona: string,
 ): Promise<PortfolioSnapshot | null> {
   return getJson<PortfolioSnapshot>(`/api/personas/${persona}/snapshot`);
+}
+
+export async function getPortfolioHistory(): Promise<PortfolioHistory | null> {
+  return getJson<PortfolioHistory>("/api/portfolios/history");
 }
 
 export async function getPersonaProfile(
