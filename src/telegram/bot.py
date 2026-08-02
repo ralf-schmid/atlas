@@ -38,6 +38,7 @@ from src.telegram.hitl_store import (
     load_pending_decision,
 )
 from src.telegram.security import is_authorized_chat
+from src.telegram.weekly_report import build_weekly_report, render_weekly_report
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 if TYPE_CHECKING:
@@ -68,6 +69,8 @@ def build_application(
     app.add_handler(CommandHandler("resume", _make_handler(config, _handle_resume)))
     app.add_handler(CommandHandler("hitl", _make_handler(config, _handle_hitl)))
     app.add_handler(CommandHandler("digest", _make_handler(config, _handle_digest)))
+    # F089: the Sunday §4.7 report on demand, same pattern as /digest.
+    app.add_handler(CommandHandler("report", _make_handler(config, _handle_report)))
     app.add_handler(CallbackQueryHandler(_make_callback_handler(config, _handle_hitl_callback)))
     return app
 
@@ -195,6 +198,21 @@ async def _handle_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     finally:
         session.close()
     await update.message.reply_text(render_daily_digest(data))
+
+
+async def _handle_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not update.message:
+        return
+    session_factory = context.application.bot_data.get("session_factory")
+    if session_factory is None:
+        await update.message.reply_text("Wochenreport: Datenbank nicht konfiguriert.")
+        return
+    session = session_factory()
+    try:
+        data = build_weekly_report(session, datetime.date.today())
+    finally:
+        session.close()
+    await update.message.reply_text(render_weekly_report(data))
 
 
 async def _handle_hitl_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

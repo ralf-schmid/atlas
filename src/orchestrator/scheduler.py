@@ -47,6 +47,7 @@ from src.telegram.config import load_config as load_telegram_config
 from src.telegram.digest import build_digest_data, render_daily_digest
 from src.telegram.hitl import HitlDecision, HitlOutcome
 from src.telegram.hitl_store import apply_hitl_outcome, decision_to_hitl_request
+from src.telegram.weekly_report import build_weekly_report, render_weekly_report
 
 _HITL_SWEEP_INTERVAL_MINUTES = 5
 _STUCK_DECISION_SWEEP_INTERVAL_MINUTES = 15
@@ -141,6 +142,13 @@ _REVIEW_SWEEP_MINUTE = 30
 _META_REVIEW_SWEEP_DAY = "sun"
 _META_REVIEW_SWEEP_HOUR = 18
 _META_REVIEW_SWEEP_MINUTE = 30
+
+# F089: the §5.2 Sunday "Leaderboard-/Kriterien-Report". Half an hour after the
+# meta-review sweep, so the week's reviews (which feed criterion 4, thesis
+# quality) are already written when the report reads them.
+_WEEKLY_REPORT_DAY = "sun"
+_WEEKLY_REPORT_HOUR = 19
+_WEEKLY_REPORT_MINUTE = 0
 
 
 def build_scheduler(
@@ -267,6 +275,21 @@ def build_scheduler(
         timezone=cycles_config.stock_timezone,
         args=[session_factory],
         id="daily-digest",
+        replace_existing=True,
+    )
+
+    # F089: ARCHITECTURE.md §5.2 "Sonntag: … Leaderboard-/Kriterien-Report".
+    # Pure code over existing data (no LLM), so it needs no client guard — it runs
+    # after the meta-review sweep so the week's reviews are already in.
+    scheduler.add_job(
+        _weekly_report_job,
+        trigger="cron",
+        day_of_week=_WEEKLY_REPORT_DAY,
+        hour=_WEEKLY_REPORT_HOUR,
+        minute=_WEEKLY_REPORT_MINUTE,
+        timezone=cycles_config.stock_timezone,
+        args=[session_factory],
+        id="weekly-report",
         replace_existing=True,
     )
 
@@ -432,6 +455,24 @@ def _daily_digest_job(session_factory: Callable[[], Session]) -> None:
         asyncio.run(send_alert(telegram_config, text))
     except Exception:
         logger.error("failed to send daily Telegram digest", exc_info=True)
+
+
+def _weekly_report_job(session_factory: Callable[[], Session]) -> None:
+    """F089: the §4.7 criteria report, pushed to Telegram every Sunday.
+
+    Same non-fatal contract as the daily digest: a Telegram or DB failure must
+    not take the scheduler thread down, and a missed weekly report signals itself
+    by its absence.
+    """
+    from src.telegram.alerts import send_alert
+
+    try:
+        with session_factory() as session:
+            data = build_weekly_report(session, datetime.date.today())
+        text = render_weekly_report(data)
+        asyncio.run(send_alert(load_telegram_config(), text))
+    except Exception:
+        logger.error("failed to send weekly Telegram report", exc_info=True)
 
 
 def _sweep_expired_hitl_job(

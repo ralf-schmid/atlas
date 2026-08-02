@@ -105,7 +105,10 @@ def make_decision(
             {"target_price": 160.0, "horizon_days": 10, "stop_loss_price": 140.0},
         ),
         input_research_ids=overrides.get("input_research_ids", [research_item.id]),
+        risk_check=overrides.get("risk_check"),
     )
+    if "status" in overrides:
+        decision.status = overrides["status"]  # type: ignore[assignment]
     session.add(decision)
     session.flush()
     return decision

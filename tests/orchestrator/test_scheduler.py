@@ -373,6 +373,32 @@ def test_meta_review_sweep_job_is_registered_for_sunday_evening() -> None:
     assert scheduler.get_job("review-sweep") is not None
 
 
+def test_weekly_report_job_runs_sundays_without_an_llm_client() -> None:
+    """F089: the §4.7 report is plain code over existing data, so unlike the
+    review sweeps it must be registered even when no LLM client is configured."""
+    scheduler = build_scheduler(
+        graph=None,  # type: ignore[arg-type]
+        session_factory=lambda: None,  # type: ignore[arg-type]
+        cycles_config=load_cycles_config(),
+    )
+
+    job = scheduler.get_job("weekly-report")
+    assert job is not None
+    assert _field(job, "day_of_week") == "sun"
+    assert _field(job, "hour") == "19"
+    # after the meta-review sweep (18:30), so the week's reviews are already in
+    assert str(job.trigger.timezone) == "America/New_York"
+
+
+def test_weekly_report_job_logs_and_does_not_raise_on_failure(monkeypatch) -> None:
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(scheduler_module, "build_weekly_report", _raise)
+
+    scheduler_module._weekly_report_job(lambda: None)  # type: ignore[arg-type]
+
+
 def test_no_llm_client_means_no_sweep_jobs() -> None:
     scheduler = build_scheduler(
         graph=None,  # type: ignore[arg-type]
