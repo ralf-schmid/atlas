@@ -55,9 +55,23 @@ ein Link auf die Originalquelle).
 
 Gesamtlauf 890 passed; ruff/mypy/eslint/tsc grün.
 
-## 4. Live-Verifikation
+## 4. Live-Verifikation (02.08.2026)
 
-(nach Deployment)
+Erster echter Vergleich auf der Box — ein `market_overview`-Item aus dem Zyklus
+vom 02.08. 14:22, von **4 von 6** Personas zitiert:
+
+| Persona | Verdikt | Was daraus wurde |
+|---|---|---|
+| CHARTIST | gehandelt | ADSK gekauft — liest die im Item als „Signalwiderspruch" markierte MACD-Lage als validen Frühindikator |
+| CRYPTOR | gehalten | keine Krypto-Signale im Item |
+| GUARDIAN | gehalten | keine Fair-Value-Daten |
+| HYPE | gehalten | — |
+| CONTRA | ignoriert | hat im selben Zyklus entschieden, aber andere Impulse zitiert |
+| VULTURE | ignoriert | dito |
+
+Genau der Fall, für den das Feature gebaut ist: **derselbe Impuls**, eine
+Persona kauft darauf, drei bleiben untätig, zwei sehen ihn gar nicht als
+relevant an. `/impulse` und `/impulse/{id}` liefern 200.
 
 ## 5. Rollback
 
