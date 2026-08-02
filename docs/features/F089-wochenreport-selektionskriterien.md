@@ -95,11 +95,21 @@ Gesamtlauf: 880 passed, ruff/mypy grün.
 
 ## 5. Live-Verifikation (02.08.2026)
 
-Report gegen die Wettbewerbs-DB gerendert (`docker exec scheduler`), Ergebnis
-siehe §6. Gewertet wurden „Rendite nach Kosten 25 %", „Max Drawdown 15 %" und
+Report gegen die Wettbewerbs-DB gerendert (`docker exec scheduler`). Gewertet wurden „Rendite nach Kosten 25 %", „Max Drawdown 15 %" und
 „Operative Zuverlässigkeit 10 %"; Sortino und Thesen-Qualität wurden als nicht
 wertbar ausgewiesen und ihr Gewicht umverteilt — korrekt für Handelstag 7 ohne
-abgeschlossene Reviews.
+abgeschlossene Reviews (effektiv 50/30/20 statt 25/15/10).
+
+Ergebnis (Stand 02.08., 7 Handelstage): CRYPTOR, GUARDIAN und HYPE teilen sich
+Rang 1 mit Score 1,000 (alle drei bei 0,00 % ohne Trades), CHARTIST 0,933,
+VULTURE 0,800 (Reject-Quote 100 % — die beiden Stop-Loss-Rundungsrejects aus
+F101), CONTRA 0,157 als einzige Persona mit Trades und realisiertem Verlust.
+SPY liegt mit +1,07 % vor dem gesamten Feld.
+
+Zwei Befunde aus dem Live-Render sofort korrigiert: „Drawdown +0,16 %" las sich
+wie ein Gewinn (Drawdown, Thesen-Quote und Zuverlässigkeit jetzt vorzeichenlos),
+und drei punktgleiche Personas wurden als 1./2./3. ausgegeben — Gleichstand
+teilt sich jetzt den Rang (1,1,1,4).
 
 ## 6. Rollback
 

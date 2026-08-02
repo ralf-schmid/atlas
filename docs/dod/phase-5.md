@@ -17,7 +17,13 @@ nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
 - [ ] Lineage-Probe: für 5 zufällige Trades die Kette
       Quelle→Research→Decision→Order→Fill→Review lückenlos in der UI
       nachvollzogen (Screenshots im DoD-Dokument)
-- [ ] Selektionskriterien (§4.7) als automatischer Wochenreport implementiert
+- [x] Selektionskriterien (§4.7) als automatischer Wochenreport implementiert
+      **Erledigt (02.08.2026, [F089](../features/F089-wochenreport-selektionskriterien.md)):**
+      alle 5 Kriterien mit ihren Gewichten als Code (`src/metrics/competition_score.py`),
+      gewichteter Score + Rangfolge, Telegram-Push sonntags 19:00 ET und `/report`
+      on demand. Live gegen die Wettbewerbs-DB gerendert; Sortino und
+      Thesen-Qualität werden in Woche 1 korrekt als „nicht wertbar" ausgewiesen
+      und ihr Gewicht umverteilt.
 - [x] **Wettbewerb offiziell gestartet (26.07.2026, [F090](../features/F090-competition-reset-and-start.md)):**
       Stichtag Mo 27.07.2026 (`config/competition.yaml`), alle 6 Portfolios auf
       5.000 USD flat / 0 Positionen (verifiziert), Vorsaison via `archived_at`
