@@ -74,3 +74,15 @@ const REVIEW_VERDICT_LABELS: Record<string, string> = {
 export function reviewVerdictLabel(verdict: string): string {
   return REVIEW_VERDICT_LABELS[verdict] ?? verdict;
 }
+
+const IMPULSE_VERDICT_LABELS: Record<string, string> = {
+  traded: "Gehandelt",
+  rejected: "Verworfen",
+  hold: "Gehalten",
+  ignored: "Ignoriert",
+  no_run: "Kein Lauf",
+};
+
+export function impulseVerdictLabel(verdict: string): string {
+  return IMPULSE_VERDICT_LABELS[verdict] ?? verdict;
+}

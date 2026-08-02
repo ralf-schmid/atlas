@@ -145,6 +145,44 @@ class ResearchRefOut(BaseModel):
     url: str | None
 
 
+class ImpulseSummaryOut(BaseModel):
+    """One entry in the impulse picker (F087) — a research item at least one
+    persona actually cited."""
+
+    id: uuid.UUID
+    source_type: str
+    summary: str
+    published_at: datetime.datetime | None
+    cycle_ts: datetime.datetime
+    instruments: list[str]
+    citing_personas: int
+
+
+class ImpulseReactionOut(BaseModel):
+    """What one persona made of the impulse.
+
+    `verdict` is derived, not stored: `traded` | `rejected` | `hold` (the persona
+    cited it) | `ignored` (it ran that cycle and cited something else) |
+    `no_run` (it produced no decision in that cycle at all).
+    """
+
+    persona: str
+    display_name: str
+    verdict: str
+    action: str | None
+    status: str | None
+    instrument: str | None
+    thesis_text: str | None
+    rejection_reason: str | None
+    decision_id: uuid.UUID | None
+
+
+class ImpulseComparisonOut(BaseModel):
+    impulse: ImpulseSummaryOut
+    url: str | None
+    reactions: list[ImpulseReactionOut]
+
+
 class DecisionExpectationOut(BaseModel):
     """What the persona said would happen — straight from `expected_outcome`."""
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import uuid
 from collections.abc import Generator
 from decimal import Decimal
 
@@ -23,6 +24,9 @@ from src.api.schemas import (
     DecisionReviewOut,
     HoldingChartOut,
     HoldingOut,
+    ImpulseComparisonOut,
+    ImpulseReactionOut,
+    ImpulseSummaryOut,
     LeaderboardBenchmarkOut,
     LeaderboardOut,
     LeaderboardRowOut,
@@ -80,6 +84,7 @@ _session_factory: sessionmaker[Session] | None = None
 
 _DEFAULT_DECISION_LIMIT = 50
 _DECISION_FILTERS = frozenset({"all", "traded", "rejected", "hold"})
+_DEFAULT_IMPULSE_LIMIT = 25
 
 
 def _as_float(value: object) -> float | None:
@@ -314,6 +319,151 @@ def get_leaderboard(
         trading_days=trading_days,
         rows=rows,
         benchmark=benchmark,
+    )
+
+
+def _decision_verdict(decision: Decision) -> str:
+    if decision.action in (DecisionAction.BUY, DecisionAction.CLOSE):
+        if decision.status in (DecisionStatus.RISK_REJECTED, DecisionStatus.HITL_REJECTED):
+            return "rejected"
+        return "traded"
+    if decision.action == DecisionAction.REJECT_IDEA:
+        return "rejected"
+    return "hold"
+
+
+@router.get("/research/impulses", response_model=list[ImpulseSummaryOut])
+def get_impulses(
+    limit: int = _DEFAULT_IMPULSE_LIMIT,
+    session: Session = Depends(get_session),
+) -> list[ImpulseSummaryOut]:
+    """F087 entry point: research items at least one persona actually cited.
+
+    The pool holds thousands of items per cycle; the ones nobody looked at have
+    no comparison to show. Ordered by the citing cycle, newest first.
+    """
+    cited = (
+        select(func.unnest(Decision.input_research_ids).label("item_id"), Decision.portfolio_id)
+        .select_from(Decision)
+        .subquery()
+    )
+    rows = session.execute(
+        select(
+            ResearchItem,
+            Cycle.started_at,
+            func.count(func.distinct(cited.c.portfolio_id)).label("citing_personas"),
+        )
+        .join(cited, cited.c.item_id == ResearchItem.id)
+        .join(Cycle, Cycle.id == ResearchItem.cycle_id)
+        .group_by(ResearchItem.id, Cycle.started_at)
+        .order_by(Cycle.started_at.desc(), ResearchItem.id)
+        .limit(limit)
+    ).all()
+
+    return [
+        ImpulseSummaryOut(
+            id=item.id,
+            source_type=item.source_type,
+            summary=item.summary,
+            published_at=item.published_at,
+            cycle_ts=cycle_ts,
+            instruments=item.instruments,
+            citing_personas=citing,
+        )
+        for item, cycle_ts, citing in rows
+    ]
+
+
+@router.get("/research/{item_id}/comparison", response_model=ImpulseComparisonOut)
+def get_impulse_comparison(
+    item_id: uuid.UUID,
+    mode: PortfolioMode = PortfolioMode.PAPER,
+    session: Session = Depends(get_session),
+) -> ImpulseComparisonOut:
+    """F087: one impulse, six persona views — what each made of it, and why.
+
+    "Ignored" is a real answer and needs a real definition: the persona produced
+    a decision in the cycle this item belongs to, but cited something else. A
+    persona with no decision in that cycle at all (outage, paused) is reported as
+    `no_run` instead — silently calling that "ignored" would blame a persona for
+    an infrastructure gap (F101 U1: 13 cycles with no decisions at all).
+    """
+    item = session.get(ResearchItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail=f"Unknown research item: {item_id}")
+
+    cycle = session.get_one(Cycle, item.cycle_id)
+
+    portfolios = session.execute(
+        select(Portfolio, Persona.name)
+        .join(Persona, Portfolio.persona_id == Persona.id)
+        .where(
+            Persona.active.is_(True),
+            Portfolio.mode == mode,
+            Portfolio.archived_at.is_(None),
+        )
+        .order_by(Persona.name)
+    ).all()
+
+    # Decisions citing this item — possibly from a later cycle than the item's own
+    # (the F045 search tool and F101 companions reach back).
+    citing = {
+        decision.portfolio_id: decision
+        for decision in session.scalars(
+            select(Decision).where(Decision.input_research_ids.contains([item_id]))
+        ).all()
+    }
+    ran_that_cycle = set(
+        session.scalars(
+            select(Decision.portfolio_id).where(Decision.cycle_id == item.cycle_id).distinct()
+        ).all()
+    )
+
+    reactions: list[ImpulseReactionOut] = []
+    for portfolio, persona_name in portfolios:
+        decision = citing.get(portfolio.id)
+        if decision is None:
+            verdict = "ignored" if portfolio.id in ran_that_cycle else "no_run"
+            reactions.append(
+                ImpulseReactionOut(
+                    persona=persona_name,
+                    display_name=get_persona_profile(persona_name).display_name,
+                    verdict=verdict,
+                    action=None,
+                    status=None,
+                    instrument=None,
+                    thesis_text=None,
+                    rejection_reason=None,
+                    decision_id=None,
+                )
+            )
+            continue
+        reactions.append(
+            ImpulseReactionOut(
+                persona=persona_name,
+                display_name=get_persona_profile(persona_name).display_name,
+                verdict=_decision_verdict(decision),
+                action=decision.action.value,
+                status=decision.status.value,
+                instrument=decision.instrument,
+                thesis_text=decision.thesis_text,
+                rejection_reason=decision.rejection_reason,
+                decision_id=decision.id,
+            )
+        )
+
+    return ImpulseComparisonOut(
+        impulse=ImpulseSummaryOut(
+            id=item.id,
+            source_type=item.source_type,
+            summary=item.summary,
+            published_at=item.published_at,
+            cycle_ts=cycle.started_at,
+            instruments=item.instruments,
+            citing_personas=len(citing),
+        ),
+        url=item.url,
+        reactions=reactions,
     )
 
 

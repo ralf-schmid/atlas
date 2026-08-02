@@ -886,3 +886,95 @@ def test_get_persona_decisions_rejects_an_unknown_filter(client: TestClient, ses
     session.flush()
 
     assert client.get("/api/personas/HYPE/decisions?filter=broken").status_code == 422
+
+
+# --- F087: impulse comparison -----------------------------------------------------
+
+
+def test_get_impulses_lists_only_cited_items_with_persona_counts(client: TestClient, session):
+    """The pool holds thousands of items per cycle — one nobody cited has no
+    comparison to show."""
+    cycle = make_cycle(session)
+    cited = make_research_item(session, cycle, source_ref="CITED")
+    make_research_item(session, cycle, source_ref="UNCITED")
+    for name in ("VULTURE", "HYPE"):
+        portfolio = make_portfolio(session, make_persona(session, name=name))
+        make_decision(session, cycle, portfolio, cited)
+    session.flush()
+
+    body = client.get("/api/research/impulses").json()
+
+    assert [entry["id"] for entry in body] == [str(cited.id)]
+    assert body[0]["citing_personas"] == 2
+
+
+def test_get_impulse_comparison_reports_one_reaction_per_persona(client: TestClient, session):
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    other = make_research_item(session, cycle, source_ref="OTHER")
+
+    bought = make_portfolio(session, make_persona(session, name="VULTURE"))
+    make_decision(session, cycle, bought, item, action=DecisionAction.BUY, instrument="AAPL")
+
+    dropped = make_portfolio(session, make_persona(session, name="CONTRA"))
+    make_decision(
+        session,
+        cycle,
+        dropped,
+        item,
+        action=DecisionAction.REJECT_IDEA,
+        rejection_reason="kein fundamentaler Cross-Check",
+    )
+
+    held = make_portfolio(session, make_persona(session, name="GUARDIAN"))
+    make_decision(session, cycle, held, item, action=DecisionAction.HOLD)
+
+    # ran that cycle, but cited a different item -> ignored
+    ignoring = make_portfolio(session, make_persona(session, name="HYPE"))
+    make_decision(session, cycle, ignoring, other, action=DecisionAction.HOLD)
+
+    # no decision in that cycle at all -> no_run, not "ignored"
+    make_portfolio(session, make_persona(session, name="CHARTIST"))
+    session.flush()
+
+    body = client.get(f"/api/research/{item.id}/comparison").json()
+
+    verdicts = {r["persona"]: r["verdict"] for r in body["reactions"]}
+    assert verdicts == {
+        "VULTURE": "traded",
+        "CONTRA": "rejected",
+        "GUARDIAN": "hold",
+        "HYPE": "ignored",
+        "CHARTIST": "no_run",
+    }
+    assert body["impulse"]["citing_personas"] == 3
+    contra = next(r for r in body["reactions"] if r["persona"] == "CONTRA")
+    assert contra["rejection_reason"] == "kein fundamentaler Cross-Check"
+    assert contra["thesis_text"] == "Test thesis"
+
+
+def test_get_impulse_comparison_counts_a_gate_refusal_as_rejected(client: TestClient, session):
+    """A buy the risk gate refused is not a trade — the comparison must not claim
+    the persona acted on the impulse."""
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    portfolio = make_portfolio(session, make_persona(session, name="VULTURE"))
+    make_decision(
+        session,
+        cycle,
+        portfolio,
+        item,
+        action=DecisionAction.BUY,
+        status=DecisionStatus.RISK_REJECTED,
+    )
+    session.flush()
+
+    body = client.get(f"/api/research/{item.id}/comparison").json()
+
+    assert body["reactions"][0]["verdict"] == "rejected"
+
+
+def test_get_impulse_comparison_unknown_item_returns_404(client: TestClient, session):
+    import uuid as _uuid
+
+    assert client.get(f"/api/research/{_uuid.uuid4()}/comparison").status_code == 404

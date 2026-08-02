@@ -74,9 +74,9 @@ def make_research_item(session: Session, cycle: Cycle, **overrides: object) -> R
     item = ResearchItem(
         cycle_id=cycle.id,
         agent="market_research",
-        source_type="market_data",
-        source_ref="screener",
-        summary="Test research summary",
+        source_type=overrides.get("source_type", "market_data"),
+        source_ref=overrides.get("source_ref", "screener"),
+        summary=overrides.get("summary", "Test research summary"),
         instruments=["AAPL"],
         raw={},
     )

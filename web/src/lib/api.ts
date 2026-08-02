@@ -174,6 +174,34 @@ export interface Decision {
   review: DecisionReview | null;
 }
 
+export interface ImpulseSummary {
+  id: string;
+  source_type: string;
+  summary: string;
+  published_at: string | null;
+  cycle_ts: string;
+  instruments: string[];
+  citing_personas: number;
+}
+
+export interface ImpulseReaction {
+  persona: string;
+  display_name: string;
+  verdict: "traded" | "rejected" | "hold" | "ignored" | "no_run";
+  action: string | null;
+  status: string | null;
+  instrument: string | null;
+  thesis_text: string | null;
+  rejection_reason: string | null;
+  decision_id: string | null;
+}
+
+export interface ImpulseComparison {
+  impulse: ImpulseSummary;
+  url: string | null;
+  reactions: ImpulseReaction[];
+}
+
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -231,6 +259,16 @@ export async function getPersonaDecisions(
       `/api/personas/${persona}/decisions?filter=${filter}`,
     )) ?? []
   );
+}
+
+export async function getImpulses(): Promise<ImpulseSummary[]> {
+  return (await getJson<ImpulseSummary[]>("/api/research/impulses")) ?? [];
+}
+
+export async function getImpulseComparison(
+  id: string,
+): Promise<ImpulseComparison | null> {
+  return getJson<ImpulseComparison>(`/api/research/${id}/comparison`);
 }
 
 export async function getHoldingChart(

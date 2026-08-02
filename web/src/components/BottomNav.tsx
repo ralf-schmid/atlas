@@ -5,6 +5,7 @@ const ITEMS = [
   { href: "/", label: "Übersicht" },
   { href: "/leaderboard", label: "Leaderboard" },
   { href: "/journal", label: "Journal" },
+  { href: "/impulse", label: "Impulse" },
 ];
 
 export default function BottomNav() {
@@ -18,7 +19,7 @@ export default function BottomNav() {
           <li key={item.href} className="flex-1">
             <Link
               href={item.href}
-              className="flex min-h-[56px] items-center justify-center px-3 text-sm font-medium text-gray-700"
+              className="flex min-h-[56px] items-center justify-center px-2 text-center text-[13px] font-medium text-gray-700"
             >
               {item.label}
             </Link>
