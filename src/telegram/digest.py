@@ -177,8 +177,18 @@ def _latest_snapshot_field(session: Session, portfolio_id: object, field: str) -
 
 
 def _count_open_positions(session: Session, portfolio_id: object) -> int:
+    """F101: anchored on the newest *portfolio* snapshot, not the newest position
+    snapshot.
+
+    `generate_portfolio_snapshot` writes both with the same `ts`, but a portfolio
+    holding nothing writes zero position rows — so `max(PositionSnapshot.ts)`
+    keeps pointing at the last day the persona held something, forever. Live
+    02.08.2026: CONTRA closed its AAOI position on 29.07. and the digest still
+    reported "1 offene Position" next to a portfolio value that was 100 % cash.
+    Same anchoring the API's /snapshot endpoint already uses.
+    """
     latest_ts = session.scalar(
-        select(func.max(PositionSnapshot.ts)).where(PositionSnapshot.portfolio_id == portfolio_id)
+        select(func.max(PortfolioSnapshot.ts)).where(PortfolioSnapshot.portfolio_id == portfolio_id)
     )
     if latest_ts is None:
         return 0

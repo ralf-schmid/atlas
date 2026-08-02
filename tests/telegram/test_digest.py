@@ -181,6 +181,7 @@ def test_build_digest_data_counts_only_nonzero_positions_at_the_latest_snapshot(
 ) -> None:
     persona = make_persona(session, name="VULTURE")
     portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(session, portfolio, ts=datetime.datetime(2026, 7, 4, 16, 0))
     # stale snapshot from an earlier ts -> must not be counted
     make_position_snapshot(
         session, portfolio, ts=datetime.datetime(2026, 7, 3, 16, 0), instrument="OLD"
@@ -199,6 +200,26 @@ def test_build_digest_data_counts_only_nonzero_positions_at_the_latest_snapshot(
     data = build_digest_data(session, datetime.date(2026, 7, 4))
 
     assert data.personas[0].open_positions == 1
+
+
+def test_build_digest_data_reports_zero_positions_after_the_last_one_was_closed(
+    session: Session,
+) -> None:
+    """F101: a portfolio holding nothing writes no position rows at all, so keying
+    on max(PositionSnapshot.ts) froze the count at the last day it held something.
+    Live 02.08.2026: CONTRA closed AAOI on 29.07. and the digest kept reporting
+    '1 offene Position' next to an all-cash portfolio value."""
+    persona = make_persona(session, name="CONTRA")
+    portfolio = make_portfolio(session, persona)
+    make_position_snapshot(
+        session, portfolio, ts=datetime.datetime(2026, 7, 3, 16, 0), instrument="AAOI"
+    )
+    # newer portfolio snapshot, no position rows -> position was closed
+    make_portfolio_snapshot(session, portfolio, ts=datetime.datetime(2026, 7, 4, 16, 0))
+
+    data = build_digest_data(session, datetime.date(2026, 7, 4))
+
+    assert data.personas[0].open_positions == 0
 
 
 def test_build_digest_data_sums_persona_scope_cost_for_the_day(session: Session) -> None:

@@ -24,10 +24,13 @@ Reporting ist einmal durchgängig mit echten Daten/Calls/Order bewiesen. Was feh
 ist ausschließlich der **mehrtägige, unbeaufsichtigte Betrieb** — der beginnt erst,
 wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
 
-- [ ] Vollständiger Zyklus läuft automatisch für alle 6 Portfolios; jede Persona
+- [x] Vollständiger Zyklus läuft automatisch für alle 6 Portfolios; jede Persona
       erzeugt decisions inkl. `reject_idea`; `input_research_ids`-Pflicht wird
       DB-seitig validiert
-      **Teilweise:** [F015](../features/F015-persona-portfolio-seed.md) — die 6
+      **Erledigt (02.08.2026):** drei Sonderläufe auf der Box, je 6/6 Personas mit
+      `hold`/`reject_idea`/`buy`, Constraint-Probe live — siehe „Update
+      2026-08-02" unten.
+      **Vorgeschichte (teilweise):** [F015](../features/F015-persona-portfolio-seed.md) — die 6
       echten `persona`/`portfolio`-Zeilen existieren jetzt (idempotenter Seed, live
       gegen die lokale DB verifiziert: native Personas mit den echten
       Alpaca-Paper-Account-IDs aus ADR-0001, virtuelle Personas mit
@@ -438,3 +441,74 @@ nicht lokal. Ablauf und Nachweise:
   regulär enthalten. Der Ad-hoc-`seq=99`-Zyklus samt seinen Decisions bleibt als
   Testartefakt in der Vorsaison-DB; er verschwindet beim Wettbewerbs-Reset am
   03.08.2026.
+
+## Update 2026-08-02 — Vollzyklus-DoD und Sonderlauf mit Unterbrechung
+
+Drei manuelle Läufe auf der Box (`scheduler`-Container, Image-Stand `deba691`
+inkl. F101-Fixes), alle gegen die echte Wettbewerbs-DB.
+
+**Lauf 1 (`seq=1`, cycle `095c2933`, 14:17:31 UTC) — Vollzyklus:**
+1.534 `research_item`, 8 `agent_run` (6 Personas + `market_research` +
+`news_research`), **6 Decisions — eine je Persona**: CHARTIST/CRYPTOR/GUARDIAN
+`hold`, HYPE/VULTURE/CONTRA `reject_idea`.
+
+**Lauf 2 (`seq=2`, cycle `d9f07c55`, 14:20:52 UTC):** identisches Bild, 6/6
+Personas in unter 50 Sekunden — der Fan-Out über `Send` läuft parallel.
+
+**Lauf 3 (`seq=3`, cycle `8105cdf2`, 14:22:16 UTC) — Crash und Resume:**
+- Prozess nach 45 Sekunden mit `kill -9` hart abgeschossen (SIGKILL auf den
+  Python-Prozess im Container), während die Persona-Analysen liefen.
+- Zustand danach: **2 von 6 Personas** fertig (CHARTIST `buy` EXECUTED, CRYPTOR
+  `hold`), 3 `agent_run`, kein laufender Prozess mehr.
+- `scripts/resume_cycle.py 2026-08-02-3-us_equity` fand den Checkpoint
+  (created 14:22:27) mit **6 pending `persona_analysis`** und führte den Lauf zu
+  Ende.
+- Zustand nach dem Resume: **6 Decisions, genau eine je Persona** — CHARTIST und
+  CRYPTOR wurden **nicht** doppelt entschieden (die Idempotenz-Prüfung in
+  `analyze_persona_cycle` gibt die bestehende Decision zurück), weiterhin **eine
+  einzige `cycle`-Zeile** für `seq=3`.
+
+**DB-seitige `input_research_ids`-Pflicht:** live gegen die Wettbewerbs-DB
+geprüft — ein `INSERT` mit `input_research_ids = '{}'` scheitert an
+`ck_decision_input_research_ids_not_empty` (Probe lief in einer Transaktion mit
+`ROLLBACK`, keine Testzeile zurückgeblieben, verifiziert).
+
+→ **DoD-Punkt 1 (Vollzyklus für alle 6 Portfolios, `reject_idea`, DB-Validierung)
+ist damit erfüllt.**
+
+### Nebenbefunde aus dem Sonderlauf
+
+- **F101-Fix live bestätigt:** CHARTIST kaufte ADSK — exakt der Titel, der am
+  27.07. noch mit `stop_loss_too_tight` abgelehnt wurde. Gleicher Einstieg
+  (234,31), gleicher Floor (8,26835 %), aber Stop jetzt 214,93 statt 214,94 →
+  `actual_loss_pct` 8,27109 % ≥ Floor, `ok: true`. Die Order steht als `NEW`
+  beim Broker (Sonntag, Markt geschlossen) und füllt am Montag zur Eröffnung.
+- **Companion-Items greifen:** Decisions aus Lauf 3 zitieren vier
+  `aktienfinder_screener`-Items aus **früheren** Zyklen — genau die
+  Fundamentaldaten, deren Fehlen GUARDIAN/CONTRA vorher als Ablehnungsgrund
+  angaben.
+- **Digest-Bug gefunden und behoben (F101):** `_count_open_positions` ankerte auf
+  `max(position_snapshot.ts)`. Ein Portfolio ohne Positionen schreibt gar keine
+  Positionszeilen, deshalb blieb der Zähler auf dem letzten Tag mit Bestand
+  stehen — CONTRA meldete am 02.08. „1 offene Position" neben einem
+  100-%-Cash-Depotwert (AAOI wurde am 29.07. geschlossen). Der Zähler hängt jetzt
+  am neuesten `portfolio_snapshot` (dieselbe Verankerung, die der
+  `/snapshot`-Endpoint schon nutzte).
+
+### Weiterhin offen (keine stillschweigende Erledigung)
+
+- **Risk-Gate „je Regelklasse mindestens ein echter Reject im Testlauf":** live
+  hat bisher **nur** `stop_loss_policy` ausgelöst (11 Rejects über die gesamte
+  DB). `max_position_pct`, `max_open_positions`, `max_trades_per_day`,
+  `min_cash_pct`, `no_margin` und `circuit_breaker` sind im Live-Pfad
+  strukturell kaum erreichbar, weil die Sizing-Schicht sie vorher einhält — sie
+  sind über Unit-Tests zu 100 % Branch-Coverage abgedeckt. Vorschlag an Ralf:
+  den Punkt als „Unit-Test-Nachweis + ein Live-Reject je erreichbarer Klasse"
+  neu fassen, statt künstliche Verstöße zu provozieren.
+- **HITL Approve/Reject/Timeout end-to-end:** für Paper ist HITL bewusst aus
+  (`config/hitl.yaml`, F072). Approve/Reject sind aus F022 nachgewiesen, der
+  30-Minuten-Timeout-Sweep läuft seit F049 als Job — ein echter End-to-End-Beleg
+  bräuchte eine bewusste HITL-Testrunde (`/hitl on`, eine Freigabe abwarten bzw.
+  verfallen lassen). Braucht Ralfs Go, weil es echte Paper-Orders verzögert.
+- **Digest „kommt täglich":** die Zahlen sind jetzt gegen DB-Queries verifiziert
+  (siehe oben); die Zustellung selbst bestätigt Ralf aus dem Telegram-Verlauf.
