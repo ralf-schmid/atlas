@@ -100,7 +100,29 @@ kein Defekt. Beobachten, nicht anfassen.
    einzige Decision persistiert, löst jetzt sofort einen Telegram-Alert aus
    (jede Persona schreibt immer mindestens ein `hold` — 0 ist nie legitim).
 
-## 4. Vorschlag (offen, braucht Ralfs Entscheidung — Kosten + Fairness)
+## 3b. Fix 5 — Companion-Items gegen U4 (Ralf, 02.08.2026: „B umsetzen")
+
+`_select_companion_items` lädt nach der Round-Robin-Auswahl gezielt die neuesten
+Fundamental-Items zu genau den Symbolen nach, die es in den Prompt geschafft
+haben — `aktienfinder_snapshot`, `aktienfinder_screener`, `edgar_filing`, über
+das aktuelle Zyklusfenster hinaus (Snapshots kommen in eigenem Takt).
+
+- Dreifach gedeckelt: max. 10 Symbole, max. 2 Items je Symbol, max. 15 gesamt.
+  Round-Robin über die Symbole, damit nicht das erste Symbol das Budget frisst.
+- Companions werden Teil der zitierbaren `available_ids` — sie stammen aus
+  früheren Zyklen, und eine These darf genau auf ihnen aufbauen.
+- Identische Regel für alle 6 Personas (Invariante #10): das ist keine
+  persona-spezifische Quelle, sondern eine symbolgetriebene Vervollständigung
+  des gemeinsamen Pools.
+- **Datenlage (Live-Check 02.08.):** 405 Symbole mit technischen Items in den
+  letzten Zyklen, 218 mit Fundamentaldaten, **160 Überlappung** — der Mechanismus
+  greift. `edgar_filing` trägt kaum bei (nur 68 von 31.145 Filings haben ein
+  Symbol im `instruments`-Feld), das Gros kommt aus den aktienfinder-Quellen.
+- **Kosten:** ~500 Zeichen je Item × 15 ≈ 2k zusätzliche Input-Tokens je Analyse,
+  bei 48 Analysen/Tag ≈ 0,1–0,3 USD/Tag — deutlich unter der 0,5–0,8-USD-Schätzung
+  aus §4 und unkritisch gegen das 10-USD-Cap.
+
+## 4. Optionen, die zur Entscheidung standen (erledigt — B ist umgesetzt)
 
 U4 ist der größte verbleibende Hebel, aber jede Variante kostet Tokens und
 berührt Invariante #10 (Fairness). Drei Optionen:
@@ -118,7 +140,8 @@ berührt Invariante #10 (Fairness). Drei Optionen:
   „keine Daten" einmal `search_research_pool` aufgerufen haben. Billigster
   Token-Einsatz, aber der unzuverlässigste Hebel (Modellverhalten statt Code).
 
-Empfehlung: **B**, optional später mit A kombinieren, wenn das Cap es hergibt.
+Empfehlung war **B**; Ralf hat B am 02.08.2026 freigegeben (umgesetzt, §3b). A
+bleibt als spätere Option offen, falls der Kontext trotzdem zu dünn wirkt.
 
 ## 5. Tests
 
@@ -132,6 +155,11 @@ Empfehlung: **B**, optional später mit A kombinieren, wenn das Cap es hergibt.
   innerhalb des Caps (ersetzt den F079-Test), bleibt `reject_idea` darüber.
 - `tests/orchestrator/test_scheduler.py`: Alert bei 0 Decisions, kein Alert bei
   6 Decisions.
+- `tests/orchestrator/test_persona_analysis.py` (Companions): Fundamental-Item
+  zum Prompt-Symbol wird gezogen; Nicht-Fundamental-Quellen (`market_news`)
+  bleiben draußen; keine Dubletten zu bereits ausgewählten Items; Gesamt-Cap 15
+  und Symbol-Cap 10 werden eingehalten; ohne Symbole im Prompt keine Abfrage;
+  End-to-End: Companion steht im Prompt-Text und ist zitierbar.
 - Gesamtlauf: 841 passed, ruff/mypy grün.
 
 ## 6. Live-Verifikation

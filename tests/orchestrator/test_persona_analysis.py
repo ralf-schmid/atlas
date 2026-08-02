@@ -2334,3 +2334,191 @@ def test_prompt_caching_does_not_change_the_payload_text():
     cached = _build_messages("CHARTER", [], [], _REFERENCE_TIME, prompt_caching=True)
 
     assert cached[1]["content"][0]["text"] == plain[1]["content"]
+
+
+# --- F101: fundamental companion items -------------------------------------------
+
+
+def _companion_as_of() -> datetime.datetime:
+    """`create_cycle` stamps `started_at` with the real clock, so the as-of cutoff
+    has to sit after it — the fixed 2026-07 dates only apply to `published_at`."""
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None) + datetime.timedelta(hours=1)
+
+
+def _make_companion_item(
+    session: Session,
+    cycle: object,
+    *,
+    source_type: str,
+    symbol: str,
+    summary: str,
+    published_at: datetime.datetime | None = None,
+) -> ResearchItem:
+    item = ResearchItem(
+        cycle_id=cycle.id,  # type: ignore[attr-defined]
+        agent="market_research",
+        source_type=source_type,
+        source_ref=symbol,
+        summary=summary,
+        instruments=[symbol],
+        raw={},
+        published_at=published_at,
+    )
+    session.add(item)
+    session.flush()
+    return item
+
+
+def test_companion_items_pull_fundamentals_for_symbols_in_the_prompt(session: Session) -> None:
+    """F101 U4: GUARDIAN/CONTRA rejected ideas with 'kein fundamentaler Cross-Check
+    verfügbar' while matching aktienfinder rows sat unseen in the pool."""
+    from src.orchestrator.persona_analysis import _select_companion_items
+
+    cycle, item = _make_cycle_with_research_item(session)  # screener_result, AAPL
+    snapshot = _make_companion_item(
+        session,
+        cycle,
+        source_type="aktienfinder_snapshot",
+        symbol="AAPL",
+        summary="AAPL fair value discount 18%",
+        published_at=datetime.datetime(2026, 7, 6, 12, 0),
+    )
+
+    companions = _select_companion_items(session, [item], _companion_as_of())
+
+    assert [c.id for c in companions] == [snapshot.id]
+
+
+def test_companion_items_ignore_non_fundamental_source_types(session: Session) -> None:
+    from src.orchestrator.persona_analysis import _select_companion_items
+
+    cycle, item = _make_cycle_with_research_item(session)
+    _make_companion_item(
+        session,
+        cycle,
+        source_type="market_news",
+        symbol="AAPL",
+        summary="AAPL headline noise",
+        published_at=datetime.datetime(2026, 7, 6, 12, 0),
+    )
+
+    companions = _select_companion_items(session, [item], _companion_as_of())
+
+    assert companions == []
+
+
+def test_companion_items_never_duplicate_an_item_already_in_the_prompt(session: Session) -> None:
+    from src.orchestrator.persona_analysis import _select_companion_items
+
+    cycle, item = _make_cycle_with_research_item(session)
+    already = _make_companion_item(
+        session,
+        cycle,
+        source_type="edgar_filing",
+        symbol="AAPL",
+        summary="AAPL 10-Q",
+        published_at=datetime.datetime(2026, 7, 6, 12, 0),
+    )
+
+    companions = _select_companion_items(session, [item, already], _companion_as_of())
+
+    assert companions == []
+
+
+def test_companion_items_respect_the_total_cap(session: Session) -> None:
+    from src.orchestrator.persona_analysis import _select_companion_items
+
+    cycle = create_cycle(session, datetime.date(2026, 7, 7), 1, MarketSession.US_EQUITY)
+    prompt_items = []
+    for index in range(12):
+        symbol = f"SYM{index}"
+        prompt_items.append(
+            _make_companion_item(
+                session,
+                cycle,
+                source_type="screener_result",
+                symbol=symbol,
+                summary=f"{symbol} technical",
+            )
+        )
+        for filing in range(3):
+            _make_companion_item(
+                session,
+                cycle,
+                source_type="edgar_filing",
+                symbol=symbol,
+                summary=f"{symbol} filing {filing}",
+                published_at=datetime.datetime(2026, 7, 6, 12, filing),
+            )
+
+    companions = _select_companion_items(session, prompt_items, _companion_as_of())
+
+    assert len(companions) == 15  # _MAX_COMPANION_ITEMS
+    # at most _MAX_COMPANION_SYMBOLS distinct symbols contributed
+    assert len({c.instruments[0] for c in companions}) <= 10
+
+
+def test_companion_items_are_skipped_when_the_prompt_has_no_symbols(session: Session) -> None:
+    from src.orchestrator.persona_analysis import _select_companion_items
+
+    assert _select_companion_items(session, [], _companion_as_of()) == []
+
+
+def test_companion_items_reach_the_prompt_and_stay_citable(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The persona must be able to build its thesis on a companion item — they come
+    from earlier cycles, so they have to join the citable id set too."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    snapshot = _make_companion_item(
+        session,
+        cycle,
+        source_type="aktienfinder_snapshot",
+        symbol="AAPL",
+        summary="AAPL quality scores stable",
+        published_at=datetime.datetime(2026, 7, 6, 12, 0),
+    )
+    content = json.dumps(
+        {
+            "action": "hold",
+            "instrument": "PORTFOLIO",
+            "thesis_text": "cited the companion item",
+            "input_research_ids": [str(snapshot.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+    captured_requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_requests.append(request.content.decode())
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": content}}],
+                "usage": {"prompt_tokens": 500, "completion_tokens": 100},
+            },
+            headers={"x-litellm-response-cost": "0.02"},
+        )
+
+    client = LiteLLMClient(
+        base_url="http://test",
+        api_key="test-key",
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+
+    decision = analyze_persona_cycle(
+        session,
+        client,
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.input_research_ids == [snapshot.id]
+    assert "AAPL quality scores stable" in _user_text(json.loads(captured_requests[0]))

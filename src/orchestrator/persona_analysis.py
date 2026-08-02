@@ -88,6 +88,14 @@ _THINKING_DISABLED: dict[str, object] = {"type": "disabled"}
 # id-validation set is the full cycle pool, not this slice).
 _MAX_PROMPT_RESEARCH_ITEMS = 30
 
+# F101 U4: fundamental completion for the symbols already visible in the prompt.
+# Kept deliberately small — 15 extra items is roughly +0.5 USD/day across all six
+# personas at the current cycle cadence, against a 10 USD system cap (ADR-0008).
+_MAX_COMPANION_ITEMS = 15
+_MAX_COMPANION_SYMBOLS = 10
+_COMPANION_ITEMS_PER_SYMBOL = 2
+_COMPANION_SOURCE_TYPES = ("aktienfinder_snapshot", "aktienfinder_screener", "edgar_filing")
+
 _OUTPUT_SCHEMA_INSTRUCTIONS = """\
 Antworte ausschließlich mit einem einzigen JSON-Objekt (keine Erklärung davor/danach), \
 in exakt diesem Schema:
@@ -168,6 +176,14 @@ def analyze_persona_cycle(
     positions = broker_adapter.get_positions()
     role = llm_config.roles["persona_analysis"]
     lessons = _recall_own_lessons(session, persona_id, research_items, embedding_provider)
+    # F101: `_select_prompt_items` is pure and deterministic, so calling it here and
+    # again inside `_build_messages` yields the same slice — the companion lookup
+    # needs to know which symbols actually made it into the prompt.
+    companion_items = _select_companion_items(
+        session,
+        _select_prompt_items(research_items, _MAX_PROMPT_RESEARCH_ITEMS),
+        cycle.started_at,
+    )
     messages = _build_messages(
         charter,
         research_items,
@@ -175,8 +191,13 @@ def analyze_persona_cycle(
         cycle.started_at,
         prompt_caching=role.prompt_caching,
         lessons=lessons,
+        companion_items=companion_items,
     )
-    available_ids = {str(item.id) for item in research_items}
+    # Companions come from earlier cycles, so they must join the citable set — the
+    # persona sees them and may well build its thesis on exactly one of them.
+    available_ids = {str(item.id) for item in research_items} | {
+        str(item.id) for item in companion_items
+    }
 
     try:
         response, parsed, tokens_in, tokens_out, cost_usd = _run_llm_with_parse_retry(
@@ -990,6 +1011,64 @@ def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> 
     return selected
 
 
+def _select_companion_items(
+    session: Session,
+    prompt_items: list[ResearchItem],
+    as_of: datetime.datetime,
+    limit: int = _MAX_COMPANION_ITEMS,
+) -> list[ResearchItem]:
+    """F101 U4: the newest fundamental research for the symbols already in the prompt.
+
+    The round-robin above spreads a 30-item budget over ~10 source types, which
+    leaves roughly three aktienfinder items per cycle — chosen by recency, so
+    almost never about the ticker the persona is actually looking at. Live result
+    (27.07.-02.08.2026): GUARDIAN and CONTRA rejected idea after idea with "kein
+    fundamentaler Cross-Check verfügbar" while thousands of matching rows sat in
+    the pool. This pulls those rows in on purpose, keyed on the symbols the
+    persona can already see, and reaches back past the current cycle window
+    (aktienfinder snapshots arrive on their own cadence).
+
+    Same rule and same caps for every persona (Invariant #10) — this is not a
+    persona-specific data source, it is a symbol-driven completion of the shared
+    pool. Bounded twice over: at most `_MAX_COMPANION_SYMBOLS` symbols, at most
+    `_COMPANION_ITEMS_PER_SYMBOL` each, at most `limit` in total.
+    """
+    symbols: list[str] = []
+    for item in prompt_items:
+        for symbol in item.instruments:
+            if symbol not in symbols:
+                symbols.append(symbol)
+    symbols = symbols[:_MAX_COMPANION_SYMBOLS]
+    if not symbols:
+        return []
+
+    seen = {item.id for item in prompt_items}
+    per_symbol: list[list[ResearchItem]] = []
+    for symbol in symbols:
+        rows = session.scalars(
+            select(ResearchItem)
+            .join(Cycle, ResearchItem.cycle_id == Cycle.id)
+            .where(
+                Cycle.started_at <= as_of,
+                ResearchItem.source_type.in_(_COMPANION_SOURCE_TYPES),
+                ResearchItem.instruments.overlap([symbol]),
+            )
+            .order_by(ResearchItem.published_at.desc().nullslast())
+            .limit(_COMPANION_ITEMS_PER_SYMBOL * 2)
+        ).all()
+        per_symbol.append([row for row in rows if row.id not in seen])
+
+    selected: list[ResearchItem] = []
+    for round_idx in range(_COMPANION_ITEMS_PER_SYMBOL):
+        for bucket in per_symbol:
+            if len(selected) >= limit:
+                return selected
+            if round_idx < len(bucket) and bucket[round_idx].id not in seen:
+                seen.add(bucket[round_idx].id)
+                selected.append(bucket[round_idx])
+    return selected
+
+
 def _recall_own_lessons(
     session: Session,
     persona_id: uuid.UUID,
@@ -1028,6 +1107,7 @@ def _build_messages(
     reference_time: datetime.datetime,
     prompt_caching: bool = False,
     lessons: list[str] | None = None,
+    companion_items: list[ResearchItem] | None = None,
 ) -> list[dict[str, object]]:
     prompt_items = _select_prompt_items(research_items, _MAX_PROMPT_RESEARCH_ITEMS)
 
@@ -1044,7 +1124,7 @@ def _build_messages(
             "instruments": item.instruments,
             "raw": item.raw,
         }
-        for item in prompt_items
+        for item in [*prompt_items, *(companion_items or [])]
     ]
     positions_payload = [
         {
