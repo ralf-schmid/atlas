@@ -45,10 +45,10 @@ Wettbewerb seit {{ score.since.strftime('%d.%m.%Y') }} ({{ trading_days }} Hande
 {% for p in score.personas -%}
 {{ p.rank }}. {{ p.persona }} — Score {{ format_score(p.total_score) }}
 Rendite n. Kosten {{ format_pct(p.criteria.adjusted_return) }} | Drawdown \
-{{ format_pct(p.criteria.max_drawdown) }} | Trades {{ p.criteria.trades }}
+{{ format_plain(p.criteria.max_drawdown) }} | Trades {{ p.criteria.trades }}
 Sortino {{ format_ratio(p.criteria.sortino) }} | Thesen \
-{{ format_pct(p.criteria.thesis_quality) }} ({{ p.criteria.reviews_total }}) | Zuverl. \
-{{ format_pct(p.criteria.reliability) }}
+{{ format_plain(p.criteria.thesis_quality) }} ({{ p.criteria.reviews_total }}) | Zuverl. \
+{{ format_plain(p.criteria.reliability) }}
 
 {% endfor -%}
 {% if benchmark_return is not none -%}
@@ -77,9 +77,19 @@ class WeeklyReportData:
 
 
 def _format_pct(value: float | None) -> str:
+    """Signed — a return is only readable with its direction."""
     if value is None:
         return "–"
     return f"{value * 100:+.2f} %".replace(".", ",")
+
+
+def _format_pct_plain(value: float | None) -> str:
+    """Unsigned, for quantities that have no direction: a drawdown is always a
+    loss, a reliability share is always positive. "+0,16 % Drawdown" reads like
+    a gain."""
+    if value is None:
+        return "–"
+    return f"{value * 100:.2f} %".replace(".", ",")
 
 
 def _format_ratio(value: float | None) -> str:
@@ -106,6 +116,7 @@ def render_weekly_report(data: WeeklyReportData) -> str:
         or "keine",
         skipped_labels=", ".join(CRITERION_LABELS[name] for name in data.score.skipped_criteria),
         format_pct=_format_pct,
+        format_plain=_format_pct_plain,
         format_ratio=_format_ratio,
         format_score=_format_score,
     )

@@ -95,6 +95,8 @@ def test_render_weekly_report_shows_ranking_weights_and_disclaimer(session: Sess
     assert "Rendite nach Kosten 25 %" in text  # weights are named, not implied
     assert "Nicht wertbar" in text  # Sortino/thesis quality are missing in week one
     assert "trennen Können nicht von Zufall" in text  # §4.7 disclaimer
+    # a drawdown has no direction — "+0,00 %" would read like a gain
+    assert "Drawdown 0,00 %" in text
 
 
 def test_render_weekly_report_marks_unmeasurable_values_with_a_dash(session: Session) -> None:

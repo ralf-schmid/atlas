@@ -178,17 +178,29 @@ def score_personas(criteria: list[PersonaCriteria], since: datetime.date) -> Com
             )
         )
 
-    scored.sort(key=lambda item: item.total_score, reverse=True)
-    ranked = [
-        ScoredPersona(
-            rank=index,
-            persona=item.persona,
-            total_score=item.total_score,
-            criteria=item.criteria,
-            normalized=item.normalized,
+    # Secondary sort by name keeps the order of tied personas deterministic
+    # instead of dependent on query order.
+    scored.sort(key=lambda item: (-item.total_score, item.persona))
+
+    # Standard competition ranking (1,1,1,4,…): three personas on identical
+    # numbers — the normal state early in the competition — must not be shown as
+    # 1st, 2nd and 3rd. That would read as an order the data does not contain.
+    ranked: list[ScoredPersona] = []
+    previous_score: float | None = None
+    previous_rank = 0
+    for index, item in enumerate(scored, start=1):
+        rounded = round(item.total_score, 6)
+        rank = previous_rank if previous_score == rounded else index
+        previous_score, previous_rank = rounded, rank
+        ranked.append(
+            ScoredPersona(
+                rank=rank,
+                persona=item.persona,
+                total_score=item.total_score,
+                criteria=item.criteria,
+                normalized=item.normalized,
+            )
         )
-        for index, item in enumerate(scored, start=1)
-    ]
 
     return CompetitionScore(
         since=since,

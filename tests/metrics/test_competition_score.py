@@ -258,3 +258,23 @@ def test_reliability_inputs_ignore_still_open_orders(session: Session) -> None:
     session.flush()
 
     assert reliability_inputs(session, portfolio.id, _SINCE_TS).fill_rate is None
+
+
+def test_score_personas_shares_the_rank_on_identical_scores() -> None:
+    """Three personas on identical numbers is the normal state in week one —
+    printing them as 1st, 2nd and 3rd would imply an order the data lacks."""
+    field = [
+        _criteria("CRYPTOR", sortino=None, thesis=None),
+        _criteria("GUARDIAN", sortino=None, thesis=None),
+        _criteria("HYPE", sortino=None, thesis=None),
+        _criteria("CONTRA", sortino=None, thesis=None, adjusted_return=-0.05),
+    ]
+
+    score = score_personas(field, _SINCE)
+
+    assert [(p.rank, p.persona) for p in score.personas] == [
+        (1, "CRYPTOR"),
+        (1, "GUARDIAN"),
+        (1, "HYPE"),
+        (4, "CONTRA"),
+    ]
