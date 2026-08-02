@@ -145,6 +145,51 @@ class ResearchRefOut(BaseModel):
     url: str | None
 
 
+class CycleSummaryOut(BaseModel):
+    """One line per orchestrator run for the trace list (F088)."""
+
+    id: uuid.UUID
+    trading_day: datetime.date
+    seq: int
+    market_session: str
+    started_at: datetime.datetime
+    research_items: int
+    decisions: int
+    agent_runs: int
+    failed_runs: int
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+
+
+class AgentRunOut(BaseModel):
+    agent: str
+    persona: str | None
+    status: str
+    tokens_in: int
+    tokens_out: int
+    cost_usd: float
+    error: str | None
+
+
+class HitlEventOut(BaseModel):
+    decision_id: uuid.UUID
+    persona: str
+    instrument: str
+    status: str
+    amount_usd: float | None
+    requested_at: datetime.datetime | None
+    decided_at: datetime.datetime | None
+    decided_by: str | None
+
+
+class CycleTraceOut(BaseModel):
+    cycle: CycleSummaryOut
+    runs: list[AgentRunOut]
+    hitl_events: list[HitlEventOut]
+    decisions_by_status: dict[str, int]
+
+
 class ImpulseSummaryOut(BaseModel):
     """One entry in the impulse picker (F087) — a research item at least one
     persona actually cited."""

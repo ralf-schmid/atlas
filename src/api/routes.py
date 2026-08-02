@@ -15,13 +15,17 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.schemas import (
+    AgentRunOut,
     ChartBarOut,
     ChartFillMarkerOut,
     ChartLivePriceOut,
+    CycleSummaryOut,
+    CycleTraceOut,
     DecisionExpectationOut,
     DecisionOut,
     DecisionOutcomeOut,
     DecisionReviewOut,
+    HitlEventOut,
     HoldingChartOut,
     HoldingOut,
     ImpulseComparisonOut,
@@ -42,6 +46,8 @@ from src.api.schemas import (
 from src.broker.registry import build_market_data_provider, load_market_data_config
 from src.db.base import get_session_factory
 from src.db.models import (
+    AgentRun,
+    AgentRunStatus,
     Cycle,
     Decision,
     DecisionAction,
@@ -85,6 +91,7 @@ _session_factory: sessionmaker[Session] | None = None
 _DEFAULT_DECISION_LIMIT = 50
 _DECISION_FILTERS = frozenset({"all", "traded", "rejected", "hold"})
 _DEFAULT_IMPULSE_LIMIT = 25
+_DEFAULT_CYCLE_LIMIT = 30
 
 
 def _as_float(value: object) -> float | None:
@@ -98,6 +105,16 @@ def _as_float(value: object) -> float | None:
         except ValueError:
             return None
     return None
+
+
+def _as_datetime(value: object) -> datetime.datetime | None:
+    """`hitl` is free-form JSONB like `expected_outcome` — parse defensively."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def get_session() -> Generator[Session]:
@@ -319,6 +336,123 @@ def get_leaderboard(
         trading_days=trading_days,
         rows=rows,
         benchmark=benchmark,
+    )
+
+
+def _cycle_summary(session: Session, cycle: Cycle) -> CycleSummaryOut:
+    """Per-cycle aggregates from `agent_run` — the only table that carries a
+    `cycle_id` alongside tokens and cost. `cost_ledger` is the system-wide budget
+    ledger (per persona and day, F028) and cannot be sliced by cycle."""
+    runs = session.execute(
+        select(
+            func.count(),
+            func.count().filter(AgentRun.status == AgentRunStatus.FAILED),
+            func.coalesce(func.sum(AgentRun.tokens_in), 0),
+            func.coalesce(func.sum(AgentRun.tokens_out), 0),
+            func.coalesce(func.sum(AgentRun.cost_usd), 0),
+        ).where(AgentRun.cycle_id == cycle.id)
+    ).one()
+    research_items = session.scalar(
+        select(func.count()).select_from(ResearchItem).where(ResearchItem.cycle_id == cycle.id)
+    )
+    decisions = session.scalar(
+        select(func.count()).select_from(Decision).where(Decision.cycle_id == cycle.id)
+    )
+    return CycleSummaryOut(
+        id=cycle.id,
+        trading_day=cycle.trading_day,
+        seq=cycle.seq,
+        market_session=cycle.market_session.value,
+        started_at=cycle.started_at,
+        research_items=research_items or 0,
+        decisions=decisions or 0,
+        agent_runs=runs[0],
+        failed_runs=runs[1],
+        tokens_in=int(runs[2]),
+        tokens_out=int(runs[3]),
+        cost_usd=float(runs[4]),
+    )
+
+
+@router.get("/cycles", response_model=list[CycleSummaryOut])
+def get_cycles(
+    limit: int = _DEFAULT_CYCLE_LIMIT,
+    session: Session = Depends(get_session),
+) -> list[CycleSummaryOut]:
+    """F088: the newest orchestrator runs with their counts, tokens and cost."""
+    cycles = session.scalars(select(Cycle).order_by(Cycle.started_at.desc()).limit(limit)).all()
+    return [_cycle_summary(session, cycle) for cycle in cycles]
+
+
+@router.get("/cycles/{cycle_id}/trace", response_model=CycleTraceOut)
+def get_cycle_trace(
+    cycle_id: uuid.UUID,
+    session: Session = Depends(get_session),
+) -> CycleTraceOut:
+    """F088: what actually happened in one cycle — every agent run with its
+    tokens, cost and error, the decision outcomes, and any HITL event.
+
+    A cycle with research but zero runs is the signature of the 30./31.07. outage
+    (F101 U1); this view is where that becomes visible instead of having to read
+    container logs that a rebuild throws away.
+    """
+    cycle = session.get(Cycle, cycle_id)
+    if cycle is None:
+        raise HTTPException(status_code=404, detail=f"Unknown cycle: {cycle_id}")
+
+    run_rows = session.execute(
+        select(AgentRun, Persona.name)
+        .join(Portfolio, Portfolio.id == AgentRun.portfolio_id, isouter=True)
+        .join(Persona, Persona.id == Portfolio.persona_id, isouter=True)
+        .where(AgentRun.cycle_id == cycle_id)
+        .order_by(AgentRun.agent, Persona.name)
+    ).all()
+
+    decision_rows = session.execute(
+        select(Decision, Persona.name)
+        .join(Portfolio, Portfolio.id == Decision.portfolio_id)
+        .join(Persona, Persona.id == Portfolio.persona_id)
+        .where(Decision.cycle_id == cycle_id)
+        .order_by(Persona.name)
+    ).all()
+
+    decisions_by_status: dict[str, int] = {}
+    hitl_events: list[HitlEventOut] = []
+    for decision, persona_name in decision_rows:
+        key = decision.status.value
+        decisions_by_status[key] = decisions_by_status.get(key, 0) + 1
+        hitl = decision.hitl or {}
+        if not hitl.get("required"):
+            continue
+        hitl_events.append(
+            HitlEventOut(
+                decision_id=decision.id,
+                persona=persona_name,
+                instrument=decision.instrument,
+                status=decision.status.value,
+                amount_usd=_as_float(hitl.get("amount_usd")),
+                requested_at=_as_datetime(hitl.get("requested_at")),
+                decided_at=_as_datetime(hitl.get("at")),
+                decided_by=hitl.get("decided_by"),
+            )
+        )
+
+    return CycleTraceOut(
+        cycle=_cycle_summary(session, cycle),
+        runs=[
+            AgentRunOut(
+                agent=run.agent,
+                persona=persona_name,
+                status=run.status.value,
+                tokens_in=run.tokens_in or 0,
+                tokens_out=run.tokens_out or 0,
+                cost_usd=float(run.cost_usd or 0),
+                error=run.error,
+            )
+            for run, persona_name in run_rows
+        ],
+        hitl_events=hitl_events,
+        decisions_by_status=decisions_by_status,
     )
 
 

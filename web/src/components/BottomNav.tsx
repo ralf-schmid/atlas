@@ -1,11 +1,14 @@
 import Link from "next/link";
 
 // Mobile-first bottom navigation (CLAUDE.md: ~390 px first, touch targets >= 44 px).
+// Short labels on purpose: five items on a 390 px screen leave ~62 px of text
+// width each — "Leaderboard" would wrap or push the bar into horizontal scroll.
 const ITEMS = [
   { href: "/", label: "Übersicht" },
-  { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/leaderboard", label: "Ranking" },
   { href: "/journal", label: "Journal" },
   { href: "/impulse", label: "Impulse" },
+  { href: "/trace", label: "Trace" },
 ];
 
 export default function BottomNav() {

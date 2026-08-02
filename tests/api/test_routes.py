@@ -6,9 +6,16 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from src.db.models import DecisionAction, DecisionStatus, Persona, PortfolioMode
+from src.db.models import (
+    AgentRunStatus,
+    DecisionAction,
+    DecisionStatus,
+    Persona,
+    PortfolioMode,
+)
 from src.orchestrator.competition_config import load_competition_config
 from tests.db.factories import (
+    make_agent_run,
     make_cycle,
     make_decision,
     make_market_bar,
@@ -978,3 +985,127 @@ def test_get_impulse_comparison_unknown_item_returns_404(client: TestClient, ses
     import uuid as _uuid
 
     assert client.get(f"/api/research/{_uuid.uuid4()}/comparison").status_code == 404
+
+
+# --- F088: agent trace ------------------------------------------------------------
+
+
+def test_get_cycles_aggregates_runs_tokens_and_cost(client: TestClient, session):
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    portfolio = make_portfolio(session, make_persona(session, name="VULTURE"))
+    make_agent_run(
+        session,
+        cycle,
+        portfolio_id=portfolio.id,
+        agent="persona_analysis",
+        tokens_in=1200,
+        tokens_out=300,
+        cost_usd=Decimal("0.08"),
+    )
+    make_agent_run(
+        session,
+        cycle,
+        portfolio_id=portfolio.id,
+        agent="persona_analysis",
+        status=AgentRunStatus.FAILED,
+        tokens_in=0,
+        tokens_out=0,
+        cost_usd=Decimal("0"),
+    )
+    make_decision(session, cycle, portfolio, item)
+    session.flush()
+
+    body = client.get("/api/cycles").json()
+
+    assert len(body) == 1
+    entry = body[0]
+    assert entry["agent_runs"] == 2
+    assert entry["failed_runs"] == 1
+    assert entry["tokens_in"] == 1200
+    assert entry["tokens_out"] == 300
+    assert entry["cost_usd"] == 0.08
+    assert entry["research_items"] == 1
+    assert entry["decisions"] == 1
+
+
+def test_get_cycles_reports_a_silent_cycle_as_research_without_runs(client: TestClient, session):
+    """F101 U1: 13 cycles ingested research and produced nothing. The trace list is
+    where that has to be visible without digging through container logs."""
+    cycle = make_cycle(session)
+    make_research_item(session, cycle)
+    session.flush()
+
+    entry = client.get("/api/cycles").json()[0]
+
+    assert entry["research_items"] == 1
+    assert entry["agent_runs"] == 0
+    assert entry["decisions"] == 0
+
+
+def test_get_cycle_trace_lists_runs_with_persona_and_error(client: TestClient, session):
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    portfolio = make_portfolio(session, make_persona(session, name="CHARTIST"))
+    make_agent_run(session, cycle, agent="market_research")  # shared, no portfolio
+    run = make_agent_run(
+        session,
+        cycle,
+        portfolio_id=portfolio.id,
+        agent="persona_analysis",
+        status=AgentRunStatus.FAILED,
+    )
+    run.error = "CreditsError: No payment method"
+    make_decision(session, cycle, portfolio, item, action=DecisionAction.HOLD)
+    session.flush()
+
+    body = client.get(f"/api/cycles/{cycle.id}/trace").json()
+
+    by_agent = {r["agent"]: r for r in body["runs"]}
+    assert by_agent["market_research"]["persona"] is None
+    assert by_agent["persona_analysis"]["persona"] == "CHARTIST"
+    assert by_agent["persona_analysis"]["status"] == "failed"
+    assert "CreditsError" in by_agent["persona_analysis"]["error"]
+    assert body["decisions_by_status"] == {"pending": 1}
+
+
+def test_get_cycle_trace_reports_hitl_events(client: TestClient, session):
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    portfolio = make_portfolio(session, make_persona(session, name="GUARDIAN"))
+    decision = make_decision(
+        session, cycle, portfolio, item, action=DecisionAction.BUY, instrument="AAPL"
+    )
+    decision.hitl = {
+        "required": True,
+        "requested_at": "2026-07-04T09:05:00",
+        "amount_usd": 250.0,
+        "decided_by": "ralf",
+        "at": "2026-07-04T09:12:00",
+    }
+    decision.status = DecisionStatus.APPROVED
+    session.flush()
+
+    events = client.get(f"/api/cycles/{cycle.id}/trace").json()["hitl_events"]
+
+    assert len(events) == 1
+    assert events[0]["persona"] == "GUARDIAN"
+    assert events[0]["amount_usd"] == 250.0
+    assert events[0]["decided_by"] == "ralf"
+    assert events[0]["requested_at"].startswith("2026-07-04T09:05")
+
+
+def test_get_cycle_trace_skips_decisions_without_hitl(client: TestClient, session):
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    portfolio = make_portfolio(session, make_persona(session, name="HYPE"))
+    make_decision(session, cycle, portfolio, item, action=DecisionAction.HOLD)
+    session.flush()
+
+    assert client.get(f"/api/cycles/{cycle.id}/trace").json()["hitl_events"] == []
+
+
+def test_get_cycle_trace_unknown_cycle_returns_404(client: TestClient, session):
+    import uuid as _uuid
+
+    assert client.get(f"/api/cycles/{_uuid.uuid4()}/trace").status_code == 404

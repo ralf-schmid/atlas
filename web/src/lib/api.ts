@@ -202,6 +202,49 @@ export interface ImpulseComparison {
   reactions: ImpulseReaction[];
 }
 
+export interface CycleSummary {
+  id: string;
+  trading_day: string;
+  seq: number;
+  market_session: string;
+  started_at: string;
+  research_items: number;
+  decisions: number;
+  agent_runs: number;
+  failed_runs: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+}
+
+export interface AgentRun {
+  agent: string;
+  persona: string | null;
+  status: string;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number;
+  error: string | null;
+}
+
+export interface HitlEvent {
+  decision_id: string;
+  persona: string;
+  instrument: string;
+  status: string;
+  amount_usd: number | null;
+  requested_at: string | null;
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
+export interface CycleTrace {
+  cycle: CycleSummary;
+  runs: AgentRun[];
+  hitl_events: HitlEvent[];
+  decisions_by_status: Record<string, number>;
+}
+
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
 
 async function getJson<T>(path: string): Promise<T | null> {
@@ -269,6 +312,14 @@ export async function getImpulseComparison(
   id: string,
 ): Promise<ImpulseComparison | null> {
   return getJson<ImpulseComparison>(`/api/research/${id}/comparison`);
+}
+
+export async function getCycles(): Promise<CycleSummary[]> {
+  return (await getJson<CycleSummary[]>("/api/cycles")) ?? [];
+}
+
+export async function getCycleTrace(id: string): Promise<CycleTrace | null> {
+  return getJson<CycleTrace>(`/api/cycles/${id}/trace`);
 }
 
 export async function getHoldingChart(
