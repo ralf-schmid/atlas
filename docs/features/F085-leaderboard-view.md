@@ -136,3 +136,19 @@ adjustiert == roh und `has_reviews` false; mit Malus wird korrekt abgezogen
 gegenüber `sort=raw`; SPY-Benchmark-Zeile; keine Benchmark-Daten → `benchmark`
 null; archivierte Portfolios bleiben draußen; unbekannter `sort` → 422.
 Gesamtlauf 857 passed, ruff/mypy/eslint/tsc grün.
+
+### Live-Verifikation (02.08.2026)
+
+- `GET /api/leaderboard` auf der Box: `start 2026-07-27`, `trading_days 7`,
+  6 Zeilen, `has_reviews false`. Rangfolge CHARTIST/CRYPTOR/GUARDIAN/HYPE/
+  VULTURE je 0,00 %, CONTRA −0,158 % (3 Trades) auf Platz 6. Benchmark-Zeile:
+  SPY 5.053,73 USD, **+1,07 %** — der Index liegt aktuell vor allen 6 Personas.
+- `GET /leaderboard` in der Web-App: 200, Rangabzeichen 1–6, Sparklines,
+  Umschalter, §4.7-Disclaimer und Bottom-Nav im gerenderten HTML vorhanden.
+- Screenshot-Prüfung headless bei 600 px Breite: Layout korrekt, Inhalt auf
+  `max-w-md` zentriert. **Hinweis:** ein Screenshot bei exakt 390 px war nicht
+  aussagekräftig — Chrome headless klemmt die Fensterbreite auf ~448 px und
+  schneidet das Bild nur zu. Die 390-px-Prüfung auf echtem Gerät bleibt damit
+  Ralfs DoD-Schritt („auf realem Smartphone getestet"). Vorsorglich gehärtet:
+  `min-w-0`/`shrink-0` an den Flex-Zeilen, damit lange Labels (etwa
+  „Slippage-adjustiert") die Seite nicht in horizontales Scrollen zwingen.

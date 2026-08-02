@@ -68,17 +68,19 @@ export default async function LeaderboardPage({
 
       {board.benchmark !== null && (
         <section className="rounded-xl border border-dashed border-gray-300 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">{board.benchmark.symbol}-Benchmark</p>
-              <p className="text-xs text-gray-500">Buy-and-hold seit Stichtag</p>
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">
+                {board.benchmark.symbol}-Benchmark
+              </p>
+              <p className="text-xs text-gray-500">Buy-and-hold</p>
             </div>
             <Sparkline
               values={board.benchmark.sparkline}
               baseline={board.start_capital}
               color="#6b7280"
             />
-            <div className="text-right">
+            <div className="shrink-0 text-right">
               <p className={returnClass(board.benchmark.raw_return)}>
                 {percent.format(board.benchmark.raw_return)}
               </p>
@@ -100,8 +102,10 @@ export default async function LeaderboardPage({
 }
 
 function SortToggle({ sort }: { sort: "raw" | "adjusted" }) {
+  // min-w-0: without it a flex item never shrinks below its text width and the
+  // long "Slippage-adjustiert" label pushes the page into horizontal scroll at 390 px.
   const base =
-    "flex min-h-[44px] flex-1 items-center justify-center rounded-lg border px-3 text-sm";
+    "flex min-h-[44px] min-w-0 flex-1 items-center justify-center rounded-lg border px-2 text-center text-[13px] leading-tight";
   const active = "border-gray-900 bg-gray-900 font-medium text-white";
   const inactive = "border-gray-300 text-gray-700";
 
@@ -141,20 +145,20 @@ function Row({
       href={`/personas/${row.persona}`}
       className="flex flex-col gap-3 rounded-xl border border-gray-200 p-4 shadow-sm"
     >
-      <div className="flex items-center gap-3">
-        <span className="w-5 text-sm font-semibold text-gray-400">{row.rank}</span>
+      <div className="flex items-center gap-2">
+        <span className="w-4 shrink-0 text-sm font-semibold text-gray-400">{row.rank}</span>
         <span
           aria-hidden
           className="h-2.5 w-2.5 shrink-0 rounded-full"
           style={{ backgroundColor: personaColor(row.persona) }}
         />
-        <span className="flex-1 truncate text-sm font-semibold">{row.persona}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{row.persona}</span>
         <Sparkline
           values={row.sparkline}
           baseline={startCapital}
           color={personaColor(row.persona)}
         />
-        <div className="text-right">
+        <div className="shrink-0 text-right">
           <p className={returnClass(value)}>{percent.format(value)}</p>
           <p className="text-xs text-gray-500">{currency.format(row.total_value)}</p>
         </div>
