@@ -70,9 +70,16 @@ Feature-Schnitt aus `phase-5.md`: „chronologisch je Portfolio, Thesis, verlink
 
 Gesamtlauf 886 passed; ruff/mypy/eslint/tsc grün.
 
-## 5. Live-Verifikation
+## 5. Live-Verifikation (02.08.2026)
 
-(nach Deployment)
+- `?filter=rejected` für CHARTIST liefert beide Sterbearten gemischt: den
+  ADSK-Gate-Reject (`risk_rejected`, Stop 214,94 — der Rundungsfehler vor F101)
+  und mehrere `position_too_small_for_whole_share`-Rejects.
+- `?filter=traded` zeigt denselben Titel nach dem Fix: ADSK `executed`, Stop
+  jetzt 214,93, Order-Status `new`, 1 Stück, noch kein Fill (Sonntag) und noch
+  kein Review. Erwartung und Ist stehen damit im selben Eintrag nebeneinander —
+  genau der Vorher/Nachher-Beleg für F101, direkt im Journal sichtbar.
+- `/journal` in der Web-App: alle vier Filter liefern 200.
 
 ## 6. Rollback
 
