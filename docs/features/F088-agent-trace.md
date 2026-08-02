@@ -62,9 +62,16 @@ Mit fünf Einträgen bleiben auf 390 px rund 62 px Textbreite je Eintrag —
 Die Nav nutzt deshalb Kurzlabels („Ranking", „Trace"); die Seitenüberschriften
 behalten die vollen Namen.
 
-## 5. Live-Verifikation
+## 5. Live-Verifikation (02.08.2026)
 
-(nach Deployment)
+- `GET /api/cycles?limit=30` liefert die letzten 30 Zyklen mit Aggregaten; die
+  laufenden Zyklen zeigen plausible Werte (7–8 Läufe, 6 Decisions, 130k–380k
+  Token, 0,32–0,59 USD je Zyklus).
+- **Der Ausfall vom 30./31.07. ist jetzt in der UI sichtbar:** genau **13** der
+  30 gelisteten Zyklen erfüllen das Muster „Research > 0, Läufe = 0" und sind
+  gelb markiert — dieselbe Zahl, die die F101-Analyse per SQL ermittelt hatte.
+  Beispiel `2026-07-30 C1`: 1.500 Research-Items, 0 Läufe, 0 Decisions.
+- `/trace` und `/trace/{id}` liefern 200.
 
 ## 6. Rollback
 
