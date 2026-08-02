@@ -102,7 +102,9 @@ export default function DecisionCard({ decision }: { decision: Decision }) {
       {decision.research_items.length > 0 && (
         <ul className="mt-3 flex flex-col gap-1 border-t border-gray-100 pt-2">
           {decision.research_items.map((item) => (
-            <li key={item.id} className="text-xs text-gray-600">
+            // line-clamp: a market_overview summary is a full markdown analysis and
+            // would bury the decision it belongs to (live-hit 02.08.2026).
+            <li key={item.id} className="line-clamp-2 text-xs text-gray-600">
               <span className="font-medium">{sourceTypeLabel(item.source_type)}</span> ·{" "}
               {ageDaysLabel(item.age_days)} —{" "}
               {item.url === null ? (
