@@ -206,7 +206,7 @@ def make_portfolio_snapshot(
 def make_review(session: Session, decision: Decision, **overrides: object) -> Review:
     review = Review(
         decision_id=decision.id,
-        reviewed_at=datetime.datetime(2026, 7, 11, 9, 0),
+        reviewed_at=overrides.get("reviewed_at", datetime.datetime(2026, 7, 11, 9, 0)),
         expected={"target_price": 160.0},
         actual={"price": 158.0},
         deviation=Decimal("-1.25"),

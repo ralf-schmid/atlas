@@ -2,6 +2,7 @@ import datetime
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from src.db.models import DecisionAction, PortfolioMode
@@ -16,6 +17,7 @@ from tests.db.factories import (
     make_portfolio_snapshot,
     make_position_snapshot,
     make_research_item,
+    make_review,
 )
 
 
@@ -574,3 +576,180 @@ def test_health_endpoint(client: TestClient):
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+# --- F085: leaderboard ------------------------------------------------------------
+
+
+def _seed_leaderboard_persona(
+    session, name: str, values: list[str], *, day_offset: int = 0
+) -> object:
+    """One persona with one portfolio and one snapshot per day since the start."""
+    portfolio = make_portfolio(session, make_persona(session, name=name))
+    for index, value in enumerate(values):
+        make_portfolio_snapshot(
+            session,
+            portfolio,
+            ts=_competition_start() + datetime.timedelta(days=index + day_offset, hours=16),
+            total_value=Decimal(value),
+            cash=Decimal(value),
+        )
+    return portfolio
+
+
+def test_get_leaderboard_ranks_by_raw_return(client: TestClient, session):
+    _seed_leaderboard_persona(session, "VULTURE", ["5000.00", "5100.00"])
+    _seed_leaderboard_persona(session, "HYPE", ["5000.00", "4800.00"])
+    _seed_leaderboard_persona(session, "GUARDIAN", ["5000.00", "5300.00"])
+    session.flush()
+
+    response = client.get("/api/leaderboard")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [row["persona"] for row in body["rows"]] == ["GUARDIAN", "VULTURE", "HYPE"]
+    assert [row["rank"] for row in body["rows"]] == [1, 2, 3]
+    assert body["rows"][0]["raw_return"] == pytest.approx(0.06)
+    assert body["rows"][0]["total_value"] == 5300.0
+    assert body["sort"] == "raw"
+
+
+def test_get_leaderboard_uses_the_days_last_snapshot(client: TestClient, session):
+    portfolio = make_portfolio(session, make_persona(session, name="CHARTIST"))
+    for hour, value in ((9, "5100.00"), (16, "4900.00")):
+        make_portfolio_snapshot(
+            session,
+            portfolio,
+            ts=_competition_start() + datetime.timedelta(hours=hour),
+            total_value=Decimal(value),
+            cash=Decimal(value),
+        )
+    session.flush()
+
+    response = client.get("/api/leaderboard")
+
+    row = response.json()["rows"][0]
+    assert row["sparkline"] == [4900.0]
+    assert row["raw_return"] == pytest.approx(-0.02)
+
+
+def test_get_leaderboard_without_reviews_reports_adjusted_equals_raw(client: TestClient, session):
+    _seed_leaderboard_persona(session, "VULTURE", ["5000.00", "5100.00"])
+    session.flush()
+
+    body = client.get("/api/leaderboard").json()
+
+    row = body["rows"][0]
+    assert body["has_reviews"] is False
+    assert row["slippage_malus_usd"] is None
+    assert row["adjusted_return"] == row["raw_return"]
+
+
+def test_get_leaderboard_subtracts_the_slippage_malus_from_the_adjusted_return(
+    client: TestClient, session
+):
+    persona = make_persona(session, name="CONTRA")
+    portfolio = make_portfolio(session, persona)
+    make_portfolio_snapshot(
+        session,
+        portfolio,
+        ts=_competition_start() + datetime.timedelta(hours=16),
+        total_value=Decimal("5100.00"),
+        cash=Decimal("5100.00"),
+    )
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    decision = make_decision(session, cycle, portfolio, research_item)
+    make_review(
+        session,
+        decision,
+        slippage_malus=Decimal("50.00"),
+        reviewed_at=_competition_start() + datetime.timedelta(days=1),
+    )
+    session.flush()
+
+    body = client.get("/api/leaderboard").json()
+
+    row = body["rows"][0]
+    assert body["has_reviews"] is True
+    assert row["slippage_malus_usd"] == 50.0
+    # raw 2 % minus 50 USD on 5000 start capital = 1 %
+    assert row["raw_return"] == pytest.approx(0.02)
+    assert row["adjusted_return"] == pytest.approx(0.01)
+
+
+def test_get_leaderboard_sort_adjusted_changes_the_ranking(client: TestClient, session):
+    good_raw = make_portfolio(session, make_persona(session, name="VULTURE"))
+    make_portfolio_snapshot(
+        session,
+        good_raw,
+        ts=_competition_start() + datetime.timedelta(hours=16),
+        total_value=Decimal("5100.00"),
+        cash=Decimal("5100.00"),
+    )
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    make_review(
+        session,
+        make_decision(session, cycle, good_raw, research_item),
+        slippage_malus=Decimal("150.00"),
+        reviewed_at=_competition_start() + datetime.timedelta(days=1),
+    )
+    steady = make_portfolio(session, make_persona(session, name="GUARDIAN"))
+    make_portfolio_snapshot(
+        session,
+        steady,
+        ts=_competition_start() + datetime.timedelta(hours=16),
+        total_value=Decimal("5050.00"),
+        cash=Decimal("5050.00"),
+    )
+    session.flush()
+
+    raw_order = [r["persona"] for r in client.get("/api/leaderboard?sort=raw").json()["rows"]]
+    adjusted = client.get("/api/leaderboard?sort=adjusted").json()
+
+    assert raw_order == ["VULTURE", "GUARDIAN"]
+    assert [r["persona"] for r in adjusted["rows"]] == ["GUARDIAN", "VULTURE"]
+    assert adjusted["sort"] == "adjusted"
+
+
+def test_get_leaderboard_reports_the_spy_benchmark_row(client: TestClient, session):
+    portfolio = make_portfolio(session, make_persona(session, name="VULTURE"))
+    make_portfolio_snapshot(
+        session,
+        portfolio,
+        ts=_competition_start() + datetime.timedelta(hours=16),
+        total_value=Decimal("5000.00"),
+        cash=Decimal("5000.00"),
+        benchmark_value=Decimal("5150.00"),
+    )
+    session.flush()
+
+    body = client.get("/api/leaderboard").json()
+
+    assert body["benchmark"]["symbol"] == "SPY"
+    assert body["benchmark"]["total_value"] == 5150.0
+    assert body["benchmark"]["raw_return"] == pytest.approx(0.03)
+
+
+def test_get_leaderboard_without_benchmark_snapshots_omits_the_row(client: TestClient, session):
+    _seed_leaderboard_persona(session, "VULTURE", ["5000.00"])
+    session.flush()
+
+    assert client.get("/api/leaderboard").json()["benchmark"] is None
+
+
+def test_get_leaderboard_excludes_archived_portfolios(client: TestClient, session):
+    persona = make_persona(session, name="HYPE")
+    archived = make_portfolio(session, persona)
+    archived.archived_at = _competition_start()
+    make_portfolio_snapshot(
+        session, archived, ts=_competition_start() + datetime.timedelta(hours=16)
+    )
+    session.flush()
+
+    assert client.get("/api/leaderboard").json()["rows"] == []
+
+
+def test_get_leaderboard_rejects_an_unknown_sort_key(client: TestClient, session):
+    assert client.get("/api/leaderboard?sort=sortino").status_code == 422

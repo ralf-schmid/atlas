@@ -7,6 +7,7 @@ from __future__ import annotations
 import datetime
 import logging
 from collections.abc import Generator
+from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -19,6 +20,9 @@ from src.api.schemas import (
     DecisionOut,
     HoldingChartOut,
     HoldingOut,
+    LeaderboardBenchmarkOut,
+    LeaderboardOut,
+    LeaderboardRowOut,
     PersonaProfileOut,
     PortfolioHistoryOut,
     PortfolioHistoryPointOut,
@@ -45,6 +49,18 @@ from src.db.models import (
     ResearchItem,
 )
 from src.ingestion.market_data_sync import build_default_provider, sync_market_bars
+from src.metrics.performance import (
+    adjusted_return,
+    daily_benchmark_values,
+    daily_portfolio_values,
+    daily_returns,
+    max_drawdown,
+    open_position_count,
+    simple_return,
+    slippage_malus_sum,
+    sortino_ratio,
+    trade_count,
+)
 from src.orchestrator.competition_config import load_competition_config
 from src.orchestrator.persona_analysis import compute_age_days
 from src.personas.charters import get_persona_profile
@@ -197,6 +213,88 @@ def get_portfolio_history(
         start=competition.start_date,
         start_capital=float(competition.start_capital_usd),
         series=series,
+    )
+
+
+@router.get("/leaderboard", response_model=LeaderboardOut)
+def get_leaderboard(
+    mode: PortfolioMode = PortfolioMode.PAPER,
+    sort: str = "raw",
+    session: Session = Depends(get_session),
+) -> LeaderboardOut:
+    """F085: the competition standings — raw and slippage-adjusted, side by side.
+
+    Every number comes from `src.metrics.performance` (F082/F083), never from the
+    frontend and never from an LLM. `sort` is a server-side switch so the view
+    stays a plain server-rendered page: the toggle is a link, not client state.
+    """
+    if sort not in ("raw", "adjusted"):
+        raise HTTPException(status_code=422, detail="sort must be 'raw' or 'adjusted'")
+
+    competition = load_competition_config()
+    start_ts = datetime.datetime.combine(competition.start_date, datetime.time.min)
+    start_capital = float(competition.start_capital_usd)
+
+    portfolios = session.execute(
+        select(Portfolio, Persona.name)
+        .join(Persona, Portfolio.persona_id == Persona.id)
+        .where(
+            Persona.active.is_(True),
+            Portfolio.mode == mode,
+            Portfolio.archived_at.is_(None),
+        )
+        .order_by(Persona.name)
+    ).all()
+
+    rows: list[LeaderboardRowOut] = []
+    trading_days = 0
+    for portfolio, persona_name in portfolios:
+        values = daily_portfolio_values(session, portfolio.id, start_ts)
+        trading_days = max(trading_days, len(values))
+        raw = simple_return([Decimal(str(start_capital)), *values])
+        malus = slippage_malus_sum(session, portfolio.id, start_ts)
+        rows.append(
+            LeaderboardRowOut(
+                rank=0,  # filled in after sorting
+                persona=persona_name,
+                display_name=get_persona_profile(persona_name).display_name,
+                total_value=float(values[-1]) if values else start_capital,
+                raw_return=raw,
+                adjusted_return=adjusted_return(raw, malus, competition.start_capital_usd),
+                slippage_malus_usd=float(malus) if malus is not None else None,
+                sortino=sortino_ratio(daily_returns(values)),
+                max_drawdown=max_drawdown(values),
+                trade_count=trade_count(session, portfolio.id, start_ts),
+                open_positions=open_position_count(session, portfolio.id),
+                sparkline=[float(value) for value in values],
+            )
+        )
+
+    key = (lambda row: row.raw_return) if sort == "raw" else (lambda row: row.adjusted_return)
+    rows.sort(key=key, reverse=True)
+    for index, row in enumerate(rows, start=1):
+        row.rank = index
+
+    benchmark_values = daily_benchmark_values(session, start_ts)
+    benchmark = (
+        LeaderboardBenchmarkOut(
+            symbol=competition.benchmark_symbol,
+            total_value=float(benchmark_values[-1]),
+            raw_return=simple_return([Decimal(str(start_capital)), *benchmark_values]),
+            sparkline=[float(value) for value in benchmark_values],
+        )
+        if benchmark_values
+        else None
+    )
+
+    return LeaderboardOut(
+        start=competition.start_date,
+        start_capital=start_capital,
+        sort=sort,
+        has_reviews=any(row.slippage_malus_usd is not None for row in rows),
+        trading_days=trading_days,
+        rows=rows,
+        benchmark=benchmark,
     )
 
 

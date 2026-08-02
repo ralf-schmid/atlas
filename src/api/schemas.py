@@ -46,6 +46,38 @@ class PortfolioHistoryOut(BaseModel):
     series: list[PortfolioHistorySeriesOut]
 
 
+class LeaderboardRowOut(BaseModel):
+    rank: int
+    persona: str
+    display_name: str
+    total_value: float
+    raw_return: float
+    adjusted_return: float
+    slippage_malus_usd: float | None  # None = no review with a malus yet (F083/F084)
+    sortino: float | None  # None until 20 daily returns exist (F082)
+    max_drawdown: float
+    trade_count: int
+    open_positions: int
+    sparkline: list[float]
+
+
+class LeaderboardBenchmarkOut(BaseModel):
+    symbol: str
+    total_value: float
+    raw_return: float
+    sparkline: list[float]
+
+
+class LeaderboardOut(BaseModel):
+    start: datetime.date
+    start_capital: float
+    sort: str  # "raw" | "adjusted"
+    has_reviews: bool
+    trading_days: int
+    rows: list[LeaderboardRowOut]
+    benchmark: LeaderboardBenchmarkOut | None
+
+
 class PersonaProfileOut(BaseModel):
     name: str
     display_name: str

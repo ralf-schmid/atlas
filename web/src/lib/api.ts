@@ -36,6 +36,38 @@ export interface PortfolioHistory {
   series: PortfolioHistorySeries[];
 }
 
+export interface LeaderboardRow {
+  rank: number;
+  persona: string;
+  display_name: string;
+  total_value: number;
+  raw_return: number;
+  adjusted_return: number;
+  slippage_malus_usd: number | null;
+  sortino: number | null;
+  max_drawdown: number;
+  trade_count: number;
+  open_positions: number;
+  sparkline: number[];
+}
+
+export interface LeaderboardBenchmark {
+  symbol: string;
+  total_value: number;
+  raw_return: number;
+  sparkline: number[];
+}
+
+export interface Leaderboard {
+  start: string;
+  start_capital: number;
+  sort: "raw" | "adjusted";
+  has_reviews: boolean;
+  trading_days: number;
+  rows: LeaderboardRow[];
+  benchmark: LeaderboardBenchmark | null;
+}
+
 export interface PersonaProfile {
   name: string;
   display_name: string;
@@ -137,6 +169,12 @@ export async function getPersonaSnapshot(
 
 export async function getPortfolioHistory(): Promise<PortfolioHistory | null> {
   return getJson<PortfolioHistory>("/api/portfolios/history");
+}
+
+export async function getLeaderboard(
+  sort: "raw" | "adjusted",
+): Promise<Leaderboard | null> {
+  return getJson<Leaderboard>(`/api/leaderboard?sort=${sort}`);
 }
 
 export async function getPersonaProfile(

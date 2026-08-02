@@ -81,3 +81,58 @@ das Leaderboard rechnet bis dahin ab Portfolio-Start (08.07.2026,
 
 Bei Umsetzung. Rollback-Pfad (geplant): Route/Nav-Eintrag entfernen ist
 rückstandsfrei; API-Endpoint ist additiv und bricht nichts Bestehendes.
+
+---
+
+## 6. Umsetzung (02.08.2026)
+
+**Status:** umgesetzt und deployt. Abweichungen vom Entwurf oben sind hier notiert.
+
+### API `GET /api/leaderboard?mode=paper&sort=raw|adjusted`
+
+Alle Kennzahlen kommen aus `src/metrics/performance.py` (F082) — keine Rechnung
+im Frontend, keine im LLM. Neu dort ergänzt (DB-gestützter Teil):
+
+- `daily_portfolio_values` — ein Wert je Kalendertag (**letzter** Snapshot des
+  Tages, `DISTINCT ON (date(ts))`). Zyklen schreiben 2–5 Snapshots täglich;
+  Sortino, Drawdown und Tagesrenditen sind auf Tagesschlusskursen definiert.
+- `daily_benchmark_values` — dieselbe Reduktion für `benchmark_value` (F081).
+- `open_position_count` — Positionen am neuesten **portfolio**_snapshot; der
+  Digest nutzt jetzt dieselbe Funktion statt einer eigenen Kopie (F101-Bugfix).
+- `slippage_malus_sum` — Σ `review.slippage_malus` je Portfolio ab Stichtag,
+  `None` wenn es noch kein Review gibt (siehe „adjustiert" unten).
+
+Sortierung serverseitig über `?sort=` statt im Client: die View bleibt damit
+eine reine Server-Component ohne JS-Bundle, der Umschalter ist ein Link.
+Ungültiger `sort`-Wert → 422.
+
+### UI `/leaderboard`
+
+- Rangliste der 6 Personas mit Rang, Persona-Farbe (gleiche Zuordnung wie die
+  F100-Charts), Sparkline mit Startkapital-Referenzlinie, Rendite und Depotwert;
+  darunter Trades, offene Positionen, Max Drawdown, Sortino.
+- SPY-Benchmark als eigene, gestrichelt abgesetzte Zeile unter der Rangliste.
+- Umschalter Roh / Slippage-adjustiert als zwei Links, Touch-Target 44 px.
+- Solange es keine Reviews gibt: Hinweis-Banner „adjustiert = roh".
+- §4.7-Disclaimer (40 Handelstage sind statistisch zu wenig) steht sichtbar am
+  Fuß der Seite.
+- **Bottom-Nav ergänzt** (`web/src/components/BottomNav.tsx`, im Root-Layout):
+  Übersicht / Leaderboard, 56 px hoch. Die CLAUDE.md-Vorgabe „Bottom-Nav" war
+  bis hierher gar nicht umgesetzt — die App hatte nur eine Route.
+
+### Abweichungen vom Entwurf
+
+- **Sortino zeigt „–"** statt einer Zahl: die F082-Funktion liefert erst ab 20
+  Tagesrenditen einen Wert, der Wettbewerb läuft seit 6 Tagen.
+- **Kein Zeitraum-Filter** (wie im Non-Scope festgelegt), aber der Header nennt
+  Stichtag, Anzahl Handelstage und Startkapital.
+
+### Tests (`tests/api/test_routes.py`)
+
+Ranking nach Roh-Rendite inkl. Rangvergabe; Tagesschluss-Reduktion (zwei
+Snapshots am selben Tag → der spätere zählt); ohne Reviews ist
+adjustiert == roh und `has_reviews` false; mit Malus wird korrekt abgezogen
+(2 % roh − 50 USD auf 5.000 = 1 %); `sort=adjusted` dreht die Reihenfolge
+gegenüber `sort=raw`; SPY-Benchmark-Zeile; keine Benchmark-Daten → `benchmark`
+null; archivierte Portfolios bleiben draußen; unbekannter `sort` → 422.
+Gesamtlauf 857 passed, ruff/mypy/eslint/tsc grün.

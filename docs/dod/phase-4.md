@@ -74,12 +74,25 @@ wenn Ralf den Scheduler bewusst startet (`scripts/run_scheduler.py`).
       Alpaca-Paper-Account. **Offen:** `sell`/`close` (siehe F021 §1); `pnl_realized`
       bleibt `0` und `benchmark_value` `NULL`, bis es einen Order-Abschluss- bzw.
       SPY-Benchmark-Pfad gibt (P5).
-- [ ] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
-      Regellogik; je Regelklasse mindestens ein echter Reject im Testlauf
-      dokumentiert
-      **Vorarbeit aus Phase 2** ([F004](../features/F004-risk-gate.md)): Regellogik
-      + Coverage-Ziel bereits erfüllt. **Offen:** der "echte Reject im Testlauf"
-      braucht den laufenden Orchestrator-Zyklus, nicht nur Unit-Tests.
+- [x] Risk-Gate: beide Regelebenen implementiert, 100 % Branch-Coverage der
+      Regellogik; **Unit-Test-Nachweis je Regelklasse plus mindestens ein echter
+      Live-Reject je im Live-Pfad erreichbarer Klasse**
+      *(Formulierung angepasst am 02.08.2026, Ralfs Entscheidung — Original:
+      „je Regelklasse mindestens ein echter Reject im Testlauf dokumentiert".)*
+      **Begründung:** über die gesamte Live-DB hat bisher ausschließlich
+      `stop_loss_policy` ausgelöst (11 Rejects, davon 5 im Wettbewerb — Analyse
+      [F101](../features/F101-trade-activity-root-cause.md) §2 U3).
+      `max_position_pct`, `max_open_positions`, `max_trades_per_day`,
+      `min_cash_pct`, `no_margin` und `circuit_breaker` sind aus dem Live-Pfad
+      strukturell kaum erreichbar: die Sizing-Schicht rechnet die Position
+      bereits innerhalb dieser Grenzen aus, und der Circuit Breaker verlangt
+      >15 % Drawdown. Ein künstlich provozierter Verstoß wäre kein echter
+      Nachweis, sondern ein manipulierter Testfall — deshalb zählt hier der
+      Unit-Test-Nachweis mit 100 % Branch-Coverage
+      ([F004](../features/F004-risk-gate.md), `tests/risk/test_gate.py`, live
+      gemessen 02.08.2026: `src/risk/gate.py` 74 Stmts / 28 Branches, 100 %).
+      **Erledigt:** Regellogik + Coverage aus Phase 2, Live-Reject für die
+      erreichbare Klasse `stop_loss_policy` dokumentiert.
 - [ ] HITL: Approve, Reject und Timeout alle drei end-to-end nachgewiesen;
       `/hitl off` wirkt ohne Neustart
       **Teilweise:** [F022](../features/F022-hitl-flow.md) — Approve/Reject
@@ -497,14 +510,10 @@ ist damit erfüllt.**
 
 ### Weiterhin offen (keine stillschweigende Erledigung)
 
-- **Risk-Gate „je Regelklasse mindestens ein echter Reject im Testlauf":** live
-  hat bisher **nur** `stop_loss_policy` ausgelöst (11 Rejects über die gesamte
-  DB). `max_position_pct`, `max_open_positions`, `max_trades_per_day`,
-  `min_cash_pct`, `no_margin` und `circuit_breaker` sind im Live-Pfad
-  strukturell kaum erreichbar, weil die Sizing-Schicht sie vorher einhält — sie
-  sind über Unit-Tests zu 100 % Branch-Coverage abgedeckt. Vorschlag an Ralf:
-  den Punkt als „Unit-Test-Nachweis + ein Live-Reject je erreichbarer Klasse"
-  neu fassen, statt künstliche Verstöße zu provozieren.
+- ~~Risk-Gate „je Regelklasse mindestens ein echter Reject im Testlauf"~~ →
+  **erledigt am 02.08.2026:** Ralf hat die Umformulierung auf „Unit-Test-Nachweis
+  je Klasse + Live-Reject je erreichbarer Klasse" freigegeben; der Punkt ist oben
+  entsprechend abgehakt und begründet.
 - **HITL Approve/Reject/Timeout end-to-end:** für Paper ist HITL bewusst aus
   (`config/hitl.yaml`, F072). Approve/Reject sind aus F022 nachgewiesen, der
   30-Minuten-Timeout-Sweep läuft seit F049 als Job — ein echter End-to-End-Beleg

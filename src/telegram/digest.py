@@ -16,9 +16,9 @@ from src.db.models import (
     Persona,
     Portfolio,
     PortfolioSnapshot,
-    PositionSnapshot,
 )
 from src.llm.ledger import sum_persona_spend_today
+from src.metrics.performance import open_position_count
 
 _TEMPLATE_SOURCE = """\
 \U0001f4ca Tagesdigest {{ trading_day.strftime('%d.%m.%Y') }}
@@ -128,7 +128,7 @@ def build_digest_data(session: Session, trading_day: datetime.date) -> DigestDat
             trades_today=_count_filled_trades_today(session, portfolio.id, day_start, day_end),
             portfolio_value_usd=float(_latest_snapshot_field(session, portfolio.id, "total_value")),
             cash_usd=float(_latest_snapshot_field(session, portfolio.id, "cash")),
-            open_positions=_count_open_positions(session, portfolio.id),
+            open_positions=open_position_count(session, portfolio.id),
             # Reuses the exact function the real cost-cap enforcement uses
             # (`src/llm/ledger.py::guarded_complete`) — same day-boundary
             # semantics as what actually gates further LLM calls, not a second,
@@ -174,31 +174,3 @@ def _latest_snapshot_field(session: Session, portfolio_id: object, field: str) -
     )
     value = session.scalar(stmt)
     return float(value) if value is not None else 0.0
-
-
-def _count_open_positions(session: Session, portfolio_id: object) -> int:
-    """F101: anchored on the newest *portfolio* snapshot, not the newest position
-    snapshot.
-
-    `generate_portfolio_snapshot` writes both with the same `ts`, but a portfolio
-    holding nothing writes zero position rows — so `max(PositionSnapshot.ts)`
-    keeps pointing at the last day the persona held something, forever. Live
-    02.08.2026: CONTRA closed its AAOI position on 29.07. and the digest still
-    reported "1 offene Position" next to a portfolio value that was 100 % cash.
-    Same anchoring the API's /snapshot endpoint already uses.
-    """
-    latest_ts = session.scalar(
-        select(func.max(PortfolioSnapshot.ts)).where(PortfolioSnapshot.portfolio_id == portfolio_id)
-    )
-    if latest_ts is None:
-        return 0
-    stmt = (
-        select(func.count())
-        .select_from(PositionSnapshot)
-        .where(
-            PositionSnapshot.portfolio_id == portfolio_id,
-            PositionSnapshot.ts == latest_ts,
-            PositionSnapshot.qty != 0,
-        )
-    )
-    return session.scalar(stmt) or 0

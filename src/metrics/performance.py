@@ -17,7 +17,14 @@ from decimal import Decimal
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from src.db.models import Decision, OrderRecord, OrderRecordStatus
+from src.db.models import (
+    Decision,
+    OrderRecord,
+    OrderRecordStatus,
+    PortfolioSnapshot,
+    PositionSnapshot,
+    Review,
+)
 
 # ---------------------------------------------------------------------------
 # Pure series functions — no DB access
@@ -105,6 +112,78 @@ def adjusted_return(
 # ---------------------------------------------------------------------------
 # DB-backed function
 # ---------------------------------------------------------------------------
+
+
+def daily_portfolio_values(
+    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+) -> list[Decimal]:
+    """One value per calendar day — the day's *last* `portfolio_snapshot` — oldest
+    first. Cycles write 2-5 snapshots a day; every series metric here (Sortino,
+    drawdown, daily returns) is defined on daily closes, not on intraday points."""
+    day = func.date(PortfolioSnapshot.ts).label("day")
+    stmt = (
+        select(PortfolioSnapshot.total_value)
+        .distinct(day)
+        .where(PortfolioSnapshot.portfolio_id == portfolio_id, PortfolioSnapshot.ts >= since)
+        .order_by(day, PortfolioSnapshot.ts.desc())
+    )
+    return list(session.scalars(stmt).all())
+
+
+def daily_benchmark_values(session: Session, since: datetime.datetime) -> list[Decimal]:
+    """Same day-close reduction for the SPY buy-and-hold benchmark (F081). The
+    value is identical across portfolios — every snapshot carries the same
+    computed number — so the day's last non-NULL row is the day's benchmark."""
+    day = func.date(PortfolioSnapshot.ts).label("day")
+    stmt = (
+        select(PortfolioSnapshot.benchmark_value)
+        .distinct(day)
+        .where(PortfolioSnapshot.ts >= since, PortfolioSnapshot.benchmark_value.is_not(None))
+        .order_by(day, PortfolioSnapshot.ts.desc())
+    )
+    return [value for value in session.scalars(stmt).all() if value is not None]
+
+
+def open_position_count(session: Session, portfolio_id: uuid.UUID) -> int:
+    """Non-zero positions at the newest `portfolio_snapshot`.
+
+    Anchored on the portfolio snapshot, never on `max(position_snapshot.ts)`: a
+    portfolio holding nothing writes no position rows at all, so the latter keeps
+    reporting the last day the persona held something (F101, live-hit in the daily
+    digest on 02.08.2026).
+    """
+    latest_ts = session.scalar(
+        select(func.max(PortfolioSnapshot.ts)).where(PortfolioSnapshot.portfolio_id == portfolio_id)
+    )
+    if latest_ts is None:
+        return 0
+    stmt = (
+        select(func.count())
+        .select_from(PositionSnapshot)
+        .where(
+            PositionSnapshot.portfolio_id == portfolio_id,
+            PositionSnapshot.ts == latest_ts,
+            PositionSnapshot.qty != 0,
+        )
+    )
+    return session.scalar(stmt) or 0
+
+
+def slippage_malus_sum(
+    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+) -> Decimal | None:
+    """Σ `review.slippage_malus` (F083) over this portfolio's reviewed decisions.
+
+    Returns None when the portfolio has no review with a malus yet — the
+    leaderboard shows "adjusted = raw" plus a hint in that case instead of
+    pretending a zero malus is a measured one.
+    """
+    stmt = (
+        select(func.sum(Review.slippage_malus))
+        .join(Decision, Decision.id == Review.decision_id)
+        .where(Decision.portfolio_id == portfolio_id, Review.reviewed_at >= since)
+    )
+    return session.scalar(stmt)
 
 
 def trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
