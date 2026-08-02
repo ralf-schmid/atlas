@@ -9,13 +9,8 @@ import {
   type Holding,
   type HoldingChart,
 } from "@/lib/api";
-import {
-  actionLabel,
-  ageDaysLabel,
-  decisionStatusLabel,
-  orderStatusLabel,
-  sourceTypeLabel,
-} from "@/lib/labels";
+import { actionLabel, orderStatusLabel } from "@/lib/labels";
+import DecisionCard from "@/components/DecisionCard";
 import PriceChart from "@/components/PriceChart";
 
 const currency = new Intl.NumberFormat("de-DE", {
@@ -181,50 +176,24 @@ export default async function PersonaDetailPage({
       </section>
 
       <section aria-label="Analyse der Impulse" className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium text-gray-500">
-          Analyse der Impulse ({decisions.length})
-        </h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-gray-500">
+            Analyse der Impulse ({decisions.length})
+          </h2>
+          <Link
+            href={`/journal?persona=${persona.toUpperCase()}`}
+            className="text-xs text-gray-500 underline"
+          >
+            Journal
+          </Link>
+        </div>
         {decisions.length === 0 ? (
           <p className="text-sm text-gray-500">Noch keine Entscheidungen.</p>
         ) : (
           <ul className="flex flex-col gap-3">
             {decisions.map((decision) => (
-              <li
-                key={decision.id}
-                className="rounded-lg border border-gray-200 p-3 text-sm"
-              >
-                <div className="flex items-center justify-between">
-                  <p className="font-medium">
-                    {actionLabel(decision.action)} {decision.instrument}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {decisionStatusLabel(decision.status)}
-                  </p>
-                </div>
-                <p className="text-xs text-gray-500">
-                  {formatDate(decision.ts)}
-                  {decision.conviction !== null &&
-                    ` · Sicherheit ${(decision.conviction * 100).toFixed(0)}%`}
-                </p>
-                <p className="mt-2 text-gray-700">{decision.thesis_text}</p>
-                {decision.rejection_reason !== null && (
-                  <p className="mt-1 text-xs text-gray-500">
-                    Ablehnungsgrund: {decision.rejection_reason}
-                  </p>
-                )}
-
-                {decision.research_items.length > 0 && (
-                  <ul className="mt-2 flex flex-col gap-1 border-t border-gray-100 pt-2">
-                    {decision.research_items.map((item) => (
-                      <li key={item.id} className="text-xs text-gray-600">
-                        <span className="font-medium">
-                          {sourceTypeLabel(item.source_type)}
-                        </span>{" "}
-                        · {ageDaysLabel(item.age_days)} — {item.summary}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              <li key={decision.id}>
+                <DecisionCard decision={decision} />
               </li>
             ))}
           </ul>

@@ -64,3 +64,13 @@ export function ageDaysLabel(ageDays: number | null): string {
   }
   return `${Math.round(ageDays)} Tage alt`;
 }
+
+const REVIEW_VERDICT_LABELS: Record<string, string> = {
+  thesis_confirmed: "These bestätigt",
+  thesis_failed: "These widerlegt",
+  inconclusive: "Nicht eindeutig",
+};
+
+export function reviewVerdictLabel(verdict: string): string {
+  return REVIEW_VERDICT_LABELS[verdict] ?? verdict;
+}

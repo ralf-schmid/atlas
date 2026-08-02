@@ -4,6 +4,7 @@ import Link from "next/link";
 const ITEMS = [
   { href: "/", label: "Übersicht" },
   { href: "/leaderboard", label: "Leaderboard" },
+  { href: "/journal", label: "Journal" },
 ];
 
 export default function BottomNav() {

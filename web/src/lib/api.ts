@@ -135,6 +135,30 @@ export interface ResearchRef {
   url: string | null;
 }
 
+export interface DecisionExpectation {
+  entry_price: number | null;
+  stop_loss_price: number | null;
+  target_price: number | null;
+  horizon_days: number | null;
+}
+
+export interface DecisionOutcome {
+  order_status: string;
+  quantity: number | null;
+  fill_price: number | null;
+  filled_at: string | null;
+}
+
+export interface DecisionReview {
+  verdict: string;
+  reviewed_at: string;
+  deviation: number | null;
+  slippage_malus: number | null;
+  lessons_text: string | null;
+}
+
+export type DecisionFilter = "all" | "traded" | "rejected" | "hold";
+
 export interface Decision {
   id: string;
   ts: string;
@@ -145,6 +169,9 @@ export interface Decision {
   thesis_text: string;
   rejection_reason: string | null;
   research_items: ResearchRef[];
+  expected: DecisionExpectation;
+  outcome: DecisionOutcome | null;
+  review: DecisionReview | null;
 }
 
 const API_URL = process.env.API_URL ?? "http://localhost:8000";
@@ -197,8 +224,13 @@ export async function getPersonaTransactions(
 
 export async function getPersonaDecisions(
   persona: string,
+  filter: DecisionFilter = "all",
 ): Promise<Decision[]> {
-  return (await getJson<Decision[]>(`/api/personas/${persona}/decisions`)) ?? [];
+  return (
+    (await getJson<Decision[]>(
+      `/api/personas/${persona}/decisions?filter=${filter}`,
+    )) ?? []
+  );
 }
 
 export async function getHoldingChart(

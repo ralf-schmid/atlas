@@ -4,8 +4,9 @@ from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
-from src.db.models import DecisionAction, PortfolioMode
+from src.db.models import DecisionAction, DecisionStatus, Persona, PortfolioMode
 from src.orchestrator.competition_config import load_competition_config
 from tests.db.factories import (
     make_cycle,
@@ -753,3 +754,135 @@ def test_get_leaderboard_excludes_archived_portfolios(client: TestClient, sessio
 
 def test_get_leaderboard_rejects_an_unknown_sort_key(client: TestClient, session):
     assert client.get("/api/leaderboard?sort=sortino").status_code == 422
+
+
+# --- F086: decision journal -------------------------------------------------------
+
+
+def test_get_persona_decisions_reports_expectation_outcome_and_review(client: TestClient, session):
+    persona = make_persona(session, name="VULTURE")
+    portfolio = make_portfolio(session, persona)
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    decision = make_decision(
+        session,
+        cycle,
+        portfolio,
+        research_item,
+        action=DecisionAction.BUY,
+        quantity=Decimal("4"),
+        expected_outcome={
+            "entry_price": 100.0,
+            "stop_loss_price": 92.0,
+            "target_price": 130.0,
+            "horizon_days": 21,
+            "conviction": 0.6,
+        },
+    )
+    make_order_record(
+        session,
+        decision,
+        filled_at=datetime.datetime(2026, 7, 4, 10, 0),
+        fill_price=Decimal("101.25"),
+    )
+    make_review(
+        session,
+        decision,
+        slippage_malus=Decimal("1.50"),
+        lessons_text="Einstieg zu spät nach dem Volumen-Spike.",
+    )
+    session.flush()
+
+    body = client.get("/api/personas/VULTURE/decisions").json()
+
+    entry = body[0]
+    assert entry["expected"] == {
+        "entry_price": 100.0,
+        "stop_loss_price": 92.0,
+        "target_price": 130.0,
+        "horizon_days": 21.0,
+    }
+    assert entry["outcome"]["order_status"] == "filled"
+    assert entry["outcome"]["fill_price"] == 101.25
+    assert entry["outcome"]["quantity"] == 4.0
+    assert entry["review"]["verdict"] == "thesis_confirmed"
+    assert entry["review"]["slippage_malus"] == 1.5
+    assert entry["review"]["lessons_text"].startswith("Einstieg")
+
+
+def test_get_persona_decisions_without_order_or_review_reports_none(client: TestClient, session):
+    persona = make_persona(session, name="GUARDIAN")
+    portfolio = make_portfolio(session, persona)
+    cycle = make_cycle(session)
+    research_item = make_research_item(session, cycle)
+    make_decision(
+        session, cycle, portfolio, research_item, action=DecisionAction.HOLD, expected_outcome={}
+    )
+    session.flush()
+
+    entry = client.get("/api/personas/GUARDIAN/decisions").json()[0]
+
+    assert entry["outcome"] is None
+    assert entry["review"] is None
+    assert entry["expected"]["entry_price"] is None
+
+
+def test_get_persona_decisions_filter_rejected_covers_reject_idea_and_gate_refusals(
+    client: TestClient, session
+):
+    """F086's Rejected-Filter: an idea can die as `reject_idea` (the persona
+    dropped it) or at the risk gate — the journal must show both as verworfen."""
+    persona = make_persona(session, name="CHARTIST")
+    portfolio = make_portfolio(session, persona)
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    make_decision(
+        session,
+        cycle,
+        portfolio,
+        item,
+        instrument="AAA",
+        action=DecisionAction.REJECT_IDEA,
+        rejection_reason="position_too_small_for_whole_share",
+    )
+    make_decision(
+        session,
+        cycle,
+        portfolio,
+        item,
+        instrument="BBB",
+        action=DecisionAction.BUY,
+        status=DecisionStatus.RISK_REJECTED,
+    )
+    make_decision(session, cycle, portfolio, item, instrument="CCC", action=DecisionAction.HOLD)
+    make_decision(session, cycle, portfolio, item, instrument="DDD", action=DecisionAction.BUY)
+    session.flush()
+
+    rejected = client.get("/api/personas/CHARTIST/decisions?filter=rejected").json()
+
+    assert {entry["instrument"] for entry in rejected} == {"AAA", "BBB"}
+
+
+def test_get_persona_decisions_filter_traded_and_hold(client: TestClient, session):
+    persona = make_persona(session, name="CONTRA")
+    portfolio = make_portfolio(session, persona)
+    cycle = make_cycle(session)
+    item = make_research_item(session, cycle)
+    make_decision(session, cycle, portfolio, item, instrument="AAA", action=DecisionAction.BUY)
+    make_decision(session, cycle, portfolio, item, instrument="BBB", action=DecisionAction.CLOSE)
+    make_decision(session, cycle, portfolio, item, instrument="CCC", action=DecisionAction.HOLD)
+    session.flush()
+
+    traded = client.get("/api/personas/CONTRA/decisions?filter=traded").json()
+    held = client.get("/api/personas/CONTRA/decisions?filter=hold").json()
+
+    assert {entry["instrument"] for entry in traded} == {"AAA", "BBB"}
+    assert [entry["instrument"] for entry in held] == ["CCC"]
+
+
+def test_get_persona_decisions_rejects_an_unknown_filter(client: TestClient, session):
+    make_persona(session, name="HYPE")
+    make_portfolio(session, session.scalars(select(Persona)).first())
+    session.flush()
+
+    assert client.get("/api/personas/HYPE/decisions?filter=broken").status_code == 422

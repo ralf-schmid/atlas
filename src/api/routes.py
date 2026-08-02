@@ -10,14 +10,17 @@ from collections.abc import Generator
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.api.schemas import (
     ChartBarOut,
     ChartFillMarkerOut,
     ChartLivePriceOut,
+    DecisionExpectationOut,
     DecisionOut,
+    DecisionOutcomeOut,
+    DecisionReviewOut,
     HoldingChartOut,
     HoldingOut,
     LeaderboardBenchmarkOut,
@@ -38,6 +41,7 @@ from src.db.models import (
     Cycle,
     Decision,
     DecisionAction,
+    DecisionStatus,
     MarketBar,
     MarketBarTimeframe,
     OrderRecord,
@@ -47,6 +51,7 @@ from src.db.models import (
     PortfolioSnapshot,
     PositionSnapshot,
     ResearchItem,
+    Review,
 )
 from src.ingestion.market_data_sync import build_default_provider, sync_market_bars
 from src.metrics.performance import (
@@ -74,6 +79,20 @@ router = APIRouter(prefix="/api")
 _session_factory: sessionmaker[Session] | None = None
 
 _DEFAULT_DECISION_LIMIT = 50
+_DECISION_FILTERS = frozenset({"all", "traded", "rejected", "hold"})
+
+
+def _as_float(value: object) -> float | None:
+    """`expected_outcome` is free-form JSONB written by the LLM path — a key can be
+    missing, null, or (rarely) a string. None beats a 500 in a read-only journal."""
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
 
 
 def get_session() -> Generator[Session]:
@@ -545,20 +564,44 @@ def get_persona_decisions(
     name: str,
     mode: PortfolioMode = PortfolioMode.PAPER,
     limit: int = _DEFAULT_DECISION_LIMIT,
+    filter: str = "all",
     session: Session = Depends(get_session),
 ) -> list[DecisionOut]:
-    """The "processed impulses" view: every decision (buy/hold/reject_idea, any
-    status) with the research items it actually cited, each tagged with the same
-    age-at-decision-time signal the persona itself saw (F033)."""
+    """The decision journal (F086): every decision (buy/hold/reject_idea, any
+    status) with the research items it actually cited — each tagged with the same
+    age-at-decision-time signal the persona itself saw (F033) — plus what the
+    persona expected, what the broker actually did, and the review's verdict.
+
+    `filter` narrows by outcome: `traded` (an order was attempted), `rejected`
+    (the idea died — `reject_idea` or a gate/HITL refusal), `hold` (no action at
+    all). Filtering server-side keeps the journal a plain server component and
+    keeps `limit` meaningful — a client-side filter over the newest 50 rows would
+    show 3 trades out of 50 holds and call it a journal.
+    """
+    if filter not in _DECISION_FILTERS:
+        raise HTTPException(
+            status_code=422, detail=f"filter must be one of {sorted(_DECISION_FILTERS)}"
+        )
     _persona, portfolio = _get_persona_and_portfolio(session, name, mode)
 
-    rows = session.execute(
+    stmt = (
         select(Decision, Cycle)
         .join(Cycle, Decision.cycle_id == Cycle.id)
         .where(Decision.portfolio_id == portfolio.id)
-        .order_by(Cycle.started_at.desc())
-        .limit(limit)
-    ).all()
+    )
+    if filter == "traded":
+        stmt = stmt.where(Decision.action.in_((DecisionAction.BUY, DecisionAction.CLOSE)))
+    elif filter == "rejected":
+        stmt = stmt.where(
+            or_(
+                Decision.action == DecisionAction.REJECT_IDEA,
+                Decision.status.in_((DecisionStatus.RISK_REJECTED, DecisionStatus.HITL_REJECTED)),
+            )
+        )
+    elif filter == "hold":
+        stmt = stmt.where(Decision.action == DecisionAction.HOLD)
+
+    rows = session.execute(stmt.order_by(Cycle.started_at.desc()).limit(limit)).all()
 
     out = []
     for decision, cycle in rows:
@@ -567,6 +610,14 @@ def get_persona_decisions(
             .where(ResearchItem.id.in_(decision.input_research_ids))
             .order_by(ResearchItem.published_at.desc())
         ).all()
+        order = session.scalar(
+            select(OrderRecord)
+            .where(OrderRecord.decision_id == decision.id)
+            .order_by(OrderRecord.submitted_at.desc())
+            .limit(1)
+        )
+        review = session.scalar(select(Review).where(Review.decision_id == decision.id))
+        expected = decision.expected_outcome
         out.append(
             DecisionOut(
                 id=decision.id,
@@ -574,9 +625,34 @@ def get_persona_decisions(
                 instrument=decision.instrument,
                 action=decision.action.value,
                 status=decision.status.value,
-                conviction=decision.expected_outcome.get("conviction"),
+                conviction=expected.get("conviction"),
                 thesis_text=decision.thesis_text,
                 rejection_reason=decision.rejection_reason,
+                expected=DecisionExpectationOut(
+                    entry_price=_as_float(expected.get("entry_price")),
+                    stop_loss_price=_as_float(expected.get("stop_loss_price")),
+                    target_price=_as_float(expected.get("target_price")),
+                    horizon_days=_as_float(expected.get("horizon_days")),
+                ),
+                outcome=None
+                if order is None
+                else DecisionOutcomeOut(
+                    order_status=order.status.value,
+                    quantity=float(decision.quantity) if decision.quantity is not None else None,
+                    fill_price=float(order.fill_price) if order.fill_price is not None else None,
+                    filled_at=order.filled_at,
+                ),
+                review=None
+                if review is None
+                else DecisionReviewOut(
+                    verdict=review.verdict.value,
+                    reviewed_at=review.reviewed_at,
+                    deviation=float(review.deviation) if review.deviation is not None else None,
+                    slippage_malus=float(review.slippage_malus)
+                    if review.slippage_malus is not None
+                    else None,
+                    lessons_text=review.lessons_text,
+                ),
                 research_items=[
                     ResearchRefOut(
                         id=item.id,

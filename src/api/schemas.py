@@ -145,6 +145,34 @@ class ResearchRefOut(BaseModel):
     url: str | None
 
 
+class DecisionExpectationOut(BaseModel):
+    """What the persona said would happen — straight from `expected_outcome`."""
+
+    entry_price: float | None
+    stop_loss_price: float | None
+    target_price: float | None
+    horizon_days: float | None
+
+
+class DecisionOutcomeOut(BaseModel):
+    """What actually happened at the broker."""
+
+    order_status: str
+    quantity: float | None
+    fill_price: float | None
+    filled_at: datetime.datetime | None
+
+
+class DecisionReviewOut(BaseModel):
+    """F084's verdict on the decision, once the review agent has looked at it."""
+
+    verdict: str
+    reviewed_at: datetime.datetime
+    deviation: float | None
+    slippage_malus: float | None
+    lessons_text: str | None
+
+
 class DecisionOut(BaseModel):
     id: uuid.UUID
     ts: datetime.datetime
@@ -155,3 +183,6 @@ class DecisionOut(BaseModel):
     thesis_text: str
     rejection_reason: str | None
     research_items: list[ResearchRefOut]
+    expected: DecisionExpectationOut
+    outcome: DecisionOutcomeOut | None
+    review: DecisionReviewOut | None
