@@ -544,16 +544,30 @@ def _resolve_buy_decision(
     if broker_adapter.requires_whole_shares:
         quantity = float(math.floor(quantity))
         if quantity < 1:
-            return _persist_decision(
-                session,
-                cycle_id=cycle_id,
-                portfolio_id=portfolio_id,
-                instrument=parsed.instrument,
-                action=DecisionAction.REJECT_IDEA,
-                thesis_text=parsed.thesis_text,
-                rejection_reason="position_too_small_for_whole_share",
-                input_research_ids=cited_ids,
+            # F101: the conviction-implied value alone killed 27 of CHARTIST's 28
+            # ideas in the first competition week — a $234 share simply never fits a
+            # 0.4-conviction slice of a $500 cap. Buy the single whole share instead,
+            # but only while it stays inside the persona's *own* max_position_pct
+            # ceiling (and the cash on hand). Everything below is still the
+            # Risk-Gate's call; this only stops the sizing layer from pre-rejecting
+            # an idea the gate would have approved.
+            headroom_usd = persona_guardrails.max_position_pct * risk_state.equity_usd
+            one_share_fits = (
+                entry_price + existing_position_value_usd <= headroom_usd
+                and entry_price <= risk_state.cash_usd
             )
+            if not one_share_fits:
+                return _persist_decision(
+                    session,
+                    cycle_id=cycle_id,
+                    portfolio_id=portfolio_id,
+                    instrument=parsed.instrument,
+                    action=DecisionAction.REJECT_IDEA,
+                    thesis_text=parsed.thesis_text,
+                    rejection_reason="position_too_small_for_whole_share",
+                    input_research_ids=cited_ids,
+                )
+            quantity = 1.0
         # The gate and malus must see the same size that will actually trade.
         position_value_usd = quantity * entry_price
 

@@ -88,6 +88,29 @@ def test_compute_stop_loss_price_rounds_to_cent_at_or_above_one_dollar() -> None
     assert stop == round(stop, 2)
 
 
+def test_fixed_stop_loss_rounds_up_so_the_loss_cap_holds() -> None:
+    # F101 live case: CONTRA/AUPH entry 14.86, 15 % cap -> raw stop 12.631. Nearest
+    # rounding gave 12.63 = 15.007 % loss and the gate rejected its own decision.
+    policy = StopLossPolicy(type=StopLossPolicyType.FIXED, max_loss_pct=0.15)
+
+    stop = compute_stop_loss_price(14.86, policy, None)
+
+    assert stop == pytest.approx(12.64)
+    assert (14.86 - stop) / 14.86 <= 0.15
+
+
+def test_atr_stop_loss_rounds_down_so_the_distance_floor_holds() -> None:
+    # F101 live case: CHARTIST/ADSK entry 234.31, ATR floor 8.2684 % -> raw stop
+    # 214.9364. Nearest rounding gave 214.94 = 8.2668 %, just under the floor.
+    policy = StopLossPolicy(type=StopLossPolicyType.ATR, atr_multiplier=2.0, min_loss_pct=0.02)
+    atr14 = 0.0826835 * 234.31 / 2.0
+
+    stop = compute_stop_loss_price(234.31, policy, atr14=atr14)
+
+    assert stop == pytest.approx(214.93)
+    assert (234.31 - stop) / 234.31 >= 0.0826835
+
+
 def test_compute_stop_loss_price_allows_sub_penny_below_one_dollar() -> None:
     # Alpaca permits $0.0001 increments below $1.00 — penny-stock stops must not
     # get rounded down to 2 decimals (that would distort the intended stop%).

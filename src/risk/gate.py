@@ -195,7 +195,12 @@ def _check_stop_loss_policy(
 
     if policy.type == StopLossPolicyType.FIXED:
         assert policy.max_loss_pct is not None
-        ok = actual_loss_pct <= policy.max_loss_pct
+        # Same 1e-9 float-representation tolerance the ATR branch below already
+        # carries (F101): entry 0.76 with a 25 % cap yields a stop of exactly 0.57,
+        # yet (0.76 - 0.57) / 0.76 evaluates to 0.25000000000000006 in IEEE-754 and
+        # rejected two live VULTURE decisions. The tolerance covers representation
+        # noise only — it is ~7 orders of magnitude below one basis point.
+        ok = actual_loss_pct <= policy.max_loss_pct + 1e-9
         return ok, {
             "type": "fixed",
             "actual_loss_pct": actual_loss_pct,

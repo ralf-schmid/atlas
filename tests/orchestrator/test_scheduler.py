@@ -4,6 +4,8 @@ never `.start()`ed — pure job-registration inspection, no real time trigger.""
 
 from __future__ import annotations
 
+import uuid
+
 import httpx
 import pytest
 
@@ -176,6 +178,62 @@ def test_run_cycle_job_alerts_on_second_consecutive_failure(
     assert len(sent) == 1
     assert "2x in Folge" in sent[0]
     assert "Ursache: RuntimeError: x" in sent[0]
+
+
+class _FakeDecisionCountSession:
+    """F101: only `scalar` + `close` are exercised by the silent-cycle check."""
+
+    def __init__(self, count: int) -> None:
+        self._count = count
+        self.closed = False
+
+    def scalar(self, *a: object, **k: object) -> int:
+        return self._count
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_run_cycle_job_alerts_when_a_finished_cycle_has_no_decisions(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    """F101: 30.-31.07.2026 — 13 cycles ingested research and produced zero
+    decisions (LLM route out of credits) without a single dedicated alert."""
+    session = _FakeDecisionCountSession(0)
+    monkeypatch.setattr(
+        scheduler_module, "run_one_cycle", lambda *a, **k: {"cycle_id": str(uuid.uuid4())}
+    )
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    _run_cycle_job(None, lambda: session, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    assert len(sent) == 1
+    assert "keine einzige Decision" in sent[0]
+    assert session.closed is True
+
+
+def test_run_cycle_job_stays_quiet_when_the_cycle_produced_decisions(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    session = _FakeDecisionCountSession(6)
+    monkeypatch.setattr(
+        scheduler_module, "run_one_cycle", lambda *a, **k: {"cycle_id": str(uuid.uuid4())}
+    )
+    sent = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    _run_cycle_job(None, lambda: session, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
+
+    assert sent == []
 
 
 def test_cycle_failure_alert_reports_the_innermost_cause() -> None:

@@ -855,18 +855,18 @@ def test_buy_rejected_as_idea_when_already_at_target_position_size(
     assert not adapter.placed_orders
 
 
-def test_buy_rejected_when_whole_share_broker_size_rounds_below_one_share(
+def test_buy_falls_back_to_one_whole_share_when_it_fits_the_persona_cap(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """F079 test 1: a whole-share broker (Alpaca) can't fill a sub-1-share bracket
-    order. When target/entry_price rounds down to 0 shares, the sizing layer must
-    reject the idea up front (reject_idea, RECORDED) instead of persisting an
-    APPROVED decision the adapter can never fill and retry_stuck_decisions hammers
-    forever."""
+    """F101 (supersedes F079 test 1): the conviction-implied value rounding down to
+    0 shares is not a reason to drop the idea as long as a single share still fits
+    the persona's own max_position_pct ceiling — that pre-rejection killed 27 of
+    CHARTIST's 28 ideas in the first competition week."""
     monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
     persona, portfolio = _seed_vulture(session)
     cycle, item = _make_cycle_with_research_item(session)
     # VULTURE target = 0.5*0.03*5000 = 75.0; @ 100.00 that's 0.75 shares -> floor 0.
+    # One share (100.00) still fits the 0.03*5000 = 150.00 cap.
     _seed_market_bars(session, "AAPL", close="100.00")
     content = json.dumps(
         {
@@ -874,6 +874,44 @@ def test_buy_rejected_when_whole_share_broker_size_rounds_below_one_share(
             "instrument": "AAPL",
             "conviction": 0.5,
             "thesis_text": "tiny position, rounds to zero shares",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.quantity == Decimal("1.0")
+    assert decision.status == DecisionStatus.EXECUTED
+
+
+def test_buy_rejected_when_even_one_whole_share_breaks_the_persona_cap(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F101: the one-share fallback stops at the persona's own ceiling — a $200
+    share against VULTURE's 0.03*5000 = $150 cap stays a reject_idea (RECORDED),
+    never an APPROVED decision the gate would refuse anyway."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL", close="200.00")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "AAPL",
+            "conviction": 0.5,
+            "thesis_text": "share price exceeds the persona position cap",
             "input_research_ids": [str(item.id)],
         }
     )

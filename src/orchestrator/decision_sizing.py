@@ -8,6 +8,8 @@ number for the gate to check, it doesn't decide anything.
 
 from __future__ import annotations
 
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+
 from src.risk.models import StopLossPolicy, StopLossPolicyType
 
 
@@ -45,12 +47,29 @@ def round_to_tick(price: float) -> float:
     return round(price, 2) if price >= 1.0 else round(price, 4)
 
 
+def _quantize_to_tick(price: float, rounding: str) -> float:
+    """F101: tick alignment in a *chosen* direction.
+
+    `round_to_tick` rounds to nearest, which pushes the stop across the policy
+    boundary about half the time — and the Risk-Gate then rejects the decision for
+    a violation the rounding itself created. Live 27.-31.07.2026: all 5 risk
+    rejects of the competition were this (AUPH 14.86 → stop 12.631 → 12.63 = 15.007 %
+    loss against a 15 % cap; ADSK floor 8.2684 % → stop 214.9364 → 214.94 = 8.2668 %
+    against the same floor). Rounding towards the compliant side keeps the stop at
+    least as strict as the policy demands, never looser.
+    """
+    tick = Decimal("0.01") if price >= 1.0 else Decimal("0.0001")
+    return float(Decimal(str(price)).quantize(tick, rounding=rounding))
+
+
 def compute_stop_loss_price(
     entry_price: float, policy: StopLossPolicy, atr14: float | None
 ) -> float | None:
     if policy.type == StopLossPolicyType.FIXED:
         assert policy.max_loss_pct is not None
-        return round_to_tick(entry_price * (1 - policy.max_loss_pct))
+        # max_loss_pct is a ceiling on the loss, so the stop may only move *up*:
+        # a stop below the exact bound is a wider loss than the persona allows.
+        return _quantize_to_tick(entry_price * (1 - policy.max_loss_pct), ROUND_CEILING)
 
     if atr14 is None:
         return None
@@ -58,4 +77,5 @@ def compute_stop_loss_price(
     assert policy.min_loss_pct is not None
     atr_stop_pct = policy.atr_multiplier * atr14 / entry_price
     floor_pct = max(atr_stop_pct, policy.min_loss_pct)
-    return round_to_tick(entry_price * (1 - floor_pct))
+    # floor_pct is a *minimum* stop distance, so the stop may only move down.
+    return _quantize_to_tick(entry_price * (1 - floor_pct), ROUND_FLOOR)

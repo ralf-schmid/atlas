@@ -19,7 +19,7 @@ from decimal import Decimal
 from apscheduler.schedulers.background import BackgroundScheduler
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, Interrupt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.broker.alpaca_paper import AlpacaOrderState, AlpacaPaperAdapter
@@ -314,8 +314,9 @@ def _run_cycle_job(
     trading_day = datetime.datetime.now(zoneinfo.ZoneInfo(timezone)).date()
     job_key = f"{market_session.value}-{seq}"
     try:
-        run_one_cycle(graph, session_factory, trading_day, seq, market_session)
+        final_state = run_one_cycle(graph, session_factory, trading_day, seq, market_session)
         _consecutive_failures[job_key] = 0
+        _alert_on_silent_cycle(session_factory, job_key, final_state)
     except Exception as exc:
         logger.error(
             "cycle failed",
@@ -331,6 +332,47 @@ def _run_cycle_job(
         if failure_count >= _CONSECUTIVE_FAILURE_ALERT_THRESHOLD:
             _consecutive_failures[job_key] = 0  # re-arm: alert again after 2 more fails
             _send_cycle_failure_alert(job_key, failure_count, exc)
+
+
+def _alert_on_silent_cycle(
+    session_factory: Callable[[], Session], job_key: str, final_state: dict[str, object]
+) -> None:
+    """F101: a cycle that finishes without raising but persists no decision at all.
+
+    Live 30.07.-31.07.2026: the LLM route ran out of credits, 13 consecutive cycles
+    ingested research and produced zero decisions, and the only signal was a
+    generic cycle-failure alert per job key. Every persona always writes at least
+    one decision (`hold` counts), so zero is never a legitimate outcome — it means
+    the analysis layer never ran. Best-effort like every other alert here.
+    """
+    cycle_id = final_state.get("cycle_id")
+    if not isinstance(cycle_id, str):
+        return
+
+    try:
+        session = session_factory()
+        try:
+            decisions = session.scalar(
+                select(func.count()).select_from(Decision).where(Decision.cycle_id == cycle_id)
+            )
+        finally:
+            session.close()
+        if decisions:
+            return
+
+        logger.error("cycle produced no decisions", extra={"job_key": job_key})
+        from src.telegram.alerts import send_alert
+
+        asyncio.run(
+            send_alert(
+                load_telegram_config(),
+                f"⚠️ ATLAS-Zyklus {job_key} ist durchgelaufen, hat aber "
+                "*keine einzige Decision* erzeugt — Analyse-Layer prüfen "
+                "(LLM-Route, Guthaben, Broker).",
+            )
+        )
+    except Exception:
+        logger.error("failed to run silent-cycle check", exc_info=True)
 
 
 def format_cycle_failure_cause(exc: BaseException) -> str:

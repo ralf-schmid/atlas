@@ -347,6 +347,30 @@ def test_fixed_stop_loss_exactly_at_ceiling_is_allowed(system, persona_fixed, ba
     assert "stop_loss_too_wide" not in result.rejection_reasons
 
 
+def test_fixed_stop_loss_at_ceiling_survives_float_representation_noise(
+    system, persona_fixed, base_buy_kwargs
+):
+    # F101: VULTURE/GCTK entry 0.76 with a 25 % cap has an exact stop of 0.57, but
+    # (0.76 - 0.57) / 0.76 == 0.25000000000000006 in IEEE-754 — two live decisions
+    # were rejected for a violation that exists only in the float representation.
+    result = _evaluate(
+        system, persona_fixed, base_buy_kwargs, entry_price=0.76, stop_loss_price=0.57
+    )
+
+    assert "stop_loss_too_wide" not in result.rejection_reasons
+
+
+def test_fixed_stop_loss_beyond_ceiling_by_one_basis_point_is_still_rejected(
+    system, persona_fixed, base_buy_kwargs
+):
+    # The F101 tolerance must not soften the rule itself: 25.01 % stays a reject.
+    result = _evaluate(
+        system, persona_fixed, base_buy_kwargs, entry_price=100.0, stop_loss_price=74.99
+    )
+
+    assert "stop_loss_too_wide" in result.rejection_reasons
+
+
 def test_fixed_stop_loss_tighter_than_ceiling_is_allowed(system, persona_fixed, base_buy_kwargs):
     result = _evaluate(system, persona_fixed, base_buy_kwargs, stop_loss_price=95.0)
 
