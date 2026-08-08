@@ -1,6 +1,6 @@
 # F102 — Zyklus-Drosselung + Krypto-Börsenbrief als Research-Quelle
 
-Status: implementiert, live-Verifikation offen
+Status: implementiert und live verifiziert (08.08.2026), n8n-Zweig offen
 Datum: 2026-08-08
 Auslöser: Ralf, nach dem Zen-Guthaben-Ausfall vom 07.08.2026
 
@@ -198,9 +198,46 @@ Zweistufig, je nach Dringlichkeit:
 Ein Layout-Wechsel beim Verlag ist kein Rollback-Fall: der Webhook antwortet dann mit
 `items: 0` und loggt eine Warnung, statt n8n in eine Retry-Schleife zu schicken.
 
-### 2.7 Offen
+## 3. Live-Verifikation (08.08.2026)
 
-- Live-Verifikation: erste echte Ausgabe durch den n8n-Zweig, danach Zeilen in
-  `newsletter_item` und `research_item` gegenprüfen.
-- n8n-Zweig muss von Ralf in der laufenden Instanz angelegt werden (die JSON im Repo
-  ist die Vorlage, Credential-IDs sind Platzhalter) — wie bei F014.
+Deploy per rsync auf `atlas-ugreen`, `docker compose build api scheduler telegram-bot
+web` + `up -d`, `alembic upgrade head` (→ `e1f2a3b4c5d6`).
+
+**Zyklus-Drosselung** — gegen die ins Image gebackene Config im laufenden
+`scheduler`-Container geprüft:
+
+```
+stock active: [(1, '09:00'), (3, '13:00'), (4, '15:15')]
+crypto weekday: ['06:00', '12:00', '18:00'] | weekend: ['06:00', '18:00']
+cycle jobs: crypto-weekday-{06,12,18}:00, crypto-weekend-{06,18}:00,
+            stock-c1, stock-c3, stock-c4
+```
+
+**Börsenbrief** — die echte Ausgabe vom 07.08.2026 an den Live-Webhook gepostet:
+
+- `202 {"newsletter":"cryptocrunch","items":21,"status":"ingested"}`
+- Verteilung in `newsletter_item`: HEADLINES 9, COIN SNAPSHOT 4, QUICK CATCH-UP 4,
+  INTRO 3, TOP STORY 1. Die drei Werbe-Abschnitte fehlen erwartungsgemäß.
+- `instruments` gesetzt bei genau 2 Zeilen (BTC/USD, ETH/USD) — `$HYPE` korrekt ohne.
+- Gegenprobe in der DB: 0 Zeilen mit einem `beehiiv`- oder `sjv.io`-Link, 0 Zeilen mit
+  Werbetext (`trading journey`, `coinbase advanced`).
+- Wiederzustellung derselben Mail: erneut 202/21, Tabelle bleibt bei 21 Zeilen
+  (Idempotenz).
+- Fremder Absender (`spam@example.com`) mit gültigem Secret: **422**, keine Zeile.
+
+Die 21 Zeilen bleiben stehen — es sind echte Daten der abonnierten Ausgabe und werden
+vom nächsten Zyklus regulär als Research aufgenommen.
+
+## 4. Offen
+
+- **n8n-Zweig muss Ralf in der laufenden Instanz anlegen** (Workflow „ATLAS -
+  Publications Mail-Trigger"): Filter auf Absender `cryptocrunch@m6.morningcrunch.de`
+  → HTTP-POST auf `/api/ingestion/newsletter/notify` mit dem Secret-Header. Die
+  Vorlage steht in `n8n/publications-mail-trigger.json`, die Credential-IDs sind
+  Platzhalter — dieselbe Situation wie bei F014. Bis dahin kommt keine neue Ausgabe
+  automatisch an.
+- `research_item`-Zeilen mit `source_type = "newsletter"` entstehen erst beim nächsten
+  Zyklus. Der lief zuletzt am 07.08. 12:00 UTC — die Zyklen fallen aus, solange das
+  OpenCode-Zen-Guthaben leer ist.
+- Kein Eintrag im `ugreen-Box`-Repo nötig: weder `docker-compose.yml`, noch Ports,
+  Services oder Env-Vars haben sich geändert.
