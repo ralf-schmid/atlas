@@ -637,3 +637,40 @@ class MarketNewsHeadline(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class NewsletterItem(Base):
+    """One impulse from a subscribed crypto newsletter issue (CryptoCrunch,
+    morningcrunch.de), see docs/features/F102-crypto-newsletter-ingestion.md.
+
+    A paid subscription, so the same convention as the magazines applies: `text` holds
+    the publisher's own short write-up (a bullet or paragraph, not an article), it
+    never reaches the UI/API — `research_synthesis` builds a metadata `summary` line
+    and keeps the excerpt in `research_item.raw`, which `ResearchRefOut` does not
+    select. `links` keeps the sources the issue cites so a Decision's lineage survives,
+    but nothing in this repo fetches them.
+
+    Read by every persona equally through the shared research pool (Invariant #10) —
+    CRYPTOR benefits because it is the only persona trading crypto, not because it
+    gets a private feed. Publisher-controlled, untrusted text (Invariant #9).
+    """
+
+    __tablename__ = "newsletter_item"
+    __table_args__ = (UniqueConstraint("message_id", "seq", name="uq_newsletter_item_message_seq"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    newsletter_slug: Mapped[str] = mapped_column(String(50))
+    message_id: Mapped[str] = mapped_column(String(300))
+    seq: Mapped[int]
+    subject: Mapped[str] = mapped_column(Text)
+    section: Mapped[str] = mapped_column(String(100))
+    title: Mapped[str] = mapped_column(Text)
+    text: Mapped[str] = mapped_column(Text)
+    url: Mapped[str | None] = mapped_column(String(2000))
+    issue_url: Mapped[str | None] = mapped_column(String(2000))
+    instruments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    links: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    received_at: Mapped[datetime]
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )

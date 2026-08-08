@@ -38,8 +38,10 @@ def test_build_scheduler_registers_all_active_cycles() -> None:
     jobs = scheduler.get_jobs()
     stock_jobs = [j for j in jobs if j.id.startswith("stock-")]
     crypto_jobs = [j for j in jobs if j.id.startswith("crypto-")]
-    assert len(stock_jobs) == 4
-    assert len(crypto_jobs) == 4 + 2  # weekday + weekend times
+    # 3 of 4 declared stock cycles are active since the 08.08.2026 cost throttling
+    # (C2 off, F102 §1); crypto lost its 00:00 UTC weekday slot in the same step.
+    assert len(stock_jobs) == 3
+    assert len(crypto_jobs) == 3 + 2  # weekday + weekend times
 
 
 def test_build_scheduler_skips_inactive_stock_cycle() -> None:
@@ -68,7 +70,7 @@ def test_stock_jobs_use_exchange_timezone_and_crypto_jobs_use_utc() -> None:
     scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
 
     stock_job = scheduler.get_job("stock-c1")
-    crypto_job = scheduler.get_job("crypto-weekday-00:00")
+    crypto_job = scheduler.get_job("crypto-weekday-06:00")
     assert str(stock_job.trigger.timezone) == "America/New_York"
     assert str(crypto_job.trigger.timezone) == "UTC"
     assert _field(stock_job, "hour") == "9"
@@ -83,7 +85,7 @@ def test_stock_jobs_are_restricted_to_weekdays() -> None:
 
     scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
 
-    for seq in (1, 2, 3, 4):
+    for seq in (1, 3, 4):  # C2 is deactivated, so it has no job to check
         stock_job = scheduler.get_job(f"stock-c{seq}")
         assert _field(stock_job, "day_of_week") == "mon-fri"
 

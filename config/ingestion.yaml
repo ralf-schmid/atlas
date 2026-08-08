@@ -289,6 +289,51 @@ coingecko:
   # CRYPTOR.
   base_url: "https://api.coingecko.com/api/v3/global"
 
+newsletters:
+  # F102: abonnierter Krypto-Boersenbrief. n8n erkennt die Mail am Absender und ruft
+  # /api/ingestion/newsletter/notify auf (gleicher Webhook-Secret wie publications).
+  # Kein Link wird abgerufen — der Newsletter fasst jede verlinkte Story selbst in
+  # 1-3 Saetzen zusammen, das ist der Impuls. Entscheidung Ralf, 08.08.2026.
+  - slug: cryptocrunch
+    sender: "cryptocrunch@m6.morningcrunch.de"
+    # Jede Ausgabe hat einen anderen Betreff (die Top-Story des Tages), deshalb
+    # matcht identify_newsletter auf den Absender. Bleibt als Zusatz-Guard leer.
+    subject_marker: ""
+    # Ganze Abschnitte, die nie Research sind. "ANZEIGE" und "BEZAHLTE
+    # PARTNERSCHAFT" sind Werbung, "MORE BRIEFINGS" bewirbt die Schwester-
+    # Newsletter des Verlags, "WHAT DO YOU MEME" ist ein Bild-Gag.
+    drop_sections:
+      - "BEZAHLTE PARTNERSCHAFT"
+      - "ANZEIGE"
+      - "MORE BRIEFINGS"
+      - "WHAT DO YOU MEME"
+    # Zusaetzlich zur Abschnitts-Liste: ein einzelner Block, der auf eine dieser
+    # Domains verlinkt, fliegt raus — so erwischt der Filter auch den Affiliate-
+    # Einschub mitten im redaktionellen Intro. beehiiv-Domains sind hier nicht nur
+    # Rauschen, sondern gefaehrlich: magic.beehiiv.com ist ein Login-per-Klick-Link
+    # mit Ralfs Mailadresse im Query-String, unsub.beehiiv.com kuendigt das Abo.
+    # Nichts im Code ruft Links ab — die Liste ist die zweite Sicherung dafuer,
+    # dass so eine URL gar nicht erst in der DB landet.
+    blocked_link_domains:
+      - unsub.beehiiv.com
+      - magic.beehiiv.com
+      - media.beehiiv.com
+      - sjv.io
+      - tradingjourney.de
+    # Der Abschnitt wird zu genau einem research_item zusammengefasst: die Top-Story
+    # ist eine zusammenhaengende Analyse, deren Einzel-Bullets ohne die Ueberschrift
+    # ihren Sinn verlieren. Alle anderen Abschnitte liefern pro Bullet einen Impuls.
+    single_item_sections:
+      - "TOP STORY"
+    # Nur Ticker, die auf ein von ATLAS handelbares Symbol zeigen, landen in
+    # `instruments` (crypto_market_data.watchlist oben). Alles andere ($HYPE, $JPYC)
+    # bleibt im Text und in research_item.raw, erzeugt aber keine Instrument-
+    # Referenz, die ins Leere zeigt.
+    ticker_map:
+      BTC: BTC/USD
+      ETH: ETH/USD
+      SOL: SOL/USD
+
 reddit:
   # OAuth2 App-only (client_credentials, F039) — CRYPTORs Krypto-Sentiment-Quelle.
   # Ralf muss einmalig eine "script"-App unter reddit.com/prefs/apps registrieren.

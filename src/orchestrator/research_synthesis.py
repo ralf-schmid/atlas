@@ -1,4 +1,4 @@
-"""Turns new rows in the five research-bearing ingestion tables (F009-F012, F014)
+"""Turns new rows in the research-bearing ingestion tables (F009-F012, F014, F102)
 into `research_item` rows for the shared research pool. See
 docs/features/F017-shared-research-synthesis.md.
 
@@ -30,6 +30,7 @@ from src.db.models import (
     EdgarFiling,
     MarketNewsHeadline,
     MusterdepotTransaction,
+    NewsletterItem,
     PublicationArticle,
     RedditPost,
     ResearchItem,
@@ -92,6 +93,7 @@ def synthesize_research_items(
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_market_news_headlines(session, cycle.id, window_start, window_end),
+        *_research_items_from_newsletter_items(session, cycle.id, window_start, window_end),
     ]
     session.add_all(items)
     session.flush()
@@ -314,6 +316,50 @@ def _research_items_from_musterdepot_transactions(
             },
         )
         for tx in transactions
+    ]
+
+
+def _research_items_from_newsletter_items(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """F102: crypto-Boersenbrief impulses.
+
+    `summary` stays a metadata line for the same reason as the magazine articles
+    (F044): this is paid-subscription content, and `summary` is the field the UI/API
+    surfaces. The publisher's own wording only reaches the persona LLM context via
+    `raw["excerpt"]`, capped by the shared excerpt limit.
+
+    Lands in the shared pool as one more `source_type`, so persona_analysis's
+    round-robin (F047) gives it a fair slice next to EDGAR/Reddit/news and no single
+    daily issue can crowd the pool out. Every persona reads it (Invariant #10) —
+    CRYPTOR simply has the mandate the crypto impulses are relevant to, and the
+    issue's stock names (Coinbase, Circle, Block) are just as visible to the others.
+    """
+    stmt = select(NewsletterItem).where(
+        NewsletterItem.synced_at > window_start, NewsletterItem.synced_at <= window_end
+    )
+    items = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="news_research",
+            source_type="newsletter",
+            source_ref=f"{item.newsletter_slug}/{item.message_id}/{item.seq}",
+            url=item.issue_url,
+            published_at=item.received_at,
+            summary=f"{item.newsletter_slug} ({item.section}): {item.title}",
+            instruments=item.instruments,
+            raw={
+                "section": item.section,
+                "title": item.title,
+                "excerpt": _excerpt(item.text),
+                "links": item.links,
+            },
+        )
+        for item in items
     ]
 
 

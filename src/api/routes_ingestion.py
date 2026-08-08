@@ -1,8 +1,8 @@
-"""Webhooks for n8n's publications mail-triggers. See F013/F014/F078.
+"""Webhooks for n8n's mail-triggered ingestion. See F013/F014/F078/F102.
 
 n8n (a separate, existing instance — not part of this docker-compose stack) watches
-Ralf's mailbox for Boersenmedien mail notifications and POSTs the relevant fields
-here. Two notification types share the mailbox but differ in sender/subject/payload:
+Ralf's mailbox and POSTs the relevant fields here. Three notification types share the
+mailbox but differ in sender/subject/payload:
 
 - "Neuer Inhalt - ..." (F013, extended by F078): identifies the magazine, then
   downloads the new issue and ingests it — the Telegram prompt to place the PDF by
@@ -10,6 +10,10 @@ here. Two notification types share the mailbox but differ in sender/subject/payl
 - "Neue Transaktion" (F014): DER AKTIONÄR's own Musterdepot buy/sell postings —
   parsed, persisted, and alerted purely as external research information. Never
   triggers an ATLAS order (Invariant #2/#3).
+- Crypto-Boersenbrief (F102): a subscribed daily newsletter, split into individual
+  impulses. Matched on sender, not subject — its subject changes every issue.
+
+All three share one webhook secret (`N8N_PUBLICATIONS_WEBHOOK_SECRET`).
 """
 
 from __future__ import annotations
@@ -29,6 +33,13 @@ from sqlalchemy.orm import Session
 
 from src.api.routes import get_session
 from src.db.base import get_session_factory
+from src.ingestion.crypto_newsletter import (
+    extract_issue_url,
+    identify_newsletter,
+    load_newsletters,
+    parse_newsletter,
+    sync_newsletter_items,
+)
 from src.ingestion.musterdepot_transactions import (
     format_transaction_alert,
     parse_transactions,
@@ -60,6 +71,18 @@ class PublicationNotification(BaseModel):
 
 
 class MusterdepotNotification(BaseModel):
+    subject: str
+    message_id: str
+    body_text: str
+    received_at: datetime.datetime | None = None
+
+
+class NewsletterNotification(BaseModel):
+    """F102. `sender` instead of a subject keyword: every issue has a different
+    subject (the day's top story), the From address is the stable identifier.
+    `body_text` must be the mail's **text/plain** part — see crypto_newsletter."""
+
+    sender: str
     subject: str
     message_id: str
     body_text: str
@@ -173,3 +196,54 @@ async def notify_musterdepot_transaction(
         await send_alert(telegram_config, format_transaction_alert(transaction))
 
     return {"transactions": len(transactions), "status": "alert_sent"}
+
+
+@router.post("/newsletter/notify", status_code=202)
+async def notify_newsletter(
+    body: NewsletterNotification,
+    x_webhook_secret: str | None = Header(default=None),
+    session: Session = Depends(get_session),
+) -> dict[str, object]:
+    """F102: a subscribed crypto newsletter issue -> `newsletter_item` rows.
+
+    No Telegram alert, unlike the Musterdepot branch: this arrives daily and is
+    ordinary research, not a counterparty trading signal Ralf needs to see at once.
+
+    Returns 200-with-zero rather than an error when an issue parses to nothing —
+    a pure-ad issue or a layout change is a monitoring concern (the row count is
+    visible in Grafana), not a reason to make n8n retry a mail that will parse the
+    same way every time.
+    """
+    _check_webhook_secret(x_webhook_secret)
+
+    newsletter = identify_newsletter(body.sender, load_newsletters())
+    if newsletter is None:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Sender doesn't match any configured newsletter: {body.sender!r}",
+        )
+
+    impulses = parse_newsletter(body.body_text, newsletter)
+    received_at = body.received_at or datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    if received_at.tzinfo is not None:
+        received_at = received_at.astimezone(datetime.UTC).replace(tzinfo=None)
+
+    written = sync_newsletter_items(
+        session,
+        newsletter.slug,
+        body.message_id,
+        body.subject,
+        extract_issue_url(body.body_text),
+        received_at,
+        impulses,
+    )
+    session.commit()
+
+    if written == 0:
+        logger.warning(
+            "Newsletter %s (%s) parsed to zero impulses — layout change or ad-only issue",
+            newsletter.slug,
+            body.subject,
+        )
+
+    return {"newsletter": newsletter.slug, "items": written, "status": "ingested"}

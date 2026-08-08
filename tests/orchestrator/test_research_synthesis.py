@@ -22,6 +22,7 @@ from src.db.models import (
     MarketNewsHeadline,
     MarketSession,
     MusterdepotTransaction,
+    NewsletterItem,
     Persona,
     Portfolio,
     PublicationArticle,
@@ -774,3 +775,70 @@ def test_market_news_headline_item_excluded_outside_window(session: Session) -> 
     items = synthesize_research_items(session, cycle)
 
     assert [item for item in items if item.source_type == "market_news"] == []
+
+
+def test_newsletter_item_mapping_keeps_full_text_out_of_the_summary(session: Session) -> None:
+    """F102: `summary` is what the UI/API surface, so it stays a metadata line for a
+    paid subscription — the publisher's wording only rides along in `raw`."""
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+    session.add(
+        NewsletterItem(
+            newsletter_slug="cryptocrunch",
+            message_id="<msg-3@example>",
+            seq=4,
+            subject="Wall Street: Preis und Risiken",
+            section="COIN SNAPSHOT",
+            title="BTC-Bottoming",
+            text="BTC-Bottoming: $BTC bei $64.800, Whale-Bestände wachsen seit Dezember.",
+            url="https://www.theblock.co/post/2/",
+            issue_url="https://m6.morningcrunch.de/p/150-260807",
+            instruments=["BTC/USD"],
+            links=["https://www.theblock.co/post/2/"],
+            received_at=datetime.datetime(2026, 8, 7, 4, 1, 35),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert len(items) == 1
+    item = items[0]
+    assert item.source_type == "newsletter"
+    assert item.source_ref == "cryptocrunch/<msg-3@example>/4"
+    assert item.instruments == ["BTC/USD"]
+    # Issue permalink, not the cited third-party article — the newsletter is the source.
+    assert item.url == "https://m6.morningcrunch.de/p/150-260807"
+    assert item.summary == "cryptocrunch (COIN SNAPSHOT): BTC-Bottoming"
+    assert "Whale-Bestände" not in item.summary
+    assert "Whale-Bestände" in item.raw["excerpt"]
+    assert item.raw["links"] == ["https://www.theblock.co/post/2/"]
+
+
+def test_newsletter_item_excerpt_is_capped(session: Session) -> None:
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+    long_text = "Tokenisierung. " * 200
+    session.add(
+        NewsletterItem(
+            newsletter_slug="cryptocrunch",
+            message_id="<msg-4@example>",
+            seq=0,
+            subject="Betreff",
+            section="TOP STORY",
+            title="Tokenisierungs-Boom",
+            text=long_text,
+            url=None,
+            issue_url=None,
+            instruments=[],
+            links=[],
+            received_at=datetime.datetime(2026, 8, 7, 4, 1, 35),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    excerpt = items[0].raw["excerpt"]
+    assert len(excerpt) < len(long_text)
+    assert excerpt.endswith("…")

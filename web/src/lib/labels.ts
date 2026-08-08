@@ -34,6 +34,7 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   aktienfinder_snapshot: "aktienfinder.de",
   screener_result: "Screener (Kursdaten)",
   musterdepot_transaction: "Aktionär-Musterdepot",
+  newsletter: "Krypto-Börsenbrief",
 };
 
 export function actionLabel(action: string): string {

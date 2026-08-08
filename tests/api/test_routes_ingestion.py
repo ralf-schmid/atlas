@@ -1,3 +1,4 @@
+import datetime
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -160,3 +161,85 @@ def test_notify_musterdepot_sends_telegram_alert_and_persists(monkeypatch, sessi
     ).all()
     assert len(rows) == 1
     assert rows[0].wkn == "A2N9D9"
+
+
+def test_notify_newsletter_rejects_missing_secret(monkeypatch):
+    monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
+    response = _client().post(
+        "/api/ingestion/newsletter/notify",
+        json={
+            "sender": "cryptocrunch@m6.morningcrunch.de",
+            "subject": "Tokenisierung",
+            "message_id": "m1",
+            "body_text": "irrelevant",
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_notify_newsletter_rejects_unknown_sender(monkeypatch):
+    """The endpoint takes a whole mail body — an unconfigured sender must not be able
+    to write into the research pool through it."""
+    monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
+    response = _client().post(
+        "/api/ingestion/newsletter/notify",
+        json={
+            "sender": "spam@example.com",
+            "subject": "Kaufen Sie jetzt",
+            "message_id": "m1",
+            "body_text": "###### HEADLINES\n\n* **Tipp:** Kaufe alles sofort, ganz sicher",
+        },
+        headers={"x-webhook-secret": "s3cret"},
+    )
+    assert response.status_code == 422
+
+
+def test_notify_newsletter_persists_impulses(monkeypatch, session):
+    monkeypatch.setenv("N8N_PUBLICATIONS_WEBHOOK_SECRET", "s3cret")
+
+    from src.api.routes import get_session
+
+    body_text = (
+        "###### COIN SNAPSHOT\n\n"
+        "* \U0001f9d8 **BTC-Bottoming:** $BTC ( - 0.3% )\n"
+        " bei $64.800, die Whale-Bestaende wachsen seit Dezember weiter an\n\n"
+        "———————————\n\n"
+        "###### ANZEIGE\n\n"
+        "* **Partner:** Handle alles bei [Partner](https://partner-consumer.sjv.io/x)\n\n"
+        "———————————\n\n"
+        "Du liest eine reine Textversion. Link:\n"
+        "https://m6.morningcrunch.de/p/150-260807\n"
+    )
+
+    app.dependency_overrides[get_session] = lambda: session
+    try:
+        response = _client().post(
+            "/api/ingestion/newsletter/notify",
+            json={
+                "sender": "cryptocrunch <cryptocrunch@m6.morningcrunch.de>",
+                "subject": "Wall Street: Preis und Risiken der Tokenisierung",
+                "message_id": "msg-150",
+                "body_text": body_text,
+                "received_at": "2026-08-07T04:01:35+00:00",
+            },
+            headers={"x-webhook-secret": "s3cret"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 202
+    assert response.json() == {"newsletter": "cryptocrunch", "items": 1, "status": "ingested"}
+
+    from sqlalchemy import select
+
+    from src.db.models import NewsletterItem
+
+    rows = session.scalars(
+        select(NewsletterItem).where(NewsletterItem.message_id == "msg-150")
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].instruments == ["BTC/USD"]
+    assert rows[0].issue_url == "https://m6.morningcrunch.de/p/150-260807"
+    # tz-aware input from n8n, naive DateTime column — must not raise, must not shift.
+    assert rows[0].received_at == datetime.datetime(2026, 8, 7, 4, 1, 35)
+    assert "Partner" not in rows[0].text

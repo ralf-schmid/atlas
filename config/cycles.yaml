@@ -1,15 +1,26 @@
-# Zyklus-Zeiten, ARCHITECTURE.md §5.2. Aenderung hier wirkt ohne Deploy (einzelne
-# Zyklen abschaltbar -- Betriebs-Fallback, kein Plan).
+# Zyklus-Zeiten, ARCHITECTURE.md §5.2. Einzelne Zyklen abschaltbar -- Betriebs-
+# Fallback, kein Plan. ACHTUNG: config/ ist ins Image gebacken (nur
+# litellm_proxy_config.yaml ist gemountet, siehe docker-compose.yml) -- eine
+# Aenderung hier braucht `docker compose build api && docker compose up -d`,
+# kein blosser Restart. Der frueher hier stehende Satz "wirkt ohne Deploy" galt
+# fuer den host-lokalen Scheduler und ist fuer den Container falsch.
 
+# Kostendrosselung 08.08.2026 (Ralf): 4 -> 3 Zyklen/Tag je Markt. Anlass ist der
+# eingeschwungene LLM-Verbrauch von ~3,4 USD/Tag, davon ~81 % persona_analysis
+# (Sonnet). Die Drosselung trifft alle 6 Personas gleich und ist damit
+# fairnessneutral (Invariante 10) -- sie veraendert aber die Versuchsbedingungen
+# ab diesem Datum, siehe docs/features/F102-crypto-newsletter-ingestion.md §1.
 stock:
   timezone: America/New_York
   cycles:
     - seq: 1
       time: "09:00"
       active: true
+    # C2 liegt nur 90 Minuten hinter C1 und traegt den geringsten
+    # Informationszuwachs bei -- deshalb der Zyklus, der geht.
     - seq: 2
       time: "10:30"
-      active: true
+      active: false
     - seq: 3
       time: "13:00"
       active: true
@@ -19,7 +30,9 @@ stock:
 
 crypto:
   timezone: UTC
-  weekday_times: ["00:00", "06:00", "12:00", "18:00"]
+  # 00:00 UTC gestrichen (duennster Slot: geringste Liquiditaet, kaum frische
+  # Nachrichtenlage). Wochenende bleibt unveraendert bei 2 Zyklen.
+  weekday_times: ["06:00", "12:00", "18:00"]
   weekend_times: ["06:00", "18:00"]
 
 # F070: taeglicher Telegram-Digest (ARCHITECTURE.md §6.4 Punkt 3). 16:30 ET, nach
