@@ -66,7 +66,7 @@ def compute_slippage_malus(
         return Decimal("0")
 
     # --- Spread cost ---
-    spread_bps = _get_spread_bps(decision.instrument, config)
+    spread_bps = _get_spread_bps(order, decision.instrument, config)
     spread_cost = 0.5 * spread_bps / 10_000 * order_value
 
     # --- Volume penalty ---
@@ -81,7 +81,30 @@ def compute_slippage_malus(
     return Decimal(str(round(total, 4)))
 
 
-def _get_spread_bps(symbol: str, config: dict[str, Any]) -> float:
+def _get_spread_bps(order: OrderRecord, symbol: str, config: dict[str, Any]) -> float:
+    """Return the spread in basis points — measured at order time when available
+    (F104), otherwise the flat per-asset-class rate (F083).
+
+    The flat rate treats an illiquid penny stock like SPY; the measured quote is what
+    the order actually faced. Implausible measurements (<= 0 or beyond
+    `max_measured_bps`, e.g. a crossed book or a halt) fall back rather than dragging
+    an outlier straight into the leaderboard's adjusted performance.
+    """
+    measured = order.spread_bps
+    if measured is not None and config.get("use_measured_spread", True):
+        max_bps = float(config.get("max_measured_bps", 500))
+        if 0 < float(measured) <= max_bps:
+            return float(measured)
+        logger.warning(
+            "slippage: implausible measured spread %s bps for order %s — using flat rate",
+            measured,
+            order.id,
+        )
+
+    return _flat_spread_bps(symbol, config)
+
+
+def _flat_spread_bps(symbol: str, config: dict[str, Any]) -> float:
     """Return the spread in basis points for *symbol* based on asset class."""
     crypto_symbols = config.get(
         "crypto_symbols",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from decimal import Decimal
+from unittest.mock import patch
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -23,7 +24,7 @@ from src.db.models import (
     ResearchItem,
 )
 from src.orchestrator.graph import create_cycle
-from src.orchestrator.trading import execute_decision
+from src.orchestrator.trading import execute_decision, measure_spread_bps
 
 
 class _FakeAdapter:
@@ -164,6 +165,62 @@ def test_execute_decision_marks_filled_when_adapter_reports_synchronous_fill(
     assert order_record.status == OrderRecordStatus.FILLED
     assert order_record.filled_at == filled_at
     assert order_record.fill_price == Decimal("151.25")
+
+
+def test_execute_decision_records_measured_spread(session: Session) -> None:
+    """F104: the quote measured right before the broker call is persisted on the
+    order and later replaces the flat rate in the slippage malus."""
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+    adapter = _FakeAdapter()
+
+    order_record = execute_decision(
+        session, decision, adapter, "alpaca_paper", spread_source=lambda _symbol: 12.5
+    )
+
+    assert order_record.spread_bps == Decimal("12.5")
+
+
+def test_execute_decision_places_order_when_spread_measurement_fails(session: Session) -> None:
+    """F104's invariant: the measurement is read-only garnish. A quote outage must
+    never keep an approved decision from reaching the broker — the order goes out,
+    `spread_bps` stays NULL, and the malus falls back to the flat rate."""
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+    adapter = _FakeAdapter()
+
+    def _boom(_symbol: str) -> float | None:
+        raise RuntimeError("market data outage")
+
+    order_record = execute_decision(session, decision, adapter, "alpaca_paper", spread_source=_boom)
+
+    assert len(adapter.calls) == 1
+    assert order_record.spread_bps is None
+    assert decision.status == DecisionStatus.EXECUTED
+
+
+def test_execute_decision_records_no_spread_when_quote_unusable(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+
+    order_record = execute_decision(
+        session, decision, _FakeAdapter(), "alpaca_paper", spread_source=lambda _symbol: None
+    )
+
+    assert order_record.spread_bps is None
+
+
+def test_measure_spread_bps_derives_market_from_symbol() -> None:
+    """F104: same "/" convention as the rest of the codebase — a crypto symbol must
+    not be sent to the stock quote endpoint."""
+    with patch("src.orchestrator.trading.build_spread_provider") as build:
+        build.return_value.get_quote_spread_bps.return_value = 7.0
+
+        assert measure_spread_bps("AAPL") == 7.0
+        assert build.call_args[0][0] == "stock"
+
+        measure_spread_bps("BTC/USD")
+        assert build.call_args[0][0] == "crypto"
 
 
 def test_execute_decision_rejects_non_approved_decision(session: Session) -> None:

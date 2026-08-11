@@ -8,13 +8,16 @@ an LLM response directly) and turns it into a real order + `order_record`.
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
+from collections.abc import Callable
 from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter, OrderSide
+from src.broker.registry import build_spread_provider
 from src.db.models import (
     Decision,
     DecisionAction,
@@ -24,6 +27,34 @@ from src.db.models import (
     Portfolio,
 )
 from src.orchestrator.decision_sizing import round_to_tick
+
+logger = logging.getLogger(__name__)
+
+
+def measure_spread_bps(symbol: str) -> float | None:
+    """F104: the quoted bid/ask spread at order time, in basis points, for the
+    slippage malus (`src/review/slippage.py`).
+
+    Read-only market data — this adds no order capability to the trading path
+    (Invariant #2), and nothing in the execution depends on the result. Market type
+    comes from the symbol, the same "/" convention the rest of the codebase uses
+    (`src/api/routes.py::_try_live_price`).
+    """
+    market = "crypto" if "/" in symbol else "stock"
+    return build_spread_provider(market).get_quote_spread_bps(symbol)
+
+
+def _measured_spread(symbol: str, source: Callable[[str], float | None]) -> Decimal | None:
+    """Best effort by contract: a quote outage, an expired market-data key or a
+    malformed quote must never keep an approved decision from reaching the broker.
+    Logged, not swallowed silently — the WARNING is the entry point if orders start
+    showing up without a spread."""
+    try:
+        bps = source(symbol)
+    except Exception:
+        logger.warning("F104: spread measurement failed for %s", symbol, exc_info=True)
+        return None
+    return Decimal(str(round(bps, 4))) if bps is not None else None
 
 
 def _fill_status(
@@ -43,7 +74,11 @@ def _fill_status(
 
 
 def execute_decision(
-    session: Session, decision: Decision, broker_adapter: BrokerAdapter, broker_type: str
+    session: Session,
+    decision: Decision,
+    broker_adapter: BrokerAdapter,
+    broker_type: str,
+    spread_source: Callable[[str], float | None] = measure_spread_bps,
 ) -> OrderRecord:
     if decision.status != DecisionStatus.APPROVED:
         raise ValueError(f"execute_decision requires an APPROVED decision, got {decision.status!r}")
@@ -51,13 +86,19 @@ def execute_decision(
     portfolio = session.get_one(Portfolio, decision.portfolio_id)
 
     if decision.action == DecisionAction.CLOSE:
-        return _execute_close(session, decision, portfolio, broker_adapter, broker_type)
+        return _execute_close(
+            session, decision, portfolio, broker_adapter, broker_type, spread_source
+        )
 
     stop_loss_price = decision.expected_outcome.get("stop_loss_price")
     if not isinstance(stop_loss_price, int | float):
         raise ValueError(f"Decision {decision.id} has no stop_loss_price in expected_outcome")
     if decision.quantity is None:
         raise ValueError(f"Decision {decision.id} has no quantity")
+
+    # F104: measured before the order goes out, so it reflects the book the order
+    # actually faced. Never raises (see `_measured_spread`).
+    spread_bps = _measured_spread(decision.instrument, spread_source)
 
     # Defensive re-round (F050): `compute_stop_loss_price` already rounds new
     # decisions, but this also protects decisions persisted before that fix
@@ -89,6 +130,7 @@ def execute_decision(
         status=_fill_status(result.filled_at, result.fill_price),
         filled_at=result.filled_at,
         fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
+        spread_bps=spread_bps,
         raw={
             "stop_order_id": result.stop_order_id,
             "qty": result.qty,
@@ -109,6 +151,7 @@ def _execute_close(
     portfolio: Portfolio,
     broker_adapter: BrokerAdapter,
     broker_type: str,
+    spread_source: Callable[[str], float | None] = measure_spread_bps,
 ) -> OrderRecord:
     if decision.quantity is None:
         raise ValueError(f"Decision {decision.id} has no quantity")
@@ -116,6 +159,8 @@ def _execute_close(
     stop_order_ids = _collect_open_stop_order_ids(
         session, decision.portfolio_id, decision.instrument
     )
+
+    spread_bps = _measured_spread(decision.instrument, spread_source)
 
     result = broker_adapter.close_position(
         decision_id=decision.id,  # type: ignore[arg-type]
@@ -133,6 +178,7 @@ def _execute_close(
         status=_fill_status(result.filled_at, result.fill_price),
         filled_at=result.filled_at,
         fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
+        spread_bps=spread_bps,
         raw={"qty": result.qty, "side": result.side.value, "closed": True},
     )
     session.add(order_record)

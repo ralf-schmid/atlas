@@ -115,6 +115,7 @@ def _make_order(
     fill_price: Decimal = Decimal("100.00"),
     qty: Decimal = Decimal("10"),
     submitted_at: datetime.datetime | None = None,
+    spread_bps: Decimal | None = None,
 ) -> OrderRecord:
     dec = _make_decision(session, symbol, qty)
     submitted = submitted_at or datetime.datetime(2026, 8, 3, 14, 0)
@@ -128,6 +129,7 @@ def _make_order(
         fill_price=fill_price,
         fees=Decimal("0"),
         status=OrderRecordStatus.FILLED,
+        spread_bps=spread_bps,
     )
     session.add(rec)
     session.flush()
@@ -257,3 +259,52 @@ class TestSlippageEdgeCases:
         assert result is not None
         # 0.5 × 5/10000 × 500 = $0.125
         assert result == pytest.approx(Decimal("0.125"))
+
+
+class TestMeasuredSpread:
+    """F104 §3, tests 7-10 — the measured quote replaces the flat rate."""
+
+    def test_uses_measured_spread_when_present(self, session: Session) -> None:
+        """Order 10 x $100 = $1000, measured 20 bps -> 0.5 x 20/10000 x 1000 = $1.00
+        (the 5-bps flat rate would have given $0.25)."""
+        _add_bar(session, "AAPL")
+        order = _make_order(session, symbol="AAPL", spread_bps=Decimal("20"))
+
+        result = compute_slippage_malus(session, order)
+
+        assert result == pytest.approx(Decimal("1.00"))
+
+    def test_falls_back_to_config_spread_when_not_measured(self, session: Session) -> None:
+        """Regression guard for every order placed before F104: `spread_bps IS NULL`
+        must keep producing exactly the F083 result."""
+        _add_bar(session, "AAPL")
+        order = _make_order(session, symbol="AAPL", spread_bps=None)
+
+        result = compute_slippage_malus(session, order)
+
+        assert result == pytest.approx(Decimal("0.25"))
+
+    @pytest.mark.parametrize("measured", [Decimal("5000"), Decimal("0")])
+    def test_ignores_implausible_measured_spread(self, session: Session, measured: Decimal) -> None:
+        """A crossed book or a halt must not drag an outlier into the leaderboard's
+        adjusted performance — beyond `max_measured_bps` the flat rate applies."""
+        _add_bar(session, "AAPL")
+        order = _make_order(session, symbol="AAPL", spread_bps=measured)
+
+        result = compute_slippage_malus(session, order)
+
+        assert result == pytest.approx(Decimal("0.25"))
+
+    def test_measured_spread_can_be_disabled_via_config(self, session: Session) -> None:
+        """F104 rollback path: `use_measured_spread: false` restores flat rates
+        without a deploy, while the column keeps being filled."""
+        _add_bar(session, "AAPL")
+        order = _make_order(session, symbol="AAPL", spread_bps=Decimal("20"))
+
+        result = compute_slippage_malus(
+            session,
+            order,
+            config={"enabled": True, "use_measured_spread": False, "spread_bps": {"equities": 5}},
+        )
+
+        assert result == pytest.approx(Decimal("0.25"))
