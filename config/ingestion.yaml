@@ -45,6 +45,14 @@ market_data:
   # Rollierendes Fenster statt Einzeltag, idempotent (Upsert), damit auch ein
   # ausgefallener Tag (Container-Restart, Ausfall) automatisch nachgeholt wird.
   lookback_days: 90
+  # F103: Alpacas API-Default waere `raw` — ein Split erscheint dann als echter
+  # Kurssprung in market_bar und verfaelscht SMA-Crossover/RSI14/MACD/Bollinger
+  # (src/orchestrator/indicators.py) sowie ATR14 (market_pricing.py, Stop-Distanz).
+  # `split` rechnet nur die Stueckelung zurueck; Dividenden bleiben als echte
+  # Kursbewegung drin, damit die Close-Reihe weiter den Kursen entspricht, zu denen
+  # eine Persona tatsaechlich haette handeln koennen. Rollback: auf `raw` setzen,
+  # Container neu starten, Re-Sync (siehe docs/features/F103 §5).
+  bar_adjustment: split
 
 crypto_market_data:
   # F064: CRYPTORs Charter verspricht "Momentum/Trend (code-berechnet)" fuer
