@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Protocol
 
 import yaml
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import Adjustment, DataFeed
 from alpaca.data.historical.stock import StockHistoricalDataClient
 from alpaca.data.models.bars import BarSet
 from alpaca.data.requests import StockBarsRequest
@@ -33,6 +33,12 @@ _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingesti
 # symbol universe (188 symbols x ~62 trading days, live-hit 2026-07-10) blows
 # well past that in one bulk upsert. Comfortable margin under the hard limit.
 _UPSERT_CHUNK_SIZE = 5000
+
+# F103: splits are pure notation artefacts and must be adjusted away; dividends are
+# real price moves and stay in, so the close series keeps matching the prices a
+# persona could actually have traded at (`get_latest_price`, benchmark, journal).
+# Overridable via `market_data.bar_adjustment` — that's the documented rollback.
+_DEFAULT_ADJUSTMENT = Adjustment.SPLIT
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,8 +62,11 @@ class AlpacaBarsProvider:
     """Wraps Alpaca's stock bars endpoint — shared market data, identical for every
     persona (Invariant #10)."""
 
-    def __init__(self, api_key: str, secret_key: str) -> None:
+    def __init__(
+        self, api_key: str, secret_key: str, adjustment: Adjustment = _DEFAULT_ADJUSTMENT
+    ) -> None:
         self._client = StockHistoricalDataClient(api_key, secret_key)
+        self._adjustment = adjustment
 
     def get_daily_bars(
         self, symbols: list[str], start: datetime.date, end: datetime.date
@@ -78,6 +87,11 @@ class AlpacaBarsProvider:
             # default feed gets a 403 ("subscription does not permit querying recent
             # SIP data"), also found via live verification while deploying F035.
             feed=DataFeed.IEX,
+            # F103: without this the API default is `raw` — a split then lands in
+            # `market_bar` as a real price gap and corrupts every indicator computed
+            # off the close series (SMA crossover, RSI14, MACD, Bollinger; F036) as
+            # well as ATR14 (`market_pricing.py`), which sets the stop distance.
+            adjustment=self._adjustment,
         )
         bar_set = self._client.get_stock_bars(request)
         assert isinstance(bar_set, BarSet)
@@ -158,7 +172,22 @@ def build_default_provider(config_path: Path = _DEFAULT_CONFIG_PATH) -> AlpacaBa
     market_data_config = config["market_data"]
     key_id = _require_env(market_data_config["key_id_env"])
     secret_key = _require_env(market_data_config["secret_key_env"])
-    return AlpacaBarsProvider(api_key=key_id, secret_key=secret_key)
+    adjustment = _resolve_adjustment(market_data_config.get("bar_adjustment"))
+    return AlpacaBarsProvider(api_key=key_id, secret_key=secret_key, adjustment=adjustment)
+
+
+def _resolve_adjustment(value: str | None) -> Adjustment:
+    """F103: an unknown value raises instead of falling back — a typo in the config
+    must not silently write differently-based prices into `market_bar`."""
+    if value is None:
+        return _DEFAULT_ADJUSTMENT
+    try:
+        return Adjustment(value)
+    except ValueError:
+        valid = ", ".join(a.value for a in Adjustment)
+        raise ValueError(
+            f"Invalid market_data.bar_adjustment {value!r} — expected one of: {valid}"
+        ) from None
 
 
 def run_daily_sync(

@@ -3,13 +3,14 @@ from decimal import Decimal
 from unittest.mock import patch
 
 import pytest
-from alpaca.data.enums import DataFeed
+from alpaca.data.enums import Adjustment, DataFeed
 from alpaca.data.models.bars import Bar as AlpacaBar
 from alpaca.data.models.bars import BarSet
 
 from src.ingestion.market_data_sync import (
     AlpacaBarsProvider,
     Bar,
+    build_default_provider,
     run_daily_sync,
     sync_market_bars,
 )
@@ -88,6 +89,35 @@ def test_alpaca_bars_provider_uses_iex_feed():
 
         request = mock_cls.return_value.get_stock_bars.call_args[0][0]
         assert request.feed == DataFeed.IEX
+
+
+def test_alpaca_bars_provider_requests_split_adjusted_bars():
+    """F103: without an explicit `adjustment` the API default is `raw` — a split
+    then shows up as a real price gap in `market_bar` and corrupts every indicator
+    computed off it (SMA crossover, RSI14, MACD, Bollinger; F036) plus ATR14."""
+    bar_set = BarSet.model_construct(data={})
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        provider = AlpacaBarsProvider(api_key="key", secret_key="secret")
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.adjustment == Adjustment.SPLIT
+
+
+def test_alpaca_bars_provider_honours_explicit_adjustment():
+    bar_set = BarSet.model_construct(data={})
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = bar_set
+
+        provider = AlpacaBarsProvider(api_key="key", secret_key="secret", adjustment=Adjustment.RAW)
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.adjustment == Adjustment.RAW
 
 
 def test_alpaca_bars_provider_skips_symbols_with_no_bars():
@@ -331,3 +361,63 @@ def test_run_daily_sync_raises_when_env_var_missing(session, tmp_path, monkeypat
 
     with pytest.raises(ValueError, match="TEST_MD_KEY_ID_MISSING"):
         run_daily_sync(session, datetime.date(2026, 7, 1), config_path=config_path)
+
+
+def _adjustment_config(tmp_path, value: str | None):
+    config_path = tmp_path / "ingestion.yaml"
+    body = (
+        "market_data:\n"
+        "  key_id_env: TEST_MD_KEY_ID\n"
+        "  secret_key_env: TEST_MD_SECRET_KEY\n"
+        "  watchlist:\n"
+        "    - AAPL\n"
+    )
+    if value is not None:
+        body += f"  bar_adjustment: {value}\n"
+    config_path.write_text(body)
+    return config_path
+
+
+def test_build_default_provider_reads_adjustment_from_config(tmp_path, monkeypatch):
+    """F103 rollback path: `bar_adjustment: raw` in config/ingestion.yaml restores
+    the pre-F103 behaviour without a code change."""
+    monkeypatch.setenv("TEST_MD_KEY_ID", "key")
+    monkeypatch.setenv("TEST_MD_SECRET_KEY", "secret")
+    config_path = _adjustment_config(tmp_path, "raw")
+
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = BarSet.model_construct(data={})
+
+        provider = build_default_provider(config_path)
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.adjustment == Adjustment.RAW
+
+
+def test_build_default_provider_defaults_to_split_without_config_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("TEST_MD_KEY_ID", "key")
+    monkeypatch.setenv("TEST_MD_SECRET_KEY", "secret")
+    config_path = _adjustment_config(tmp_path, None)
+
+    with patch("src.ingestion.market_data_sync.StockHistoricalDataClient") as mock_cls:
+        mock_cls.return_value.get_stock_bars.return_value = BarSet.model_construct(data={})
+
+        provider = build_default_provider(config_path)
+        day = datetime.date(2026, 7, 1)
+        provider.get_daily_bars(["AAPL"], day, day)
+
+        request = mock_cls.return_value.get_stock_bars.call_args[0][0]
+        assert request.adjustment == Adjustment.SPLIT
+
+
+def test_build_default_provider_rejects_unknown_adjustment(tmp_path, monkeypatch):
+    """A typo must fail loudly — silently falling back to a default would write
+    wrongly-based prices into `market_bar`."""
+    monkeypatch.setenv("TEST_MD_KEY_ID", "key")
+    monkeypatch.setenv("TEST_MD_SECRET_KEY", "secret")
+    config_path = _adjustment_config(tmp_path, "nonsense")
+
+    with pytest.raises(ValueError, match="nonsense"):
+        build_default_provider(config_path)
