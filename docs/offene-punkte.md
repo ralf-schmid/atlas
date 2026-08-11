@@ -72,7 +72,26 @@ Alle drei hängen an denselben zwei Containern; ein Deploy reicht.
       Braucht deine Anforderung — Backtesting steht in keiner Phase von
       ARCHITECTURE.md §8.
 
-## 6. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
+## 6. F106 — zwei weitere Tages-Newsletter (Zieldefinition liegt vor)
+
+Blockiert die Umsetzung, Details in `docs/features/F106-morningcrunch-newsletter-ingestion.md` §4.
+
+- [ ] **Je eine Original-Mail als `.eml`** von materialscrunch und marketscrunch
+      (die RTF-Exporte zeigen die HTML-Ansicht, ich brauche den `text/plain`-Teil).
+      Davon hängt ab, ob es bei zwei Config-Zeilen bleibt oder der Parser eine
+      zweite Abschnitts-Erkennung braucht — die beiden laufen nicht über beehiiv.
+- [ ] **Instrument-Tagging entscheiden:** nur `$TICKER` wie heute (tagt hier fast
+      nichts), Namensabgleich gegen das handelbare Universum, oder erst minimal
+      und Namensabgleich als Folge-Feature.
+- [ ] **Bucket-Frage:** ein gemeinsamer `source_type='newsletter'` für alle drei
+      Newsletter (günstiger, sie konkurrieren um dieselbe Prompt-Quote) oder je
+      einer pro Newsletter (mehr Impulse, mehr Token).
+- [ ] **Werbe-Abschnitte bestätigen:** `ANZEIGE`, `MORE BRIEFINGS`, `APP-PFIFF`
+      raus; `STAT OF THE DAY` / `STAT OF THE WEEK` bleiben.
+- [ ] **Status des cryptocrunch-n8n-Zweigs** (F102 steht auf „n8n-Zweig offen") —
+      falls noch nicht aktiv, ziehen wir alle drei Zweige in einem Rutsch nach.
+
+## 7. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
 
 - **`ugreen-Box`-Repo:** keine Änderung an `docker-compose.yml` (keine neuen
   Services, Ports, Env-Vars) — die Homelab-Doku bleibt unberührt.
@@ -81,7 +100,7 @@ Alle drei hängen an denselben zwei Containern; ein Deploy reicht.
 - **CI-Pflicht-Checks:** kein neuer Job, die Ruleset-Einstellung für `main`
   bleibt wie sie ist.
 
-## 7. Älteres, hier nur verlinkt
+## 8. Älteres, hier nur verlinkt
 
 Die Phase-4-Punkte, die vor dieser Session offen waren, stehen weiterhin in
 `docs/dod/phase-4.md` → „Weiterhin offen" (HITL-End-to-End-Testrunde mit
