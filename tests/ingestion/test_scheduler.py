@@ -46,6 +46,8 @@ def test_register_ingestion_jobs_registers_six_jobs_reddit_disabled() -> None:
         "ingestion-coingecko",
         "ingestion-aktienfinder-blog",
         "ingestion-market-news",
+        "ingestion-alpaca-news",
+        "ingestion-alpaca-screener",
     }
 
 

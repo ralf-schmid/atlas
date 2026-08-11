@@ -26,6 +26,8 @@ from src.broker.registry import validate_market_data_credentials
 from src.ingestion.aktienfinder_blog import run_aktienfinder_blog_sync
 from src.ingestion.aktienfinder_grabbing import run_daily_grab_configured
 from src.ingestion.aktienfinder_screener import run_screener_discovery_configured
+from src.ingestion.alpaca_news import run_alpaca_news_sync
+from src.ingestion.alpaca_screener import run_alpaca_screener_sync
 from src.ingestion.coingecko_global import run_coingecko_sync
 from src.ingestion.crypto_market_data_sync import run_daily_crypto_sync
 from src.ingestion.edgar_rss import run_current_filings_sync
@@ -159,6 +161,29 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
+    # F105: both are `enabled`-gated (same pattern as reddit above) — that flag is
+    # the rollback path if the market-data key turns out not to be entitled for the
+    # news/screener endpoints, or if the extra research items cost too much.
+    if schedule["alpaca_news"].get("enabled", True):
+        scheduler.add_job(
+            _alpaca_news_job,
+            trigger="interval",
+            minutes=schedule["alpaca_news"]["interval_minutes"],
+            args=[session_factory, config_path],
+            id="ingestion-alpaca-news",
+            replace_existing=True,
+        )
+
+    if schedule["alpaca_screener"].get("enabled", True):
+        scheduler.add_job(
+            _alpaca_screener_job,
+            trigger="interval",
+            minutes=schedule["alpaca_screener"]["interval_minutes"],
+            args=[session_factory, config_path],
+            id="ingestion-alpaca-screener",
+            replace_existing=True,
+        )
+
 
 def _edgar_job(session_factory: Callable[[], Session], config_path: Path) -> None:
     def _run() -> None:
@@ -277,6 +302,24 @@ def _market_news_job(session_factory: Callable[[], Session], config_path: Path) 
             session.commit()
 
     _run_with_failure_alert("market_news", "Market-News-Sync", _run)
+
+
+def _alpaca_news_job(session_factory: Callable[[], Session], config_path: Path) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            run_alpaca_news_sync(session, config_path=config_path)
+            session.commit()
+
+    _run_with_failure_alert("alpaca_news", "Alpaca-News-Sync", _run)
+
+
+def _alpaca_screener_job(session_factory: Callable[[], Session], config_path: Path) -> None:
+    def _run() -> None:
+        with session_factory() as session:
+            run_alpaca_screener_sync(session, config_path=config_path)
+            session.commit()
+
+    _run_with_failure_alert("alpaca_screener", "Alpaca-Screener-Sync", _run)
 
 
 def _run_with_failure_alert(job_key: str, job_label: str, fn: Callable[[], None]) -> None:

@@ -28,6 +28,7 @@ from src.db.models import (
     Cycle,
     Decision,
     EdgarFiling,
+    MarketMover,
     MarketNewsHeadline,
     MusterdepotTransaction,
     NewsletterItem,
@@ -94,6 +95,7 @@ def synthesize_research_items(
         *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_market_news_headlines(session, cycle.id, window_start, window_end),
         *_research_items_from_newsletter_items(session, cycle.id, window_start, window_end),
+        *_research_items_from_market_movers(session, cycle.id, window_start, window_end),
     ]
     session.add_all(items)
     session.flush()
@@ -561,8 +563,64 @@ def _research_items_from_market_news_headlines(
             url=headline.url,
             published_at=headline.published_at,
             summary=f"Marktnews ({headline.source}): {headline.title}",
-            instruments=[],
+            # F105: empty for the Yahoo RSS rows (that feed carries no symbols),
+            # filled for Alpaca's news — which is the whole point of that source.
+            instruments=list(headline.instruments),
             raw={"source": headline.source},
         )
         for headline in headlines
     ]
+
+
+_MOVER_LABELS = {
+    "most_active": "meistgehandelt",
+    "gainer": "Tagesgewinner",
+    "loser": "Tagesverlierer",
+}
+
+
+def _research_items_from_market_movers(
+    session: Session,
+    cycle_id: uuid.UUID,
+    window_start: datetime.datetime,
+    window_end: datetime.datetime,
+) -> list[ResearchItem]:
+    """F105: Alpacas Screener-Auffälligkeiten (Most Actives, Gainer/Loser). Breiter
+    Tagesimpuls für den geteilten Pool — keine Persona-Vorauswahl (Invariante #10)."""
+    stmt = select(MarketMover).where(
+        MarketMover.synced_at > window_start, MarketMover.synced_at <= window_end
+    )
+    movers = session.scalars(stmt).all()
+    return [
+        ResearchItem(
+            cycle_id=cycle_id,
+            agent="market_research",
+            source_type="market_mover",
+            source_ref=mover.symbol,
+            url=None,
+            published_at=mover.screened_at,
+            summary=_mover_summary(mover),
+            instruments=[mover.symbol],
+            raw={
+                "market": mover.market,
+                "category": mover.category,
+                "rank": mover.rank,
+                "price": str(mover.price) if mover.price is not None else None,
+                "change_pct": str(mover.change_pct) if mover.change_pct is not None else None,
+                "volume": str(mover.volume) if mover.volume is not None else None,
+            },
+        )
+        for mover in movers
+    ]
+
+
+def _mover_summary(mover: MarketMover) -> str:
+    label = _MOVER_LABELS.get(mover.category, mover.category)
+    parts = [f"Alpaca-Screener ({label}, Rang {mover.rank}): {mover.symbol}"]
+    if mover.change_pct is not None:
+        parts.append(f"{mover.change_pct:+.2f} %")
+    if mover.price is not None:
+        parts.append(f"Kurs {mover.price} USD")
+    if mover.volume is not None:
+        parts.append(f"Volumen {mover.volume}")
+    return ", ".join(parts)
