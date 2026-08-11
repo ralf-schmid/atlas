@@ -210,6 +210,10 @@ class OrderRecord(Base):
     filled_at: Mapped[datetime | None] = mapped_column(nullable=True)
     fill_price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
     fees: Mapped[Decimal] = mapped_column(Numeric(18, 6), default=0)
+    # F104: bid/ask spread in basis points, measured right before the broker call.
+    # NULL for every order placed before F104 and whenever the quote lookup failed —
+    # `compute_slippage_malus` then falls back to the config flat rate.
+    spread_bps: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
     status: Mapped[OrderRecordStatus] = mapped_column(
         Enum(OrderRecordStatus, name="order_record_status"), default=OrderRecordStatus.NEW
     )

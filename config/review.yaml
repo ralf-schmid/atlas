@@ -4,8 +4,19 @@
 slippage:
   enabled: true
 
+  # F104: use the spread measured at order time (order_record.spread_bps) when it
+  # is present; false falls every order back to the flat rates below (rollback path,
+  # no deploy needed — the column keeps being filled either way).
+  use_measured_spread: true
+
+  # F104: upper plausibility bound for a measured spread. A crossed or extremely
+  # wide quote (thin trading, halt, auction) would otherwise land straight in the
+  # leaderboard's adjusted performance; beyond this, the flat rate applies.
+  max_measured_bps: 500
+
   # Spread in basis points (1 bps = 0.01 % = 0.0001).
-  # Asset-class defaults — equities liquid, crypto wider.
+  # Asset-class defaults — equities liquid, crypto wider. Since F104 these are the
+  # fallback for orders without a usable measurement (everything before 2026-08-11).
   spread_bps:
     equities: 5
     crypto: 15

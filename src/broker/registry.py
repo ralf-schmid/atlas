@@ -17,6 +17,7 @@ from src.broker.market_data import (
     AlpacaCryptoMarketDataProvider,
     AlpacaStockMarketDataProvider,
     MarketDataProvider,
+    SpreadProvider,
 )
 from src.broker.protocol import BrokerAdapter
 
@@ -80,6 +81,15 @@ def build_market_data_provider(
     if market == "crypto":
         return AlpacaCryptoMarketDataProvider(api_key=key_id, secret_key=secret_key)
     raise ValueError(f"Unknown market type {market!r}")
+
+
+def build_spread_provider(market: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> SpreadProvider:
+    """F104: same shared market-data key as `build_market_data_provider` — the
+    quote behind the slippage malus must be identical for every persona
+    (Invariant #10)."""
+    provider = build_market_data_provider(market, load_market_data_config(config_path))
+    assert isinstance(provider, AlpacaStockMarketDataProvider | AlpacaCryptoMarketDataProvider)
+    return provider
 
 
 def validate_market_data_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:
