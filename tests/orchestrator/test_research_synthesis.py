@@ -19,6 +19,7 @@ from src.db.models import (
     EdgarFiling,
     MarketBar,
     MarketBarTimeframe,
+    MarketMover,
     MarketNewsHeadline,
     MarketSession,
     MusterdepotTransaction,
@@ -842,3 +843,91 @@ def test_newsletter_item_excerpt_is_capped(session: Session) -> None:
     excerpt = items[0].raw["excerpt"]
     assert len(excerpt) < len(long_text)
     assert excerpt.endswith("…")
+
+
+def test_market_news_research_item_carries_instruments(session: Session) -> None:
+    """F105: Alpaca tags each story with the symbols it is about — that tagging is
+    the whole reason for the source, and it has to survive into the pool so
+    `search_research_pool` (F045) can find the headline per instrument."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketNewsHeadline(
+            guid="alpaca:99",
+            title="Apple beats estimates",
+            url="https://example.test/99",
+            source="benzinga",
+            instruments=["AAPL", "MSFT"],
+            published_at=datetime.datetime(2026, 7, 7, 8, 0, 0),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    news_items = [item for item in items if item.source_ref == "alpaca:99"]
+    assert len(news_items) == 1
+    assert news_items[0].instruments == ["AAPL", "MSFT"]
+
+
+def test_market_mover_research_items(session: Session) -> None:
+    """F105: one pool row per screener hit, readable without opening `raw`."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add_all(
+        [
+            MarketMover(
+                market="stocks",
+                category="gainer",
+                symbol="GME",
+                rank=1,
+                price=Decimal("24.50"),
+                change_pct=Decimal("12.5"),
+                screened_at=datetime.datetime(2026, 7, 7, 7, 55, 0),
+                synced_at=_INSIDE_WINDOW,
+            ),
+            MarketMover(
+                market="stocks",
+                category="most_active",
+                symbol="AAPL",
+                rank=2,
+                volume=Decimal("84000000"),
+                screened_at=datetime.datetime(2026, 7, 7, 7, 55, 0),
+                synced_at=_INSIDE_WINDOW,
+            ),
+        ]
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    movers = {item.source_ref: item for item in items if item.source_type == "market_mover"}
+    assert set(movers) == {"GME", "AAPL"}
+    assert movers["GME"].instruments == ["GME"]
+    assert "Tagesgewinner" in movers["GME"].summary
+    assert "+12.50 %" in movers["GME"].summary
+    assert "meistgehandelt" in movers["AAPL"].summary
+    assert movers["AAPL"].raw["category"] == "most_active"
+
+
+def test_market_mover_item_excluded_outside_window(session: Session) -> None:
+    _make_decided_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketMover(
+            market="stocks",
+            category="loser",
+            symbol="OLD",
+            rank=1,
+            price=Decimal("1.00"),
+            change_pct=Decimal("-9.0"),
+            screened_at=datetime.datetime(2026, 7, 6, 20, 0, 0),
+            synced_at=_BEFORE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    assert [item for item in items if item.source_type == "market_mover"] == []

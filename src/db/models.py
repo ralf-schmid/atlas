@@ -638,6 +638,47 @@ class MarketNewsHeadline(Base):
     url: Mapped[str] = mapped_column(String(500))
     source: Mapped[str] = mapped_column(String(200))
     published_at: Mapped[datetime]
+    # F105: Alpaca's news endpoint tags every story with the symbols it is about —
+    # that tagging is what makes a headline findable per instrument
+    # (`search_research_pool`, F045). Empty for the Yahoo RSS rows (F058), whose
+    # feed carries no symbols; those keep behaving exactly as before.
+    instruments: Mapped[list[str]] = mapped_column(ARRAY(String), default=list)
+    synced_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
+
+
+class MarketMover(Base):
+    """F105: Alpaca's screener endpoints — most actives and the day's
+    gainers/losers, per market. The broad "what is moving at all today" impulse the
+    pool had no channel for: `screener_result` is VULTURE's penny-stock filter
+    (F010) and the aktienfinder discovery delivers quality names (F043).
+
+    One row per (market, category, symbol, screened_at); `screened_at` is the
+    API's own `last_updated`, which makes a repeated run an upsert, not a
+    duplicate.
+    """
+
+    __tablename__ = "market_mover"
+    __table_args__ = (
+        UniqueConstraint(
+            "market",
+            "category",
+            "symbol",
+            "screened_at",
+            name="uq_market_mover_market_category_symbol_screened",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    market: Mapped[str] = mapped_column(String(20))  # stocks | crypto
+    category: Mapped[str] = mapped_column(String(20))  # most_active | gainer | loser
+    symbol: Mapped[str] = mapped_column(String(20))
+    rank: Mapped[int]
+    price: Mapped[Decimal | None] = mapped_column(Numeric(18, 6), nullable=True)
+    change_pct: Mapped[Decimal | None] = mapped_column(Numeric(10, 4), nullable=True)
+    volume: Mapped[Decimal | None] = mapped_column(Numeric(20, 2), nullable=True)
+    screened_at: Mapped[datetime]
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )

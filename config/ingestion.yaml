@@ -209,6 +209,28 @@ aktienfinder_blog:
     - "https://aktienfinder.net/blog/aktienanalyse/"
     - "https://aktienfinder.net/blog/kaufenswerte-aktien/"
 
+alpaca_news:
+  # F105: derselbe geteilte Marktdaten-Key wie F008/F010, keine neue Credential.
+  # Mehrwert gegenueber dem Yahoo-RSS unten: Alpaca taggt jede Meldung mit den
+  # betroffenen Symbolen, erst dadurch ist eine Schlagzeile per Instrument
+  # auffindbar (search_research_pool, F045).
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  # Kostendeckel: jede Zeile wird ein research_item, das 6 Personas in jedem Zyklus
+  # lesen (F105 §2/§6). Nach dem ersten vollen Tag cost_ledger gegenpruefen.
+  limit: 50
+
+alpaca_screener:
+  # F105: Most Actives + Tagesgewinner/-verlierer als breiter Tagesimpuls.
+  key_id_env: ALPACA_MARKET_DATA_KEY_ID
+  secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  top: 10
+  # Krypto von Anfang an mit: CRYPTOR bekommt denselben Impulstyp wie die
+  # Aktien-Personas (Paritaet, keine Bevorzugung — Invariante #10).
+  market_types:
+    - stocks
+    - crypto
+
 market_news:
   # F058: Ralfs Auftrag war reuters.com/markets/us/ als Analystenquelle — dessen
   # robots.txt blockt jeden nicht gelisteten Bot komplett (`User-agent: * /
@@ -256,6 +278,15 @@ schedule:
     time: "05:30"
   market_news:
     interval_minutes: 30
+  alpaca_news:
+    interval_minutes: 60
+    # F105 Rollback-Schalter: false = Job wird gar nicht erst registriert, der Pool
+    # sieht aus wie vor F105. Auch der Not-Aus, falls der Marktdaten-Key kein
+    # Entitlement fuer den News-Endpoint hat (nur IEX, siehe market_data_sync.py).
+    enabled: true
+  alpaca_screener:
+    interval_minutes: 60
+    enabled: true
 
 publications:
   # n8n erkennt die Benachrichtigungs-Mail (Absender/Betreff, siehe F013) und ruft den
