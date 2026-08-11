@@ -30,8 +30,10 @@ Ursache in `trading.py`: der Status wurde **allein aus `filled_at`** abgeleitet,
 `fill_price` unabhängig davon gesetzt.
 
 ```python
-status=OrderRecordStatus.FILLED if result.filled_at is not None else OrderRecordStatus.NEW,
-fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
+OrderRecord(
+    status=OrderRecordStatus.FILLED if result.filled_at is not None else OrderRecordStatus.NEW,
+    fill_price=Decimal(str(result.fill_price)) if result.fill_price is not None else None,
+)
 ```
 
 Meldet ein Adapter das eine ohne das andere, entsteht ein Fill, den nachgelagert
