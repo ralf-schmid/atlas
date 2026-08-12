@@ -131,5 +131,11 @@ Zuordnungen gehören in Code).
   Pflegeregeln stehen im Kopf der Datei.
 - **Deutsche Nebenwerte bleiben draußen** (Salzgitter, Uniper aus dem
   Earnings-Kalender): Alpaca handelt sie nicht, ein Tag wäre eine Referenz ins Leere.
-- Noch nicht angeschlossen: `reddit_post` und `aktienfinder_blog_post`. Beide nennen
-  Firmen ebenfalls im Klartext; das wäre je eine Zeile plus Test, wenn du es willst.
+- **Offen, notiert in `docs/offene-punkte.md` §7: `aktienfinder_blog_post`.** Die
+  Blog-Beiträge nennen Firmen genauso im Klartext wie die Newsletter, hängen aber
+  noch nicht am Abgleich — ihre Pool-Zeilen bleiben ohne `instruments`. Der Einbau
+  ist eine Zeile in `_research_items_from_aktienfinder_blog_posts` plus Test;
+  bewusst nicht mitgemacht, weil der Auftrag auf die Newsletter zielte und jede
+  weitere Quelle eigene Falsch-Treffer-Prüfung verdient.
+- `reddit_post` ist derselbe Fall, aber derzeit gegenstandslos: der Reddit-Job steht
+  seit F039 auf `enabled: false` (fehlende Credentials).
