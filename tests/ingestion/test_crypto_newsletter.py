@@ -440,3 +440,26 @@ def test_ticker_map_tags_configured_symbols(markets: NewsletterConfig) -> None:
 
     tagged = [impulse for impulse in impulses if impulse.instruments]
     assert [impulse.instruments for impulse in tagged] == [["LLY"]]
+
+
+def test_company_names_are_tagged_alongside_tickers(markets: NewsletterConfig) -> None:
+    """F107: the newsletters name companies in prose far more often than as $TICKER —
+    both mechanisms feed `instruments`, tickers first."""
+    issue = MARKETS_ISSUE.replace(
+        "Der neue Chef investierte",
+        "Berkshire Hathaway: Der neue Chef investierte",
+    )
+
+    impulses = parse_newsletter(issue, markets)
+
+    mover = next(impulse for impulse in impulses if impulse.section == "MARKET MOVER")
+    assert mover.instruments == ["BRK.B"]
+    catch_up = next(impulse for impulse in impulses if impulse.section == "QUICK CATCH-UP")
+    assert catch_up.instruments == ["LLY"]
+
+
+def test_explicit_alias_map_overrides_the_shared_one(markets: NewsletterConfig) -> None:
+    impulses = parse_newsletter(MARKETS_ISSUE, markets, aliases={"Konglomerat": "AAPL"})
+
+    mover = next(impulse for impulse in impulses if impulse.section == "MARKET MOVER")
+    assert mover.instruments == ["AAPL"]

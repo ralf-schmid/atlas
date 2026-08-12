@@ -1,0 +1,55 @@
+# F107: Klartext-Firmennamen -> handelbares Symbol.
+#
+# Warum es diese Datei gibt: Newsletter und Zeitschriften nennen Unternehmen im
+# Fliesstext ("Berkshire Hathaway kauft zu"), nicht als $TICKER. Ohne Abgleich
+# bleiben solche Impulse ohne `instruments` — sie liegen dann zwar im Pool, sind
+# aber ueber die Symbolsuche (search_research_pool, F045) nicht auffindbar und
+# lassen sich keiner Position zuordnen.
+#
+# Dieselbe Liste gilt fuer alle Personas und alle Quellen (Invariante #10) — hier
+# darf nie ein persona-spezifischer Eintrag stehen.
+#
+# Pflegeregeln (die Trefferqualitaet haengt ganz an ihnen):
+#
+# 1. **Nur Symbole, die ATLAS wirklich handeln kann.** Ein Alias auf einen deutschen
+#    Nebenwert (Salzgitter, Uniper) waere eine Referenz ins Leere — genau der Fehler,
+#    den ticker_map bei den Newslettern schon vermeidet. Im Zweifel weglassen.
+# 2. **Keine Alltagswoerter als Alias.** "Block", "Circle", "Gold", "Meta" allein
+#    wuerden in deutschem Fliesstext staendig falsch treffen ("Meta-Ebene",
+#    "ein Block"). Stattdessen die eindeutige Langform ("Meta Platforms").
+# 3. **Mindestens 4 Zeichen** — kuerzeres wird beim Laden abgelehnt. Kurzformen wie
+#    "BP" gehoeren in die `ticker_map` des jeweiligen Newsletters, nicht hierher.
+# 4. **Gross-/Kleinschreibung wird exakt genommen.** Firmennamen stehen immer
+#    kapitalisiert; das haelt Alltagswoerter draussen (F107 §2).
+# 5. Mehrere Aliase duerfen auf dasselbe Symbol zeigen (Marke, Konzern, Kurzform).
+
+aliases:
+  # --- US-Large-Caps aus der Watchlist (config/ingestion.yaml market_data) ---
+  Apple: AAPL
+  Microsoft: MSFT
+  Alphabet: GOOGL
+  Google: GOOGL
+  Amazon: AMZN
+  Nvidia: NVDA
+  NVIDIA: NVDA
+  Meta Platforms: META
+  Facebook: META
+  JPMorgan: JPM
+  Home Depot: HD
+  Coca-Cola: KO
+  ExxonMobil: XOM
+  Exxon Mobil: XOM
+  Tesla: TSLA
+  Johnson & Johnson: JNJ
+  Walt Disney: DIS
+
+  # --- Namen, die in den bisherigen Ausgaben real vorkamen ---
+  Berkshire Hathaway: BRK.B
+  Berkshire: BRK.B
+  Eli Lilly: LLY
+  Coinbase: COIN
+
+  # --- Krypto: der Klartextname ist hier die haeufigste Schreibweise ueberhaupt ---
+  Bitcoin: BTC/USD
+  Ethereum: ETH/USD
+  Solana: SOL/USD
