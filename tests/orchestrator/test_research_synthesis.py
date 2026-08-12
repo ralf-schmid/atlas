@@ -931,3 +931,75 @@ def test_market_mover_item_excluded_outside_window(session: Session) -> None:
     items = synthesize_research_items(session, cycle)
 
     assert [item for item in items if item.source_type == "market_mover"] == []
+
+
+def test_publication_article_is_tagged_with_company_names(session: Session) -> None:
+    """F107: magazine articles name companies in prose — before the name match their
+    pool rows had no `instruments` at all and were invisible to the symbol search."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        PublicationArticle(
+            publication="Euro am Sonntag",
+            issue_date=datetime.date(2026, 7, 6),
+            seq=1,
+            page=12,
+            title="Berkshire Hathaway kauft wieder zu",
+            text="Der neue Chef stockte bei Alphabet auf und beendete die Verkaufsserie.",
+            source_file="test.pdf",
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    article = next(item for item in items if item.source_type == "publication_article")
+    assert article.instruments == ["BRK.B", "GOOGL"]
+
+
+def test_yahoo_headline_is_tagged_with_company_names(session: Session) -> None:
+    """F107: Alpaca's news rows arrive pre-tagged (F105), the Yahoo feed carries no
+    symbols — those headlines go through the shared name map instead."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketNewsHeadline(
+            guid="yahoo-1",
+            title="Tesla startet Auslieferung des neuen Modells",
+            url="https://finance.yahoo.com/news/tesla.html",
+            source="Reuters",
+            published_at=datetime.datetime(2026, 7, 7, 8, 0, 0),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    headline = next(item for item in items if item.source_ref == "yahoo-1")
+    assert headline.instruments == ["TSLA"]
+
+
+def test_publisher_symbol_tagging_wins_over_the_name_map(session: Session) -> None:
+    """An Alpaca row that already carries symbols keeps them — the name map is the
+    fallback for feeds without tagging, not a second opinion."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        MarketNewsHeadline(
+            guid="alpaca:7",
+            title="Tesla und Apple im Fokus",
+            url="https://example.test/7",
+            source="benzinga",
+            instruments=["TSLA"],
+            published_at=datetime.datetime(2026, 7, 7, 8, 0, 0),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    headline = next(item for item in items if item.source_ref == "alpaca:7")
+    assert headline.instruments == ["TSLA"]

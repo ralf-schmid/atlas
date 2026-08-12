@@ -87,10 +87,9 @@ Tracking-Pixel).
 
 Alle drei sind Config und ohne Deploy umkehrbar — Widerspruch jederzeit möglich:
 
-1. **Instrument-Tagging: Variante C.** Es bleibt beim `$TICKER`-Mechanismus; der
-   Namensabgleich gegen das handelbare Universum („Berkshire Hathaway → BRK.B") wäre
-   ein eigenes Feature mit eigener Pflegeliste und ist als Folgearbeit notiert (§6).
-   So tagt F106 heute wenig, aber nichts falsch.
+1. **Instrument-Tagging: Variante C** — zunächst nur `$TICKER`, Namensabgleich als
+   Folge-Feature. **Überholt am selben Tag:** Ralf hat den Namensabgleich beauftragt,
+   er ist als F107 umgesetzt und greift auch für diese beiden Newsletter.
 2. **Gemeinsamer Bucket.** Alle drei Newsletter behalten `source_type='newsletter'`
    und teilen sich damit dieselbe Round-Robin-Quote im Persona-Prompt (F047). Sie
    verdrängen einander statt den Prompt zu verlängern — der Kosten-schonende Weg.
@@ -161,9 +160,8 @@ bedient. Umbenennen wäre reine Kosmetik mit Import-Churn — bewusst gelassen.
 
 ## 8. Folgearbeit (nicht in diesem Feature)
 
-- **Namensabgleich für Instrumente** („Berkshire Hathaway" → `BRK.B`) — nützt allen
-  drei Newslettern und den Zeitschriften-Artikeln. Braucht eine gepflegte Namensliste
-  und deine Entscheidung, ob dir der Nutzen die Pflege wert ist.
+- ~~Namensabgleich für Instrumente~~ → **erledigt als F107** (11.08.2026), deckt
+  alle drei Newsletter, die Zeitschriften-Artikel und die Yahoo-Marktnews ab.
 - **Bild-Abschnitte** (`HOT STOCKS`, `MATERIALS OVERVIEW`): nur über OCR erreichbar.
   Aus meiner Sicht nicht lohnend — die Kurstabellen dort haben wir über Alpaca
   ohnehin, und zwar in Zahlen statt in Pixeln.

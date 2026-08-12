@@ -43,6 +43,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from src.db.models import NewsletterItem
+from src.orchestrator.instrument_names import load_instrument_aliases, match_instruments
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 
@@ -194,20 +195,34 @@ def _split_blocks(section_body: str) -> list[str]:
     return blocks
 
 
-def _resolve_instruments(text: str, ticker_map: dict[str, str]) -> list[str]:
+def _resolve_instruments(
+    text: str, ticker_map: dict[str, str], aliases: dict[str, str] | None = None
+) -> list[str]:
     """Only tickers the config maps to a symbol ATLAS actually trades end up in
     `instruments` — that field drives the companion-item join in persona_analysis, so
     an unmapped `$JPYC` there would be a dangling reference, not information. Unmapped
-    tickers still survive in `raw` for lineage."""
+    tickers still survive in `raw` for lineage.
+
+    F107: plain-text company names are resolved on top of that, from the shared
+    `config/instrument_names.yaml`. These newsletters name companies in prose far more
+    often than as `$TICKER` — measured on the 2026-08-11 issues, four tickers against
+    dozens of names. Tickers stay first in the list: an explicit `$LLY` is the stronger
+    signal than a name mentioned in passing.
+    """
     resolved = []
     for ticker in _TICKER_RE.findall(text):
         symbol = ticker_map.get(ticker)
         if symbol is not None and symbol not in resolved:
             resolved.append(symbol)
+    for symbol in match_instruments(text, aliases or {}):
+        if symbol not in resolved:
+            resolved.append(symbol)
     return resolved
 
 
-def parse_newsletter(text: str, newsletter: NewsletterConfig) -> list[NewsletterImpulse]:
+def parse_newsletter(
+    text: str, newsletter: NewsletterConfig, aliases: dict[str, str] | None = None
+) -> list[NewsletterImpulse]:
     """Splits one issue's plain-text body into individual impulses.
 
     Ad handling happens at block level and before the single-item merge, so a paid
@@ -219,7 +234,13 @@ def parse_newsletter(text: str, newsletter: NewsletterConfig) -> list[Newsletter
     one-line entries ("Makro: Verbraucherpreise", "Earnings: Salzgitter, Uniper"),
     each below the per-block floor but a usable impulse once merged. Filtering them
     individually first dropped the whole section.
+
+    `aliases` defaults to the shared company-name map (F107); pass an explicit dict to
+    test the matching in isolation.
     """
+    if aliases is None:
+        aliases = load_instrument_aliases()
+
     impulses: list[NewsletterImpulse] = []
     seq = 0
 
@@ -263,7 +284,7 @@ def parse_newsletter(text: str, newsletter: NewsletterConfig) -> list[Newsletter
                     title=_derive_title(cleaned),
                     text=cleaned,
                     url=links[0] if links else None,
-                    instruments=_resolve_instruments(cleaned, newsletter.ticker_map),
+                    instruments=_resolve_instruments(cleaned, newsletter.ticker_map, aliases),
                     links=links,
                 )
             )

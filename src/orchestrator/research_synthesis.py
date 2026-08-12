@@ -42,6 +42,7 @@ from src.orchestrator.indicators import (
     IndicatorSnapshot,
     compute_indicator_snapshot,
 )
+from src.orchestrator.instrument_names import load_instrument_aliases, match_instruments
 from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
 
 _BOOTSTRAP_WINDOW = datetime.timedelta(days=7)
@@ -80,10 +81,16 @@ def synthesize_research_items(
     crypto_watchlist: list[str] = config.get("crypto_market_data", {}).get("watchlist", [])
     symbols = resolve_symbol_universe(session, seed_watchlist + crypto_watchlist)
 
+    # F107: one shared company-name map for the whole run — same list for every
+    # persona and every source (Invariant #10).
+    aliases = load_instrument_aliases()
+
     items = [
         *_research_items_from_edgar_filings(session, cycle.id, window_start, window_end),
         *_research_items_from_screener_results(session, cycle.id, window_start, window_end),
-        *_research_items_from_publication_articles(session, cycle.id, window_start, window_end),
+        *_research_items_from_publication_articles(
+            session, cycle.id, window_start, window_end, aliases
+        ),
         *_research_items_from_aktienfinder_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_screener_candidates(
             session, cycle.id, window_start, window_end
@@ -93,7 +100,9 @@ def synthesize_research_items(
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
-        *_research_items_from_market_news_headlines(session, cycle.id, window_start, window_end),
+        *_research_items_from_market_news_headlines(
+            session, cycle.id, window_start, window_end, aliases
+        ),
         *_research_items_from_newsletter_items(session, cycle.id, window_start, window_end),
         *_research_items_from_market_movers(session, cycle.id, window_start, window_end),
     ]
@@ -191,7 +200,12 @@ def _research_items_from_publication_articles(
     cycle_id: uuid.UUID,
     window_start: datetime.datetime,
     window_end: datetime.datetime,
+    aliases: dict[str, str] | None = None,
 ) -> list[ResearchItem]:
+    """F107: magazine articles name companies in prose, so `instruments` used to stay
+    empty here. Matched over title plus the excerpt that actually reaches the persona —
+    not the full article — so the tag describes what was read, not what was buried on
+    page three."""
     stmt = select(PublicationArticle).where(
         PublicationArticle.synced_at > window_start, PublicationArticle.synced_at <= window_end
     )
@@ -207,7 +221,9 @@ def _research_items_from_publication_articles(
             summary=(
                 f"{article.publication} ({article.issue_date}), S. {article.page}: {article.title}"
             ),
-            instruments=[],
+            instruments=match_instruments(
+                f"{article.title} {_excerpt(article.text)}", aliases or {}
+            ),
             raw={
                 "publication": article.publication,
                 "page": article.page,
@@ -546,6 +562,7 @@ def _research_items_from_market_news_headlines(
     cycle_id: uuid.UUID,
     window_start: datetime.datetime,
     window_end: datetime.datetime,
+    aliases: dict[str, str] | None = None,
 ) -> list[ResearchItem]:
     """Headline/source/url only — the RSS feed itself never carries article body
     text (F058)."""
@@ -563,9 +580,11 @@ def _research_items_from_market_news_headlines(
             url=headline.url,
             published_at=headline.published_at,
             summary=f"Marktnews ({headline.source}): {headline.title}",
-            # F105: empty for the Yahoo RSS rows (that feed carries no symbols),
-            # filled for Alpaca's news — which is the whole point of that source.
-            instruments=list(headline.instruments),
+            # F105: Alpaca's rows arrive with the publisher's own symbol tagging.
+            # F107: the Yahoo rows have none (that feed carries no symbols), so their
+            # headline goes through the shared company-name map instead.
+            instruments=list(headline.instruments)
+            or match_instruments(headline.title, aliases or {}),
             raw={"source": headline.source},
         )
         for headline in headlines

@@ -86,17 +86,29 @@ Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
       Zeilen mit `newsletter_slug IN ('materialscrunch','marketscrunch')` prüfen
       (Erwartung: 13–14 je Ausgabe) und im nächsten Zyklus ein `research_item` mit
       `source_type='newsletter'` in der UI ansehen.
-- [ ] **Drei Entscheidungen, die ich per Default getroffen habe** — Widerspruch
-      jederzeit, alles Config und ohne Deploy umkehrbar (F106 §4): Instrument-Tagging
-      bleibt beim `$TICKER`-Mechanismus, alle drei Newsletter teilen sich einen
-      `source_type` (Kosten), und `APP-PFIFF`/`ANZEIGE`/`MORE BRIEFINGS` fliegen raus,
-      während `STAT OF THE DAY/WEEK` bleibt.
-- [ ] **Offen zur Entscheidung:** Namensabgleich für Instrumente („Berkshire
-      Hathaway" → `BRK.B`). Ohne ihn bleiben fast alle Newsletter-Impulse ohne
-      Instrument-Tag. Nützt auch den Zeitschriften-Artikeln, kostet eine gepflegte
-      Namensliste.
+- [ ] **Zwei Entscheidungen, die ich per Default getroffen habe** — Widerspruch
+      jederzeit, beides Config und ohne Deploy umkehrbar (F106 §4): alle drei
+      Newsletter teilen sich einen `source_type` (Kosten), und
+      `APP-PFIFF`/`ANZEIGE`/`MORE BRIEFINGS` fliegen raus, während
+      `STAT OF THE DAY/WEEK` bleibt. (Die dritte — Instrument-Tagging nur über
+      `$TICKER` — ist durch F107 überholt.)
 
-## 7. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
+## 7. F107 — Namensabgleich für Instrumente (umgesetzt)
+
+Deckt Newsletter, Zeitschriften-Artikel und die Yahoo-Marktnews ab; Details in
+`docs/features/F107-instrument-namensabgleich.md`.
+
+- [ ] Nichts Eigenes zu deployen — `docker compose build api scheduler` + `up -d`
+      fällt mit dem Deploy aus §1/§6 zusammen. Kein Schema-Change.
+- [ ] **Laufende Pflege, wenn dir etwas auffällt:** Wenn im Decision Journal ein
+      Impuls ohne Instrument-Tag steht, obwohl die Firma genannt wird, ist ein
+      Eintrag in `config/instrument_names.yaml` die ganze Arbeit. Pflegeregeln
+      stehen im Kopf der Datei (nur handelbare Symbole, keine Alltagswörter,
+      mindestens vier Zeichen).
+- [ ] **Optional, sag Bescheid:** `reddit_post` und `aktienfinder_blog_post` sind
+      noch nicht angeschlossen — je eine Zeile plus Test.
+
+## 8. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
 
 - **`ugreen-Box`-Repo:** keine Änderung an `docker-compose.yml` (keine neuen
   Services, Ports, Env-Vars) — die Homelab-Doku bleibt unberührt.
@@ -105,7 +117,7 @@ Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
 - **CI-Pflicht-Checks:** kein neuer Job, die Ruleset-Einstellung für `main`
   bleibt wie sie ist.
 
-## 8. Älteres, hier nur verlinkt
+## 9. Älteres, hier nur verlinkt
 
 Die Phase-4-Punkte, die vor dieser Session offen waren, stehen weiterhin in
 `docs/dod/phase-4.md` → „Weiterhin offen" (HITL-End-to-End-Testrunde mit
