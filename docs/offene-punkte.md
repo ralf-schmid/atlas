@@ -105,8 +105,16 @@ Deckt Newsletter, Zeitschriften-Artikel und die Yahoo-Marktnews ab; Details in
       Eintrag in `config/instrument_names.yaml` die ganze Arbeit. Pflegeregeln
       stehen im Kopf der Datei (nur handelbare Symbole, keine Alltagswörter,
       mindestens vier Zeichen).
-- [ ] **Optional, sag Bescheid:** `reddit_post` und `aktienfinder_blog_post` sind
-      noch nicht angeschlossen — je eine Zeile plus Test.
+- [ ] **`aktienfinder_blog_post` an den Namensabgleich anschließen.** Die
+      Blog-Beiträge nennen Firmen genauso im Klartext wie die Newsletter, sind aber
+      noch nicht angeschlossen — ihre Pool-Zeilen bleiben damit ohne
+      `instruments`. Aufwand: eine Zeile in
+      `research_synthesis._research_items_from_aktienfinder_blog_posts` plus Test.
+      Braucht nur dein Go.
+- [ ] Ebenfalls offen, aber derzeit gegenstandslos: `reddit_post`. Der
+      Reddit-Job steht seit F039 auf `enabled: false` (Credentials fehlen,
+      `config/ingestion.yaml`) — solange dort nichts ankommt, gibt es auch nichts
+      zu taggen.
 
 ## 8. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
 
