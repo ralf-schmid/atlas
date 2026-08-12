@@ -8,6 +8,7 @@ from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.market_data import AlpacaCryptoMarketDataProvider, AlpacaStockMarketDataProvider
 from src.broker.registry import (
+    build_spread_provider,
     get_adapter,
     get_adapter_type,
     load_market_data_config,
@@ -114,6 +115,27 @@ def test_get_adapter_unknown_market_type_raises(tmp_path: Path):
 
     with pytest.raises(ValueError, match="Unknown market type"):
         get_adapter("FOO", config_path=config_path)
+
+
+# --- F104: build_spread_provider ---
+
+
+def test_build_spread_provider_resolves_stock_and_crypto(monkeypatch):
+    """The quote source behind the slippage malus is the same shared market-data key
+    every other Alpaca source uses (Invariant #10)."""
+    monkeypatch.setenv("ALPACA_MARKET_DATA_KEY_ID", "md-key")
+    monkeypatch.setenv("ALPACA_MARKET_DATA_SECRET_KEY", "md-secret")
+
+    assert isinstance(build_spread_provider("stock"), AlpacaStockMarketDataProvider)
+    assert isinstance(build_spread_provider("crypto"), AlpacaCryptoMarketDataProvider)
+
+
+def test_build_spread_provider_missing_env_raises(monkeypatch):
+    monkeypatch.delenv("ALPACA_MARKET_DATA_KEY_ID", raising=False)
+    monkeypatch.delenv("ALPACA_MARKET_DATA_SECRET_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="ALPACA_MARKET_DATA_KEY_ID"):
+        build_spread_provider("stock")
 
 
 # --- F092: validate_all_credentials ---
