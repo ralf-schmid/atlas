@@ -213,6 +213,122 @@
           "name": "ATLAS Webhook Secret"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-sender-materialscrunch",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "hello@morningcrunch.de",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-materialscrunch",
+      "name": "Filter: Materialscrunch",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        840
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.178.116:8000/api/ingestion/newsletter/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"sender\": $json.from, \"subject\": $json.subject, \"message_id\": $json.metadata['message-id'], \"body_text\": $json.textPlain || $json.textHtml, \"received_at\": $json.date } }}",
+        "options": {}
+      },
+      "id": "webhook-materialscrunch",
+      "name": "ATLAS Webhook benachrichtigen (Materialscrunch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        840
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "ATLAS Webhook Secret"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-sender-marketscrunch",
+              "leftValue": "={{ $json.from }}",
+              "rightValue": "markets@m.morningcrunch.de",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter-marketscrunch",
+      "name": "Filter: Marketscrunch",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        460,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.178.116:8000/api/ingestion/newsletter/notify",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"sender\": $json.from, \"subject\": $json.subject, \"message_id\": $json.metadata['message-id'], \"body_text\": $json.textPlain || $json.textHtml, \"received_at\": $json.date } }}",
+        "options": {}
+      },
+      "id": "webhook-marketscrunch",
+      "name": "ATLAS Webhook benachrichtigen (Marketscrunch)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        1060
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_WITH_YOUR_HEADER_AUTH_CREDENTIAL_ID",
+          "name": "ATLAS Webhook Secret"
+        }
+      }
     }
   ],
   "connections": {
@@ -231,6 +347,16 @@
           },
           {
             "node": "Filter: Krypto-Boersenbrief",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Materialscrunch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter: Marketscrunch",
             "type": "main",
             "index": 0
           }
@@ -264,6 +390,28 @@
         [
           {
             "node": "ATLAS Webhook benachrichtigen (Boersenbrief)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Materialscrunch": {
+      "main": [
+        [
+          {
+            "node": "ATLAS Webhook benachrichtigen (Materialscrunch)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Marketscrunch": {
+      "main": [
+        [
+          {
+            "node": "ATLAS Webhook benachrichtigen (Marketscrunch)",
             "type": "main",
             "index": 0
           }

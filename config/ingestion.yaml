@@ -373,6 +373,66 @@ newsletters:
       ETH: ETH/USD
       SOL: SOL/USD
 
+  # F106: zwei weitere Tages-Newsletter desselben Verlags (beehiiv, Versand ueber
+  # SendGrid). Gleiche Pipeline, nur andere Abschnittsnamen — verifiziert gegen die
+  # echten Ausgaben vom 11.08.2026 (je 13 Impulse).
+  - slug: materialscrunch
+    # Betreff wechselt taeglich, der Absender ist konstant. Restrisiko: die Adresse
+    # ist generisch — ein Werbe-Mailing des Verlags von derselben Adresse wuerde als
+    # Ausgabe geparst. Wirkung waere begrenzt (ein paar Werbe-Impulse im Pool), der
+    # n8n-Zweig filtert zusaetzlich.
+    sender: "hello@morningcrunch.de"
+    subject_marker: ""
+    # APP-PFIFF ist die Eigenwerbung fuer die Verlags-App und steht in jeder Ausgabe
+    # ganz oben. STAT OF THE WEEK bleibt drin — das ist Inhalt, keine Werbung.
+    drop_sections:
+      - "BEZAHLTE PARTNERSCHAFT"
+      - "ANZEIGE"
+      - "MORE BRIEFINGS"
+      - "APP-PFIFF"
+    blocked_link_domains:
+      - unsub.beehiiv.com
+      - magic.beehiiv.com
+      - media.beehiiv.com
+      - app.morningcrunch.de
+      - sjv.io
+      - tradingjourney.de
+    # Zusammenhaengende Analysen: die Einzel-Bullets verlieren ohne die Ueberschrift
+    # ihren Sinn (gleiche Begruendung wie TOP STORY beim cryptocrunch).
+    single_item_sections:
+      - "DEEP DIVE"
+      - "ZOOM IN"
+    # $BP/$SPCX/$TSLA sind die einzigen Ticker-Schreibweisen, die in der Beispiel-
+    # ausgabe vorkamen; alles andere steht als Klartext-Firmenname im Text (siehe
+    # F106 §3b). Nur Symbole, die Alpaca handelt, gehoeren hier rein.
+    ticker_map:
+      TSLA: TSLA
+      BP: BP
+  - slug: marketscrunch
+    sender: "markets@m.morningcrunch.de"
+    subject_marker: ""
+    drop_sections:
+      - "BEZAHLTE PARTNERSCHAFT"
+      - "ANZEIGE"
+      - "MORE BRIEFINGS"
+      - "APP-PFIFF"
+    blocked_link_domains:
+      - unsub.beehiiv.com
+      - magic.beehiiv.com
+      - media.beehiiv.com
+      - app.morningcrunch.de
+      - sjv.io
+      - tradingjourney.de
+    # WHAT TO WATCH ist der Termin-/Earnings-Kalender des Tages: lauter Einzeiler,
+    # die einzeln unter der Mindestlaenge liegen und erst zusammengefasst ein
+    # Impuls sind (F106, parse_newsletter).
+    single_item_sections:
+      - "TOP STORY"
+      - "MARKET MOVER"
+      - "WHAT TO WATCH"
+    ticker_map:
+      LLY: LLY
+
 reddit:
   # OAuth2 App-only (client_credentials, F039) — CRYPTORs Krypto-Sentiment-Quelle.
   # Ralf muss einmalig eine "script"-App unter reddit.com/prefs/apps registrieren.

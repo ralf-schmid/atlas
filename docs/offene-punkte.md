@@ -72,24 +72,29 @@ Alle drei hängen an denselben zwei Containern; ein Deploy reicht.
       Braucht deine Anforderung — Backtesting steht in keiner Phase von
       ARCHITECTURE.md §8.
 
-## 6. F106 — zwei weitere Tages-Newsletter (Zieldefinition liegt vor)
+## 6. F106 — zwei weitere Tages-Newsletter (umgesetzt)
 
-Blockiert die Umsetzung, Details in `docs/features/F106-morningcrunch-newsletter-ingestion.md` §4.
+Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
+`docs/features/F106-morningcrunch-newsletter-ingestion.md`.
 
-- [ ] **Je eine Original-Mail als `.eml`** von materialscrunch und marketscrunch
-      (die RTF-Exporte zeigen die HTML-Ansicht, ich brauche den `text/plain`-Teil).
-      Davon hängt ab, ob es bei zwei Config-Zeilen bleibt oder der Parser eine
-      zweite Abschnitts-Erkennung braucht — die beiden laufen nicht über beehiiv.
-- [ ] **Instrument-Tagging entscheiden:** nur `$TICKER` wie heute (tagt hier fast
-      nichts), Namensabgleich gegen das handelbare Universum, oder erst minimal
-      und Namensabgleich als Folge-Feature.
-- [ ] **Bucket-Frage:** ein gemeinsamer `source_type='newsletter'` für alle drei
-      Newsletter (günstiger, sie konkurrieren um dieselbe Prompt-Quote) oder je
-      einer pro Newsletter (mehr Impulse, mehr Token).
-- [ ] **Werbe-Abschnitte bestätigen:** `ANZEIGE`, `MORE BRIEFINGS`, `APP-PFIFF`
-      raus; `STAT OF THE DAY` / `STAT OF THE WEEK` bleiben.
-- [ ] **Status des cryptocrunch-n8n-Zweigs** (F102 steht auf „n8n-Zweig offen") —
-      falls noch nicht aktiv, ziehen wir alle drei Zweige in einem Rutsch nach.
+- [ ] **`n8n/publications-mail-trigger.json` importieren.** Die Datei enthält jetzt
+      alle drei Newsletter-Zweige (cryptocrunch, materialscrunch, marketscrunch) —
+      damit ist auch der seit F102 offene Krypto-Zweig mit erledigt.
+- [ ] `docker compose build api scheduler` + `up -d` (kein Schema-Change, keine
+      Migration, keine neue Env-Var — kann mit dem Deploy aus §1 zusammenfallen).
+- [ ] **Nach der ersten automatisch verarbeiteten Ausgabe:** `newsletter_item` auf
+      Zeilen mit `newsletter_slug IN ('materialscrunch','marketscrunch')` prüfen
+      (Erwartung: 13–14 je Ausgabe) und im nächsten Zyklus ein `research_item` mit
+      `source_type='newsletter'` in der UI ansehen.
+- [ ] **Drei Entscheidungen, die ich per Default getroffen habe** — Widerspruch
+      jederzeit, alles Config und ohne Deploy umkehrbar (F106 §4): Instrument-Tagging
+      bleibt beim `$TICKER`-Mechanismus, alle drei Newsletter teilen sich einen
+      `source_type` (Kosten), und `APP-PFIFF`/`ANZEIGE`/`MORE BRIEFINGS` fliegen raus,
+      während `STAT OF THE DAY/WEEK` bleibt.
+- [ ] **Offen zur Entscheidung:** Namensabgleich für Instrumente („Berkshire
+      Hathaway" → `BRK.B`). Ohne ihn bleiben fast alle Newsletter-Impulse ohne
+      Instrument-Tag. Nützt auch den Zeitschriften-Artikeln, kostet eine gepflegte
+      Namensliste.
 
 ## 7. Kein Handlungsbedarf (zur Sicherheit dokumentiert)
 
