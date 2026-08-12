@@ -213,6 +213,12 @@ def parse_newsletter(text: str, newsletter: NewsletterConfig) -> list[Newsletter
     Ad handling happens at block level and before the single-item merge, so a paid
     plug sitting inside an otherwise editorial section takes only its own block with
     it — not the whole section.
+
+    The minimum-length filter, by contrast, runs *after* the merge for
+    `single_item_sections` (F106): marketscrunch's `WHAT TO WATCH` is a calendar of
+    one-line entries ("Makro: Verbraucherpreise", "Earnings: Salzgitter, Uniper"),
+    each below the per-block floor but a usable impulse once merged. Filtering them
+    individually first dropped the whole section.
     """
     impulses: list[NewsletterImpulse] = []
     seq = 0
@@ -221,22 +227,30 @@ def parse_newsletter(text: str, newsletter: NewsletterConfig) -> list[Newsletter
         if any(marker in section_name.upper() for marker in newsletter.drop_sections):
             continue
 
+        is_single_item = any(
+            marker in section_name.upper() for marker in newsletter.single_item_sections
+        )
+
         kept_blocks: list[tuple[str, list[str]]] = []
         for block in _split_blocks(section_body):
             links = _extract_links(block)
             if any(_is_blocked(link, newsletter.blocked_link_domains) for link in links):
                 continue
             cleaned = _clean(block)
-            if len(cleaned) < _MIN_ITEM_CHARS:
+            if not is_single_item and len(cleaned) < _MIN_ITEM_CHARS:
+                continue
+            if not cleaned:
                 continue
             kept_blocks.append((cleaned, links))
 
         if not kept_blocks:
             continue
 
-        if any(marker in section_name.upper() for marker in newsletter.single_item_sections):
+        if is_single_item:
             merged_text = " ".join(cleaned for cleaned, _ in kept_blocks)
             merged_links = [link for _, links in kept_blocks for link in links]
+            if len(merged_text) < _MIN_ITEM_CHARS:
+                continue
             kept_blocks = [(merged_text, merged_links)]
 
         for cleaned, links in kept_blocks:

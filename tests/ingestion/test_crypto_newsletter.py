@@ -304,3 +304,139 @@ def test_sync_with_no_impulses_writes_nothing(session, newsletter: NewsletterCon
     )
     assert written == 0
     assert session.scalars(select(NewsletterItem)).all() == []
+
+
+# --- F106: materialscrunch / marketscrunch ---
+#
+# Same publisher and the same beehiiv plain-text layout as the issue above, only with
+# other section names. The fixture is synthetic for the same reason as ISSUE: the real
+# issues are paid-subscription content and stay out of the repo (verified separately
+# against the real 2026-08-11 issues, see docs/features/F106 §5).
+
+MARKETS_ISSUE = """\U0001f40e, liebe Cruncher!
+
+Ein Autobauer plant eine neue Variante seines Klassikers, die Idee ist 60 Jahre alt
+und die alte Umfrage dazu liest sich heute reichlich schräg.
+
+———————————
+
+###### **APP-PFIFF**
+
+==Letzte Chance: Wir schließen die Waitlist für unsere App ==
+_[Hier entlang zum Sign-up!](https://app.morningcrunch.de/?_bhlid=abc)_
+
+———————————
+
+###### WHAT TO WATCH
+
+\U0001f1fa\U0001f1f8** Makro:** Verbraucherpreise
+
+\U0001f4b8** Earnings:** ==Beispiel AG, Muster SE==
+
+———————————
+
+###### MARKET MOVER
+
+## ==Ein Konglomerat kauft wieder zu==
+
+**Was ist passiert:** Der neue Chef investierte im zweiten Quartal wieder in Aktien
+und beendete damit eine jahrelange Verkaufsserie des Vorgängers.
+
+* **Cash-Reserven:** Der Barbestand fiel, liegt aber weiter im dreistelligen
+ Milliardenbereich und damit über dem Niveau von 2023
+
+———————————
+
+###### QUICK CATCH-UP
+
+\U0001f48a Ein Pharmakonzern $LLY ( + 3.9% ) hält am neuen Werk fest und investiert
+dort einen weiteren Milliardenbetrag in zusätzliche Produktionslinien.
+
+———————————
+
+Diese Ausgabe online: https://markets-crunch.beehiiv.com/p/151-260811
+"""
+
+
+@pytest.fixture
+def markets() -> NewsletterConfig:
+    return next(n for n in load_newsletters() if n.slug == "marketscrunch")
+
+
+@pytest.fixture
+def materials() -> NewsletterConfig:
+    return next(n for n in load_newsletters() if n.slug == "materialscrunch")
+
+
+def test_new_newsletters_are_configured(
+    markets: NewsletterConfig, materials: NewsletterConfig
+) -> None:
+    assert markets.sender == "markets@m.morningcrunch.de"
+    assert materials.sender == "hello@morningcrunch.de"
+    assert "DEEP DIVE" in materials.single_item_sections
+    assert "MARKET MOVER" in markets.single_item_sections
+
+
+def test_identify_newsletter_separates_the_three_senders() -> None:
+    configs = load_newsletters()
+    cases = {
+        "materialscrunch <hello@morningcrunch.de>": "materialscrunch",
+        "marketscrunch <markets@m.morningcrunch.de>": "marketscrunch",
+        "CryptoCrunch <cryptocrunch@m6.morningcrunch.de>": "cryptocrunch",
+    }
+    for sender, expected in cases.items():
+        identified = identify_newsletter(sender, configs)
+        assert identified is not None
+        assert identified.slug == expected
+
+
+def test_short_calendar_entries_survive_as_one_merged_impulse(markets: NewsletterConfig) -> None:
+    """F106: `WHAT TO WATCH` is the day's macro/earnings calendar — one-liners that
+    each fall below the per-block minimum. Filtering them individually dropped the
+    whole section; as a `single_item_section` they merge into one usable impulse."""
+    impulses = parse_newsletter(MARKETS_ISSUE, markets)
+
+    watch = [impulse for impulse in impulses if impulse.section == "WHAT TO WATCH"]
+    assert len(watch) == 1
+    assert "Verbraucherpreise" in watch[0].text
+    assert "Beispiel AG" in watch[0].text
+
+
+def test_short_blocks_outside_single_item_sections_are_still_dropped(
+    markets: NewsletterConfig,
+) -> None:
+    """The counterpart to the test above — the per-block floor still removes leftover
+    captions and dividers everywhere else."""
+    issue = MARKETS_ISSUE.replace("###### QUICK CATCH-UP", "###### QUICK CATCH-UP\n\nKurz.\n")
+    impulses = parse_newsletter(issue, markets)
+
+    assert all("Kurz." != impulse.text for impulse in impulses)
+
+
+def test_single_item_section_below_the_floor_yields_nothing(markets: NewsletterConfig) -> None:
+    issue = "###### WHAT TO WATCH\n\nMakro\n\nEarnings\n"
+
+    assert parse_newsletter(issue, markets) == []
+
+
+def test_app_promo_section_is_dropped(markets: NewsletterConfig) -> None:
+    """APP-PFIFF is the publisher's own app waitlist ad and opens every issue."""
+    impulses = parse_newsletter(MARKETS_ISSUE, markets)
+
+    assert all("APP-PFIFF" not in impulse.section for impulse in impulses)
+    assert all("app.morningcrunch.de" not in link for impulse in impulses for link in impulse.links)
+
+
+def test_market_mover_section_merges_into_one_analysis(markets: NewsletterConfig) -> None:
+    impulses = parse_newsletter(MARKETS_ISSUE, markets)
+
+    mover = [impulse for impulse in impulses if impulse.section == "MARKET MOVER"]
+    assert len(mover) == 1
+    assert "Verkaufsserie" in mover[0].text and "Barbestand" in mover[0].text
+
+
+def test_ticker_map_tags_configured_symbols(markets: NewsletterConfig) -> None:
+    impulses = parse_newsletter(MARKETS_ISSUE, markets)
+
+    tagged = [impulse for impulse in impulses if impulse.instruments]
+    assert [impulse.instruments for impulse in tagged] == [["LLY"]]

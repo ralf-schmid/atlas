@@ -34,7 +34,10 @@ const SOURCE_TYPE_LABELS: Record<string, string> = {
   aktienfinder_snapshot: "aktienfinder.de",
   screener_result: "Screener (Kursdaten)",
   musterdepot_transaction: "Aktionär-Musterdepot",
-  newsletter: "Krypto-Börsenbrief",
+  // F106: seit materialscrunch/marketscrunch teilen sich drei Newsletter diesen
+  // source_type — welcher es war, steht im Summary-Präfix (der `newsletter_slug`).
+  newsletter: "Börsenbrief",
+  market_mover: "Screener (Tagesauffälligkeiten)",
 };
 
 export function actionLabel(action: string): string {
