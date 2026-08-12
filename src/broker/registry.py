@@ -16,7 +16,6 @@ from src.broker.ledger_store import JSONLedgerStore
 from src.broker.market_data import (
     AlpacaCryptoMarketDataProvider,
     AlpacaStockMarketDataProvider,
-    MarketDataProvider,
     SpreadProvider,
 )
 from src.broker.protocol import BrokerAdapter
@@ -72,7 +71,10 @@ def load_market_data_config(config_path: Path = _DEFAULT_CONFIG_PATH) -> dict[st
 
 def build_market_data_provider(
     market: str, market_data_config: dict[str, str]
-) -> MarketDataProvider:
+) -> AlpacaStockMarketDataProvider | AlpacaCryptoMarketDataProvider:
+    """Returns the concrete provider, not just the `MarketDataProvider` protocol:
+    both classes also satisfy `SpreadProvider` (F104), and naming them here lets
+    `build_spread_provider` reuse this without a narrowing assert."""
     key_id = _require_env(market_data_config["key_id_env"])
     secret_key = _require_env(market_data_config["secret_key_env"])
 
@@ -87,9 +89,7 @@ def build_spread_provider(market: str, config_path: Path = _DEFAULT_CONFIG_PATH)
     """F104: same shared market-data key as `build_market_data_provider` — the
     quote behind the slippage malus must be identical for every persona
     (Invariant #10)."""
-    provider = build_market_data_provider(market, load_market_data_config(config_path))
-    assert isinstance(provider, AlpacaStockMarketDataProvider | AlpacaCryptoMarketDataProvider)
-    return provider
+    return build_market_data_provider(market, load_market_data_config(config_path))
 
 
 def validate_market_data_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:

@@ -117,7 +117,12 @@ Bestehende Slippage-Tests bleiben unverändert gültig (Alt-Orders haben
   implementieren es über `StockLatestQuoteRequest` bzw.
   `CryptoLatestQuoteRequest`.
 - `src/broker/registry.py`: `build_spread_provider(market)` — gleiche
-  Key-Auflösung wie `build_market_data_provider`.
+  Key-Auflösung wie `build_market_data_provider`, dessen Rückgabetyp dafür auf die
+  konkreten Provider-Klassen verengt wurde (beide erfüllen auch `SpreadProvider`).
+  **Nachtrag 12.08.2026:** in CI zunächst rot — `src/broker` hat ein
+  100-%-Branch-Coverage-Gate (eigener CI-Schritt neben der 90-%-Hauptsuite), und
+  die neue Funktion war ungetestet. Nachgezogen in
+  `tests/broker/test_registry.py::test_build_spread_provider_*`.
 - `src/orchestrator/trading.py`: `measure_spread_bps(symbol)` (best effort,
   loggt und verwirft jede Exception) wird unmittelbar vor `place_order`
   aufgerufen; Ergebnis landet auf dem `OrderRecord`. Gilt für Entry- und
