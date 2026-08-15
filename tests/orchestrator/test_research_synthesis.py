@@ -1003,3 +1003,85 @@ def test_publisher_symbol_tagging_wins_over_the_name_map(session: Session) -> No
 
     headline = next(item for item in items if item.source_ref == "alpaca:7")
     assert headline.instruments == ["TSLA"]
+
+
+# --- F108: Plausibilitätsfilter, siehe docs/features/F108-indikator-plausibilitaet.md §3
+
+
+def _seed_broken_market_bars(session: Session, symbol: str, num_bars: int) -> None:
+    """Like `_seed_market_bars`, but the series changes price level halfway
+    through — an overnight gap of factor 3 between bar 24 and bar 25."""
+    start = datetime.datetime(2026, 1, 1)
+    for i in range(num_bars):
+        level = Decimal("100") if i < num_bars // 2 else Decimal("300")
+        session.add(
+            MarketBar(
+                symbol=symbol,
+                timeframe=MarketBarTimeframe.DAY,
+                ts=start + datetime.timedelta(days=i),
+                open=level,
+                high=level,
+                low=level,
+                close=level,
+                volume=Decimal("1000000"),
+            )
+        )
+    session.flush()
+
+
+def test_broken_symbol_yields_no_technical_indicator_item(session: Session) -> None:
+    """The core of F108: AAPL and MSFT are both in the seed watchlist and both
+    have enough bars, but MSFT's series changes level inside the window."""
+    _seed_market_bars(session, "AAPL", 50)
+    _seed_broken_market_bars(session, "MSFT", 50)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+
+    items = synthesize_research_items(session, cycle)
+
+    indicator_symbols = {i.source_ref for i in items if i.source_type == "technical_indicator"}
+    assert "AAPL" in indicator_symbols
+    assert "MSFT" not in indicator_symbols
+
+
+def test_broken_symbol_keeps_its_other_research_items(session: Session) -> None:
+    """Scope check: only the indicator item is dropped. The screener item carries
+    price and volume from the live snapshot — correct data, nothing to filter."""
+    _seed_broken_market_bars(session, "MSFT", 50)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+    session.add(
+        ScreenerResult(
+            screened_at=datetime.date(2026, 7, 7),
+            symbol="MSFT",
+            price=Decimal("4.20"),
+            volume=Decimal("1000000"),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    by_type = {(i.source_type, i.source_ref) for i in items}
+    assert ("screener_result", "MSFT") in by_type
+    assert ("technical_indicator", "MSFT") not in by_type
+
+
+def test_filter_is_off_without_config_value(session: Session, tmp_path) -> None:
+    """The documented rollback path: no `technical_indicators.max_overnight_gap_factor`
+    means exactly the pre-F108 behaviour."""
+    import yaml
+
+    from src.orchestrator.research_synthesis import _DEFAULT_CONFIG_PATH
+
+    config = yaml.safe_load(_DEFAULT_CONFIG_PATH.read_text())
+    del config["technical_indicators"]
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+
+    _seed_broken_market_bars(session, "MSFT", 50)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=1)
+
+    items = synthesize_research_items(session, cycle, config_path=config_path)
+
+    indicator_symbols = {i.source_ref for i in items if i.source_type == "technical_indicator"}
+    assert "MSFT" in indicator_symbols

@@ -13,6 +13,7 @@ fields the ingestion pipelines already parsed out.
 from __future__ import annotations
 
 import datetime
+import logging
 import uuid
 from pathlib import Path
 
@@ -41,9 +42,12 @@ from src.orchestrator.indicators import (
     BollingerBands,
     IndicatorSnapshot,
     compute_indicator_snapshot,
+    detect_price_level_break,
 )
 from src.orchestrator.instrument_names import load_instrument_aliases, match_instruments
 from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
+
+logger = logging.getLogger(__name__)
 
 _BOOTSTRAP_WINDOW = datetime.timedelta(days=7)
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
@@ -96,7 +100,9 @@ def synthesize_research_items(
             session, cycle.id, window_start, window_end
         ),
         *_research_items_from_musterdepot_transactions(session, cycle.id, window_start, window_end),
-        *_research_items_from_technical_indicators(session, cycle.id, symbols, cycle.started_at),
+        *_research_items_from_technical_indicators(
+            session, cycle.id, symbols, cycle.started_at, _resolve_max_gap_factor(config)
+        ),
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
         *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
@@ -381,19 +387,44 @@ def _research_items_from_newsletter_items(
     ]
 
 
+def _resolve_max_gap_factor(config: dict[str, object]) -> float | None:
+    """F108: absent key ⇒ no plausibility filter, i.e. exactly the pre-F108
+    behaviour. That's the documented rollback path."""
+    indicator_config = config.get("technical_indicators", {})
+    assert isinstance(indicator_config, dict)
+    factor = indicator_config.get("max_overnight_gap_factor")
+    return None if factor is None else float(factor)
+
+
 def _research_items_from_technical_indicators(
     session: Session,
     cycle_id: uuid.UUID,
     symbols: list[str],
     as_of: datetime.datetime,
+    max_gap_factor: float | None = None,
 ) -> list[ResearchItem]:
     """Unlike the 5 sources above, this isn't windowed by `synced_at` — an
     indicator value isn't a new external fact arriving, it's a fresh computation
     over already-ingested `market_bar` rows, recomputed every cycle for the
     current symbol universe (see F036 §2). A symbol with too few bars for any
-    indicator yet is silently skipped, not an error."""
+    indicator yet is silently skipped, not an error.
+
+    F108: a symbol whose series changes price level inside the indicator window
+    is skipped too. Averaging across such a jump produces a number, not a signal,
+    and a persona can't tell the difference — see F108 §1."""
     items = []
     for symbol in symbols:
+        if max_gap_factor is not None:
+            level_break = detect_price_level_break(session, symbol, max_gap_factor)
+            if level_break is not None:
+                logger.info(
+                    "technical indicators skipped: symbol=%s reason=price_level_break "
+                    "factor=%.2f at=%s",
+                    symbol,
+                    level_break.factor,
+                    level_break.ts.date(),
+                )
+                continue
         snapshot = compute_indicator_snapshot(session, symbol)
         if _snapshot_is_empty(snapshot):
             continue

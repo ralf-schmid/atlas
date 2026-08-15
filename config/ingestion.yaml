@@ -97,6 +97,19 @@ edgar:
     - "SC 13D"
     - "SC 13G"
 
+technical_indicators:
+  # F108: Kein technical_indicator-Research-Item, wenn die Kursreihe im
+  # Indikator-Fenster (51 Bars) einen Niveauwechsel hat — Overnight-Gap
+  # Open[t]/Close[t-1] >= diesem Faktor. Ueber so einen Sprung gemittelt sind
+  # SMA/Bollinger/MACD keine schwachen Signale, sondern bedeutungslose Zahlen.
+  # Ausloeser war Alpacas kaputte Split-Historie bei Nano-Caps (F103 §6), das
+  # Kriterium ist aber ursachenneutral: eine echte Kapitalmassnahme bricht die
+  # Reihe genauso. Wirkt rollierend und damit selbstheilend.
+  # Stand 15.08.2026: 16 von 376 Universums-Symbolen betroffen.
+  # ROLLBACK: Zeile entfernen oder auf null setzen ⇒ Filter aus, Verhalten wie
+  # vor F108. Achtung, config/ ist ins Image gebacken ⇒ Rebuild noetig.
+  max_overnight_gap_factor: 2.0
+
 vulture_screener:
   # Universum = komplettes Alpaca-Asset-Verzeichnis (kein Whitelisting), siehe
   # ARCHITECTURE.md §3.5.3. min_volume ist ein Datenqualitaets-, kein Verbotsfilter.

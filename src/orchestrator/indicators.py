@@ -9,6 +9,7 @@ omits an indicator it can't compute yet instead of failing the whole cycle.
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -122,6 +123,53 @@ def detect_sma_crossover(session: Session, symbol: str) -> str | None:
     if was_above and is_below:
         return "death_cross"
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class PriceLevelBreak:
+    """An overnight jump that puts the series on a different price level — see
+    docs/features/F108-indikator-plausibilitaet.md."""
+
+    ts: datetime.datetime
+    factor: float
+
+
+def detect_price_level_break(
+    session: Session, symbol: str, max_gap_factor: float
+) -> PriceLevelBreak | None:
+    """Reports the largest overnight gap (`open[t]` vs `close[t-1]`) in the
+    indicator window if it reaches `max_gap_factor`, else `None`.
+
+    Deliberately says nothing about *why* the level changed — a broken split
+    history at the source and a real corporate action are indistinguishable from
+    the bars alone, and for the question this answers ("can these closes be
+    averaged?") the reason doesn't matter. See F108 §1.
+
+    The window is `_MIN_BARS_FOR_CROSSOVER`, the longest any indicator looks
+    back, which makes the check self-healing: once the jump ages out, the symbol
+    produces indicators again with no intervention.
+    """
+    stmt = (
+        select(MarketBar.ts, MarketBar.open, MarketBar.close)
+        .where(MarketBar.symbol == symbol, MarketBar.timeframe == MarketBarTimeframe.DAY)
+        .order_by(MarketBar.ts.desc())
+        .limit(_MIN_BARS_FOR_CROSSOVER)
+    )
+    bars = list(reversed(session.execute(stmt).all()))
+
+    worst: PriceLevelBreak | None = None
+    for previous, current in zip(bars, bars[1:], strict=False):
+        previous_close = float(previous.close)
+        current_open = float(current.open)
+        # A zero price is missing data, not a level change — never a break, and
+        # never a division by zero.
+        if previous_close <= 0 or current_open <= 0:
+            continue
+        ratio = current_open / previous_close
+        factor = max(ratio, 1 / ratio)
+        if factor >= max_gap_factor and (worst is None or factor > worst.factor):
+            worst = PriceLevelBreak(ts=current.ts, factor=factor)
+    return worst
 
 
 def compute_indicator_snapshot(session: Session, symbol: str) -> IndicatorSnapshot:

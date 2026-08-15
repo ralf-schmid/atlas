@@ -192,14 +192,12 @@ Request-Parameters geändert).
 - Kein Alarm auf Kapitalmaßnahmen. Wenn das gewünscht ist, wäre der
   `CorporateActionsClient` von `alpaca-py` der Ansatz — eigenes Feature
   (ADR-0015, Folgearbeit).
-- **Nano-Caps mit kaputter Split-Historie bei Alpaca** (Nebenbefund aus der
-  Backfill-Verifikation, §5). 22 von 376 Universums-Symbolen haben einen
-  Tages-Close-Sprung > Faktor 2, der nicht durch Kursbewegung erklärbar ist.
-  Sie kommen über den Screener ins Universum, ihre Indikatoren sind Zufallswerte,
-  und eine Persona könnte darauf eine These bauen. Zwei Wege, beide brauchen
-  Ralfs Entscheidung (Geld-Thema): (a) Plausibilitätsfilter im Sync — Bars mit
-  unerklärtem Sprung > Faktor X verwerfen und das Symbol markieren, oder (b)
-  Mindest-Marktkapitalisierung/Mindestkurs als Aufnahmekriterium im Screener.
-  Nicht vorgezogen, weil beides das Universum verkleinert und damit den
-  Wettbewerb beeinflusst (Invariante #10 unberührt, aber die Datenbasis ändert
-  sich für alle sechs Personas gleichzeitig).
+- ~~**Nano-Caps mit kaputter Split-Historie bei Alpaca**~~ (Nebenbefund aus der
+  Backfill-Verifikation, §5) → **erledigt als
+  [F108](F108-indikator-plausibilitaet.md)** (15.08.2026). Ralf hat sich gegen
+  die Mindest-Marktkapitalisierung und für den Plausibilitätsfilter entschieden.
+  Beim Messen zeigte sich, dass „Datenfehler" gar nicht das brauchbare Kriterium
+  ist — aus den Bars ist eine echte Kapitalmaßnahme nicht von einem Artefakt zu
+  unterscheiden, und für die Frage „darf man über diese Closes mitteln?" ist die
+  Ursache egal. F108 lässt deshalb das `technical_indicator`-Item weg, sobald die
+  Reihe im Indikator-Fenster einen Niveauwechsel hat.

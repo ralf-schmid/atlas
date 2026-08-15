@@ -18,6 +18,7 @@ from src.orchestrator.indicators import (
     compute_macd,
     compute_rsi14,
     compute_sma,
+    detect_price_level_break,
     detect_sma_crossover,
 )
 
@@ -203,3 +204,93 @@ def test_crossover_returns_none_with_insufficient_bars(session: Session) -> None
     _insert_bars(session, "XYZ", [100.0] * 40)
 
     assert detect_sma_crossover(session, "XYZ") is None
+
+
+# --- F108: Plausibilitätsfilter, siehe docs/features/F108-indikator-plausibilitaet.md §3
+
+
+def _insert_ohlc_bars(session: Session, symbol: str, bars: list[tuple[float, float]]) -> None:
+    """Unlike `_insert_bars`, open and close differ — that's what an overnight gap
+    is measured on (`open[t]` vs `close[t-1]`)."""
+    start = datetime.datetime(2026, 1, 1)
+    for i, (open_price, close_price) in enumerate(bars):
+        session.add(
+            MarketBar(
+                symbol=symbol,
+                timeframe=MarketBarTimeframe.DAY,
+                ts=start + datetime.timedelta(days=i),
+                open=Decimal(str(open_price)),
+                high=Decimal(str(max(open_price, close_price))),
+                low=Decimal(str(min(open_price, close_price))),
+                close=Decimal(str(close_price)),
+                volume=Decimal("1000000"),
+            )
+        )
+    session.flush()
+
+
+def test_detects_upward_overnight_gap(session: Session) -> None:
+    bars = [(100.0, 100.0)] * 10 + [(300.0, 300.0)] + [(300.0, 300.0)] * 10
+    _insert_ohlc_bars(session, "GAPUP", bars)
+
+    level_break = detect_price_level_break(session, "GAPUP", 2.0)
+
+    assert level_break is not None
+    assert level_break.factor == pytest.approx(3.0)
+    assert level_break.ts == datetime.datetime(2026, 1, 11)
+
+
+def test_detects_downward_overnight_gap(session: Session) -> None:
+    bars = [(300.0, 300.0)] * 10 + [(100.0, 100.0)] * 11
+    _insert_ohlc_bars(session, "GAPDOWN", bars)
+
+    level_break = detect_price_level_break(session, "GAPDOWN", 2.0)
+
+    assert level_break is not None
+    assert level_break.factor == pytest.approx(3.0)
+
+
+def test_gap_below_threshold_is_not_a_break(session: Session) -> None:
+    bars = [(100.0, 100.0)] * 10 + [(190.0, 190.0)] * 10
+    _insert_ohlc_bars(session, "SMALLGAP", bars)
+
+    assert detect_price_level_break(session, "SMALLGAP", 2.0) is None
+
+
+def test_gap_exactly_at_threshold_is_a_break(session: Session) -> None:
+    bars = [(100.0, 100.0)] * 10 + [(200.0, 200.0)] * 10
+    _insert_ohlc_bars(session, "EXACT", bars)
+
+    level_break = detect_price_level_break(session, "EXACT", 2.0)
+
+    assert level_break is not None
+    assert level_break.factor == pytest.approx(2.0)
+
+
+def test_gap_outside_the_indicator_window_is_ignored(session: Session) -> None:
+    """Self-healing: the window is the 51 bars any indicator can reach. A jump at
+    bar 6 of 70 is long out of it — the symbol produces indicators again."""
+    bars = [(100.0, 100.0)] * 5 + [(500.0, 500.0)] * 65
+    _insert_ohlc_bars(session, "OLDGAP", bars)
+
+    assert detect_price_level_break(session, "OLDGAP", 2.0) is None
+
+
+def test_series_without_gap_is_clean(session: Session) -> None:
+    bars = [(100.0 + i, 101.0 + i) for i in range(60)]
+    _insert_ohlc_bars(session, "CLEAN", bars)
+
+    assert detect_price_level_break(session, "CLEAN", 2.0) is None
+
+
+def test_symbol_without_bars_is_clean(session: Session) -> None:
+    """A fresh screener candidate has no history yet — that's not a break."""
+    assert detect_price_level_break(session, "UNKNOWN", 2.0) is None
+
+
+def test_zero_prices_do_not_raise(session: Session) -> None:
+    """A zero price is missing data, not a level change."""
+    bars = [(100.0, 0.0), (0.0, 100.0), (100.0, 100.0)]
+    _insert_ohlc_bars(session, "ZEROES", bars)
+
+    assert detect_price_level_break(session, "ZEROES", 2.0) is None

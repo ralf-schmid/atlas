@@ -31,15 +31,14 @@ brauchen — kein Deploy-Schritt mehr.
 - [x] **Verifikation** — Adjustment gegen die Alpaca-API nachgewiesen (RCON
       `raw` 0,4607 vs. `split` 92,14), Indikatorwerte für AAPL/MSFT/SPY in
       F103 §5 notiert.
-- [ ] **Entscheidung: Nano-Caps mit kaputter Split-Historie bei Alpaca.**
-      Nebenbefund aus der Verifikation: 22 von 376 Universums-Symbolen haben
-      einen Tages-Kurssprung > Faktor 2, der keine Kursbewegung ist, sondern
-      Alpacas eigene Datenlage (RCON: Historie mit Faktor 200 hochadjustiert,
-      Kurse ab Split-Datum unverändert bei ~0,39). Blue Chips sind sauber.
-      Ihre Indikatoren sind Zufallswerte, und eine Persona kann darauf eine
-      These bauen. Zwei Wege, beide ändern die Datenbasis für alle sechs
-      Personas gleichzeitig und brauchen deshalb dein Go: Plausibilitätsfilter
-      im Sync oder Mindest-Marktkapitalisierung im Screener. Details F103 §6.
+- [x] **Nano-Caps mit kaputter Split-Historie** — entschieden und umgesetzt als
+      [F108](../features/F108-indikator-plausibilitaet.md) (15.08.2026, live).
+      Kein `technical_indicator`-Impuls mehr, wenn die Kursreihe im
+      Indikator-Fenster einen Niveauwechsel hat (Overnight-Gap ≥ Faktor 2,0).
+      Aktuell 9 von 378 Symbolen betroffen, keine offene Position darunter.
+      Der Filter sitzt bewusst **nicht** im Screener, obwohl das die
+      ursprüngliche Ansage war: das `screener_result`-Item trägt nur den
+      korrekt gemessenen Live-Kurs, da gibt es nichts zu filtern (F108 §1).
 
 ## 3. F104 — Gemessener Bid/Ask-Spread
 
