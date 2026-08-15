@@ -48,10 +48,13 @@ befüllt. Ich habe mich dagegen entschieden, aus drei Gründen:
 2. **Rückwirkend ohne Backfill.** Die Umstellung gilt sofort für die gesamte
    Saison. Ein Spaltenansatz bräuchte ein Backfill-Skript über alle Bestands-
    Orders — mehr Code und ein zweiter Zustand, der schiefgehen kann.
-3. **Kein Migrationskonflikt.** Im Arbeitsverzeichnis liegt derzeit die
-   unfertige Migration des Backtest-Moduls (F111) auf derselben Basis
-   `c9e8d7f6a5b4`. Eine zweite Migration daneben ergäbe zwei Alembic-Heads und
-   damit ein fehlschlagendes `alembic upgrade head` beim nächsten Deploy.
+3. **Kein Migrationskonflikt.** Zum Zeitpunkt dieser Entscheidung lag die noch
+   uncommittete Migration des Backtest-Moduls (F111) im Arbeitsverzeichnis, auf
+   derselben Basis `c9e8d7f6a5b4`. Eine zweite Migration daneben hätte zwei
+   Alembic-Heads ergeben und `alembic upgrade head` beim nächsten Deploy
+   zerlegt. *(Nachtrag: F111 wurde noch am selben Tag als `59e5bb7` committet.
+   Die Begründung bleibt gültig — sie war der Grund, hier keine dritte Variable
+   ins Spiel zu bringen —, aber der Konflikt ist damit Geschichte.)*
 
 **Preis:** Rechenzeit auf dem Leaderboard-Pfad. `compute_slippage_malus` macht je
 Order zwei Queries (Decision, Tagesvolumen). Bei ~80 Orders über sechs Portfolios
