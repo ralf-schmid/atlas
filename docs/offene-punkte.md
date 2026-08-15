@@ -12,13 +12,13 @@ n8n-Zweige aktiv, F103-Backfill gelaufen). Was hier noch offen steht, sind
 ausschließlich Beobachtungs- und Entscheidungspunkte, die Zeit oder dich
 brauchen — kein Deploy-Schritt mehr.
 
-**Als Nächstes geplant:** das Backtest-Modul, siehe §5 und
-[F111](../features/F111-backtest-modul.md). Eigene Session, Startbefehl
-„implementiere das Backtest-Modul".
+**Backtest-Modul ist gebaut und live** (15.08.2026,
+[F111](../features/F111-backtest-modul.md), dazu F114–F116 als Folgekorrekturen).
+Was danach noch offen war, steht in §8b — alles von dir entschieden.
 
-**Phase 4 ist abgeschlossen** (15.08.2026): der Crash-Recovery-Test war der
-letzte offene Punkt, Nachweis am Ende von `docs/dod/phase-4.md`. Von den
-Phase-5-DoD-Haken stehen noch zwei offen (§9).
+**Phase 4 und Phase 5 sind abgeschlossen** (15.08.2026): der Crash-Recovery-Test
+war Phase 4s letzter Punkt (`docs/dod/phase-4.md`), die Lineage-Probe der letzte
+Phase-5-Haken (§9). Damit steht auf Phasen-Ebene nichts mehr offen.
 
 ## 1. Deploy F103–F105 (ein Durchgang) — erledigt 15.08.2026
 
@@ -91,12 +91,12 @@ Phase-5-DoD-Haken stehen noch zwei offen (§9).
 - [x] **ADR-0015 steht auf `accepted`** (15.08.2026). Die Abgrenzung bleibt:
       kein CLI, kein MCP-Server, keine Backtest-Skill im Laufzeitpfad; der
       Ertrag kam über das vorhandene SDK (F103–F105, alle live).
-- [ ] **Backtest-Modul: beauftragt, noch nicht begonnen.** Der vollständige
-      Auftrag steht in
-      [F111](../features/F111-backtest-modul.md) — Leitplanken, wiederverwendbare
-      Bausteine, Artefakt-Kontrakt und die fünf Punkte, die vor dem ersten
-      Codezeichen zu klären sind. **Startbefehl in einer neuen Session:
-      „implementiere das Backtest-Modul".**
+- [x] **Backtest-Modul: umgesetzt und live** (15.08.2026,
+      [F111](../features/F111-backtest-modul.md)). Deterministische Engine im
+      Review-Zweig, Tabelle `backtest_run`, fünf Strategie-Specs, nur von Hand
+      startbar (`python -m src.backtest.run`). Kein Scheduler-Job, kein
+      LLM-Kommentar, keine UI — so entschieden in F111 §5. Der Referenzstand
+      des ersten Tages steht in F111 §9.3.
 
 ## 6. F106 — zwei weitere Tages-Newsletter (umgesetzt)
 
@@ -157,6 +157,37 @@ Deckt Newsletter, Zeitschriften-Artikel und die Yahoo-Marktnews ab; Details in
 - **CI-Pflicht-Checks:** kein neuer Job, die Ruleset-Einstellung für `main`
   bleibt wie sie ist.
 
+## 8b. Aus dem Backtest-Tag (F111-F116) - entschieden, kein Handlungsbedarf
+
+Diese Punkte kamen am 15.08.2026 beim Bauen des Backtest-Moduls hoch. Alle sind
+von dir entschieden; sie stehen hier, damit sie nicht später als "offen"
+wiederauftauchen.
+
+- [x] **Kein SIP-Abo.** Der Alpaca-Key hat nur IEX-Entitlement,
+      `market_bar.volume` ist deshalb rund 2-4 % des echten Marktvolumens (AAPL
+      meldet 1,87 Mio. gegen real ~50 Mio.). Deine Entscheidung: **kein Abo
+      abschließen.** Konsequenz: absolute Stückzahl-Schwellen sind gegen diese
+      Spalte grundsätzlich nicht belastbar. Bepreist wird die Verzerrung über
+      den Deckungsgrad-Faktor `volume_coverage`
+      ([F114](../features/F114-volumen-penalty-iex-massstab.md)); im Backtest
+      arbeitet CHARTIST stattdessen mit dem relativen `volume_ratio_20d`.
+      **Beim Bau neuer Kennzahlen daran denken.**
+- [x] **`universe_screen` bleibt LLM-Ermessen.** Die Universumskriterien in
+      `config/personas/*.yaml` werden von keinem Live-Code gelesen; sie erreichen
+      die Persona nur als Prosa im Charter. Bewusst so belassen - nicht
+      deterministisch durchsetzen. Zur Frage, ob eine bessere Formulierung die
+      Befolgung erhöht: siehe F111 §9.4 - die Antwort ist **nein, weil die
+      Daten fehlen**, nicht wegen der Formulierung.
+- [x] **Fehlender Liquiditätschutz im CHARTIST-Proxy: bewusst ignoriert.** Mit
+      der Umstellung auf `volume_ratio_20d` hat der Proxy keine absolute
+      Liquiditätuntergrenze mehr. Bei 5.000 USD Startkapital unkritisch
+      (illiquidester gehandelter Wert ~1,6 Mio. USD Tagesumsatz gegen eine
+      480-USD-Order = 0,03 %). **Bei größerem Kapital neu bewerten.**
+- [x] **Spread-Modell umgebaut**
+      ([F116](../features/F116-assetklasse-am-paarformat.md)): Krypto/Aktie
+      entscheidet sich am Paar-Format `BASE/QUOTE` statt an einer gepflegten
+      Ticker-Liste - dieselbe Struktur wie im Backtest.
+
 ## 9. Phasen-Ebene (nicht dupliziert, hier nur der Stand)
 
 Korrektur zum bisherigen Text dieses Abschnitts: die dort genannten Punkte sind
@@ -170,9 +201,8 @@ Invariante #5). Was auf Phasen-Ebene wirklich offen ist:
   auf deine Entscheidung hin bleibt die Position stehen.
 - **Phase 5:** von vier DoD-Haken sind zwei gesetzt (Review-Agent mit geführtem
   Nachweis, UI inkl. Smartphone-Test). Offen bleiben:
-  - [ ] **Lineage-Probe** — 5 zufällige Trades, Kette
-        Quelle→Research→Decision→Order→Fill→Review in der UI durchklicken,
-        Screenshots ins DoD-Dokument. Braucht dich.
+  - [x] **Lineage-Probe** — von Ralf am 15.08.2026 erfolgreich durchgeführt
+        und abgehakt. Damit ist der letzte Phase-5-DoD-Haken gesetzt.
   - [x] **Slippage-Malus im Leaderboard** — Nachweis geführt am 15.08.2026,
         Zahlen und Nachrechnung in `docs/dod/phase-5.md`. Der Nachweis hat zwei
         Darstellungsmängel gefunden (Malus als „0 $" gerundet; Abdeckung nur

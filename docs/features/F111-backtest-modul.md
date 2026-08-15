@@ -311,8 +311,8 @@ mypy (inkl. `src/db` strict) sauber.
    Reihe. Genau dafür ist der Anti-Drift-Test da (§8 Test 1); der Backtest nutzt
    jetzt dasselbe Fenster.
 
-**Lauf vom 15.08.2026** (Produktivdaten, `--all --no-save`, Fenster 2026-05-13 bis
-2026-08-14, 65 Handelstage, 325 Symbole, 331 wegen Datenqualität ausgeschlossen):
+**Erster Lauf vom 15.08.2026** (Produktivdaten, `--all --no-save`, Fenster
+2026-05-13 bis 2026-08-14, 65 Handelstage, 325 Symbole):
 
 | Strategie | Status | Rendite netto | Sortino | Max DD | Einstiege |
 |---|---|---:|---:|---:|---:|
@@ -323,6 +323,12 @@ mypy (inkl. `src/db` strict) sauber.
 | cryptor-proxy | insufficient_data | — | — | — | 0 |
 
 SPY-Referenzlinie im selben Fenster: +4,58 %.
+
+> **Diese Tabelle ist überholt und steht nur noch als Ausgangspunkt hier.**
+> Vier Dinge haben sie danach ungültig gemacht: der CHARTIST-Volumenfilter
+> (§9.2), F114 (Volumen-Penalty), F115 (Krypto-Backfill, Historie jetzt ab
+> 2025-12-09) und der `asset_class`-Fix (F114 §5.1). Der aktuelle Stand steht
+> in §9.3.
 
 **Reproduzierbarkeit verifiziert:** derselbe Lauf zweimal ⇒ identischer Fingerprint,
 identische Zahlen, `lineage.changed == {}`. Eine einzelne veränderte Bar ⇒ neuer
@@ -422,6 +428,78 @@ andere Richtung — das Tagesvolumen ist zu klein angesetzt, die Penalty schläg
 also *früher* zu als sie sollte. Betrifft Leaderboard und §4.7-Score der
 laufenden Saison, ist aber eine Geld-/Wettbewerbsfrage und damit deine
 Entscheidung.
+
+### 9.3 Referenzstand 15.08.2026 (nach F114/F115/F116)
+
+Der letzte Lauf des Tages, mit `--save` persistiert und damit in `backtest_run`
+nachlesbar. Fingerprint `96c78e6711aa6900`, 53.875 Bars, Fenster 2026-04-18 bis
+2026-08-15 (120 Handelstage), 305 Aktien-Symbole bzw. 10 Krypto-Paare:
+
+| Strategie | Status | Rendite netto | Sortino | Max DD | Einstiege | Slippage |
+|---|---|---:|---:|---:|---:|---:|
+| contra-proxy | ok | **+10,15 %** | 1,51 | 20,54 % | 78 | 18,79 $ |
+| chartist-proxy | ok | **+7,53 %** | 1,85 | 9,00 % | 20 | 4,69 $ |
+| vulture-proxy | ok | −5,73 % | −1,13 | 15,81 % | 73 | 5,43 $ |
+| cryptor-proxy | insufficient_data | −4,61 % | — | 12,42 % | 8 | 78,87 $ |
+| baseline-sma-crossover | insufficient_data | −0,66 % | — | 2,79 % | 8 | 1,50 $ |
+
+SPY-Referenzlinie: **+9,52 %**.
+
+**Wie das zu lesen ist.** Keine der beiden „ok"-Zahlen schlägt die Referenzlinie
+deutlich, und beide bleiben aus denselben Gründen wie in §9.1 mit Vorsicht zu
+genießen — Survivorship Bias, ein Universum aus dem heutigen Screener, und bei
+CHARTIST ein Depot, das die meiste Zeit überwiegend Cash hält (20 Einstiege auf
+120 Tage), was den Sortino gegenüber voll investierten Strategien überzeichnet.
+CRYPTOR bleibt unter der Schwelle: 8 Einstiege, und seine 78,87 $ Slippage auf
+5.000 $ Kapital sind die 15-bps-Spreads auf einem Universum, das erst seit F115
+tief genug ist.
+
+Zur Einordnung gegenüber §9.1: `contra-proxy` fiel von +25,28 % auf +10,15 %,
+weil es dort noch fünf Krypto-Paare mitgehandelt hat (F114 §5.1).
+`chartist-proxy` ging von −0,07 % auf +7,53 %, weil der IEX-Volumenfilter weg
+ist (§9.2). Beides sind Korrekturen, keine Marktbewegungen — die Regeln haben
+sich geändert, nicht die Kurse.
+
+### 9.4 Kann eine bessere Prompt-Formulierung die Befolgung erhöhen?
+
+Ralfs Entscheidung: `universe_screen` bleibt LLM-Ermessen, wird also nicht
+deterministisch durchgesetzt. Offene Frage war, ob eine bessere Formulierung des
+Charter-Satzes die Wahrscheinlichkeit erhöht, dass die Persona sich daran hält.
+
+**Antwort: nein — die Formulierung ist nicht der Engpass, die fehlenden Daten
+sind es.** CHARTISTs Charter sagt „Liquide US-Aktien/ETFs (Tagesvolumen > 1 Mio.
+Stück, Preis > 10 $)". Die Persona bekommt als Kerninput
+`technical_indicator`-Research-Items, und die sehen so aus:
+
+```
+Technische Indikatoren AAPL:, SMA20 über SMA50 (318.38 vs 309.12), RSI14 25.9,
+MACD -1.13 (Signal 2.15, Histogramm -3.28), Bollinger-Bänder [292.24, ...]
+```
+
+**Kein Volumen. Kein Tagesschlusskurs.** Die Persona kann das Kriterium nicht
+prüfen, weil die Zahl nicht vor ihr liegt — kein Umformulieren ändert daran
+etwas. Das deckt sich mit den echten Fills: ABG (20k IEX-Volumen), ATLC (7k),
+AMPH (33k) hätten das Kriterium klar verfehlt.
+
+**Was tatsaechlich wirken würde**, in dieser Reihenfolge:
+
+1. **Die Zahl in das Research-Item aufnehmen** (`research_synthesis.py`,
+   `_format_indicator_summary`). Das ist kein Charter-Eingriff, braucht also
+   weder `charter_version`-Bump noch ADR, und es ist fairness-neutral: der
+   Research-Pool ist geteilt, alle sechs Personas sähen dasselbe.
+2. **Aber nicht das rohe IEX-Volumen.** Das wäre schädlicher als nichts: META
+   (746k) und JPM (237k) würden unter einer 1-Mio.-Schwelle als illiquide
+   erscheinen, obwohl sie zu den liquidesten Werten überhaupt zählen. CHARTIST
+   würde also gerade die grossen Namen meiden. Sinnvoll sind nur ein
+   **relatives** Maß (Volumen gegen den eigenen 20-Tage-Schnitt, wie im
+   Backtest) oder der über `volume_coverage` hochgerechnete Schätzwert.
+3. **Erst danach lohnt sich am Satz zu feilen** — etwa indem er benennt, woran
+   die Persona Liquidität erkennen soll, statt eine absolute Stückzahl zu
+   nennen, die sie nicht nachschlagen kann.
+
+**Nicht umgesetzt.** Punkt 1 ändert mitten in der Saison, was alle sechs
+Personas sehen. Das ist zwar fairness-neutral, aber es ist eine Verhaltens-
+änderung im laufenden Wettbewerb und damit Ralfs Entscheidung, nicht meine.
 
 ## 10. Betrieb, Rollback, Livesetzung
 
