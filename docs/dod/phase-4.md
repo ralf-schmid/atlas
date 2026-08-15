@@ -577,9 +577,18 @@ keine Fills entstehen. Das stimmt nicht: CONTRA hat aus dem Testzyklus heraus
 außerhalb der regulären Handelszeit). Der Test hat damit genau den Effekt
 erzeugt, den ich vermeiden wollte — CONTRA bekam eine Handelsgelegenheit, die
 kein anderes Depot hatte. Das berührt Invariante #10 und das Wertungskriterium
-Trade-Count. **Entscheidung darüber liegt bei Ralf** (Position stehen lassen und
-hier vermerkt, oder rückabwickeln — wobei die Rückabwicklung selbst wieder ein
-Trade wäre). Bis dahin bleibt die Position unangetastet.
+Trade-Count.
+
+**Ralfs Entscheidung (15.08.2026): Position bleibt stehen.** Keine
+Rückabwicklung — die wäre selbst wieder ein Trade und würde die Statistik ein
+zweites Mal anfassen. Die Position läuft ab jetzt wie jede andere: sie wird
+bewertet, kann verkauft werden und bekommt ihr Review. Damit ist dies ein
+dokumentierter Eingriff in die Saison, der bei der Auswertung nach §4.7
+mitzudenken ist: **CONTRA hat einen Trade mehr als planmäßig** (Zyklus `seq=8`
+vom 15.08.2026, AAPL @ 305,94 USD). Bei einem Trade-Count-Gewicht, das über
+mehrere Wochen zweistellige Trade-Zahlen vergleicht, ist der Effekt klein, aber
+er ist nicht null — und er steht hier, damit er nicht später als Rauschen
+missdeutet wird.
 
 **Nebenbefund, positiv:** das Log des Testzyklus zeigt F108 im Echtbetrieb —
 `technical indicators skipped: symbol=XHG reason=price_level_break factor=5.23

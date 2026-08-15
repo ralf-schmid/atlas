@@ -141,7 +141,9 @@ Persona-Pfad — sonst entstehen Kosten- und Fairness-Asymmetrien.
 * ~~Backtest-Modul: geparkt.~~ **Beauftragt am 15.08.2026** (Ralf). Umsetzung
   entlang der hier gesetzten Leitplanken: deterministisches Code-Modul im
   Review-Zweig, kein Zugriff aus dem Persona-Pfad, Artefakt-Kontrakt der Skill
-  als Vorlage. Siehe das zugehörige Feature-Dokument.
+  als Vorlage. Auftragsdokument:
+  [F111](../features/F111-backtest-modul.md) — dort stehen auch die fünf
+  Punkte, die vor der Implementierung zu klären sind.
 
 ## Pro/Contra der Optionen
 

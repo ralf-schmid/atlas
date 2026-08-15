@@ -6,11 +6,19 @@ wirken. Stand: 2026-08-15. Reihenfolge = empfohlene Abarbeitung.
 Alles hier ist **Betrieb**, nicht Entwicklung. Erledigte Punkte abhaken und
 den Nachweis im jeweiligen Feature-Dokument (§5) nachtragen — nicht hier.
 
-**Deploy-Durchgang vom 15.08.2026:** F103–F107 sind auf der Box live (rsync,
+**Deploy-Durchgang vom 15.08.2026:** F103–F110 sind auf der Box live (rsync,
 `build api web scheduler telegram-bot`, `up -d`, `alembic upgrade head`, beide
 n8n-Zweige aktiv, F103-Backfill gelaufen). Was hier noch offen steht, sind
 ausschließlich Beobachtungs- und Entscheidungspunkte, die Zeit oder dich
 brauchen — kein Deploy-Schritt mehr.
+
+**Als Nächstes geplant:** das Backtest-Modul, siehe §5 und
+[F111](../features/F111-backtest-modul.md). Eigene Session, Startbefehl
+„implementiere das Backtest-Modul".
+
+**Phase 4 ist abgeschlossen** (15.08.2026): der Crash-Recovery-Test war der
+letzte offene Punkt, Nachweis am Ende von `docs/dod/phase-4.md`. Von den
+Phase-5-DoD-Haken stehen noch zwei offen (§9).
 
 ## 1. Deploy F103–F105 (ein Durchgang) — erledigt 15.08.2026
 
@@ -80,14 +88,15 @@ brauchen — kein Deploy-Schritt mehr.
 
 ## 5. Aus ADR-0015 (Alpaca-Agent-Research-Tooling)
 
-- [ ] **ADR-0015 von `proposed` auf `accepted` setzen**, sobald du die
-      Abgrenzung mitträgst (kein CLI, kein MCP-Server, keine Backtest-Skill im
-      Laufzeitpfad; Übernahme nur über das vorhandene SDK).
-- [ ] **Offen zur Entscheidung, bewusst nicht gebaut:** ein deterministisches
-      Backtest-Modul im Review-Zweig (P5+), das den Reproduzierbarkeits-Kontrakt
-      der Alpaca-Skill nachbaut (Spec + Config + Data-Fingerprint + Run-Lineage).
-      Braucht deine Anforderung — Backtesting steht in keiner Phase von
-      ARCHITECTURE.md §8.
+- [x] **ADR-0015 steht auf `accepted`** (15.08.2026). Die Abgrenzung bleibt:
+      kein CLI, kein MCP-Server, keine Backtest-Skill im Laufzeitpfad; der
+      Ertrag kam über das vorhandene SDK (F103–F105, alle live).
+- [ ] **Backtest-Modul: beauftragt, noch nicht begonnen.** Der vollständige
+      Auftrag steht in
+      [F111](../features/F111-backtest-modul.md) — Leitplanken, wiederverwendbare
+      Bausteine, Artefakt-Kontrakt und die fünf Punkte, die vor dem ersten
+      Codezeichen zu klären sind. **Startbefehl in einer neuen Session:
+      „implementiere das Backtest-Modul".**
 
 ## 6. F106 — zwei weitere Tages-Newsletter (umgesetzt)
 
@@ -155,14 +164,16 @@ längst erledigt — der tägliche Digest durch F070 (18.07.2026), und HITL ist 
 `paper` seit F072 gar nicht mehr zutreffend (`live` bleibt HITL-pflichtig,
 Invariante #5). Was auf Phasen-Ebene wirklich offen ist:
 
-- **Phase 4:** nur noch der **Crash-Recovery-Test** — Container-Kill mitten im
-  Zyklus, Resume über den Postgres-Checkpointer nachweisen. Kein Feature, ein
-  dokumentierter Test (`docs/dod/phase-5.md` §„Reihenfolge", Punkt 1).
-- **Phase 5:** vier DoD-Haken offen (`docs/dod/phase-5.md`). Zwei davon brauchen
-  **dich**, nicht Code: der Smartphone-Test der UI (~390 px) und die
-  Lineage-Probe (5 zufällige Trades, Kette Quelle→Research→Decision→Order→Fill
-  →Review in der UI, Screenshots ins DoD-Dokument). Die anderen beiden
-  (Review-Agent, Slippage-Malus im Leaderboard) sind gebaut und laufen — Stand
-  15.08.: 7 `review`- und 10 `meta_review`-Zeilen bei 56 ausgeführten Decisions
-  —, aber der formale Nachweis „jede geschlossene Position hat binnen 7 Tagen
-  ein Review" ist nie geführt worden.
+- **Phase 4: abgeschlossen** (15.08.2026). Der Crash-Recovery-Test ist gefahren,
+  Nachweis am Ende von `docs/dod/phase-4.md`. Dort steht auch der dokumentierte
+  Nebeneffekt: der Testzyklus hat CONTRA einen zusätzlichen AAPL-Trade beschert;
+  auf deine Entscheidung hin bleibt die Position stehen.
+- **Phase 5:** von vier DoD-Haken sind zwei gesetzt (Review-Agent mit geführtem
+  Nachweis, UI inkl. Smartphone-Test). Offen bleiben:
+  - [ ] **Lineage-Probe** — 5 zufällige Trades, Kette
+        Quelle→Research→Decision→Order→Fill→Review in der UI durchklicken,
+        Screenshots ins DoD-Dokument. Braucht dich.
+  - [ ] **Slippage-Malus im Leaderboard** — gebaut und live (F083/F085/F104),
+        aber der Haken ist nie gesetzt worden. Vermutlich nur ein
+        Verifikationsschritt, kein Bau: Leaderboard gegen die DB gegenlesen und
+        das Ergebnis eintragen.
