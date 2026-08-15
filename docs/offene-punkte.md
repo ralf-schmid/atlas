@@ -55,19 +55,18 @@ brauchen — kein Deploy-Schritt mehr.
 
 ## 4. F105 — Alpaca News + Screener
 
-- [ ] **Entitlement prüfen (der Punkt mit dem echten Risiko).** Der
-      Marktdaten-Key hat nur IEX-Entitlement. Ob News- und Screener-Endpoints auf
-      dieser Stufe freigeschaltet sind, ließ sich ohne Credentials nicht
-      verifizieren. Ersten Lauf beobachten: bei fehlendem Entitlement kommt ein
-      Alpaca-`APIError`, nach zwei Fehlläufen ein Telegram-Alert — kein anderer
-      Job und kein Zyklus leidet darunter. Falls nur eine der beiden Quellen
-      entitled ist, den anderen Eintrag auf `enabled: false` setzen
-      (`config/ingestion.yaml`, Sektion `schedule`).
-- [ ] **Nach dem ersten Lauf:** Zeilenzahl in `market_news_headline` mit
-      `guid LIKE 'alpaca:%'` und in `market_mover` prüfen; im nächsten Zyklus
-      stichprobenhaft ein `research_item` mit `source_type='market_mover'` und
-      eines mit gefülltem `instruments` in der UI ansehen (Decision Journal /
-      Agent Trace).
+- [x] **Entitlement geklärt (15.08.2026) — beide Endpoints sind freigeschaltet.**
+      Der erste Job-Lauf um 07:10 UTC hat 50 Zeilen in `market_news_headline`
+      (`guid LIKE 'alpaca:%'`) und 50 in `market_mover` geschrieben, kein
+      `APIError`, kein Telegram-Alert. Das IEX-Entitlement des Marktdaten-Keys
+      reicht also für News **und** Screener; der `enabled: false`-Notausgang
+      wird nicht gebraucht.
+- [ ] **Noch anzusehen:** im nächsten Zyklus stichprobenhaft ein `research_item`
+      mit `source_type='market_mover'` und eines mit gefülltem `instruments` in
+      der UI (Decision Journal / Agent Trace). Nebenbefund beim Zählen: unter den
+      Movern stehen auch Krypto-Symbole (`BONK/USD`) und Warrants (`TMCWW`) —
+      ansehen, ob das für die Aktien-Personas sinnvoll ist oder ob der
+      Screener-Job auf `us_equity` eingegrenzt werden sollte.
 - [ ] **Nach einem vollen Tag `cost_ledger` gegenprüfen.** Mehr Research-Zeilen
       heißt größerer Persona-Prompt in jedem der 4 Zyklen × 6 Personas. Wenn es
       zu teuer wird, sind `alpaca_news.limit` (50) und `alpaca_screener.top` (10)
@@ -144,9 +143,21 @@ Deckt Newsletter, Zeitschriften-Artikel und die Yahoo-Marktnews ab; Details in
 - **CI-Pflicht-Checks:** kein neuer Job, die Ruleset-Einstellung für `main`
   bleibt wie sie ist.
 
-## 9. Älteres, hier nur verlinkt
+## 9. Phasen-Ebene (nicht dupliziert, hier nur der Stand)
 
-Die Phase-4-Punkte, die vor dieser Session offen waren, stehen weiterhin in
-`docs/dod/phase-4.md` → „Weiterhin offen" (HITL-End-to-End-Testrunde mit
-`/hitl on`, Bestätigung der täglichen Digest-Zustellung). Sie sind hier bewusst
-nicht dupliziert.
+Korrektur zum bisherigen Text dieses Abschnitts: die dort genannten Punkte sind
+längst erledigt — der tägliche Digest durch F070 (18.07.2026), und HITL ist für
+`paper` seit F072 gar nicht mehr zutreffend (`live` bleibt HITL-pflichtig,
+Invariante #5). Was auf Phasen-Ebene wirklich offen ist:
+
+- **Phase 4:** nur noch der **Crash-Recovery-Test** — Container-Kill mitten im
+  Zyklus, Resume über den Postgres-Checkpointer nachweisen. Kein Feature, ein
+  dokumentierter Test (`docs/dod/phase-5.md` §„Reihenfolge", Punkt 1).
+- **Phase 5:** vier DoD-Haken offen (`docs/dod/phase-5.md`). Zwei davon brauchen
+  **dich**, nicht Code: der Smartphone-Test der UI (~390 px) und die
+  Lineage-Probe (5 zufällige Trades, Kette Quelle→Research→Decision→Order→Fill
+  →Review in der UI, Screenshots ins DoD-Dokument). Die anderen beiden
+  (Review-Agent, Slippage-Malus im Leaderboard) sind gebaut und laufen — Stand
+  15.08.: 7 `review`- und 10 `meta_review`-Zeilen bei 56 ausgeführten Decisions
+  —, aber der formale Nachweis „jede geschlossene Position hat binnen 7 Tagen
+  ein Review" ist nie geführt worden.

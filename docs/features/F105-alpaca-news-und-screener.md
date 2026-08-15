@@ -1,6 +1,6 @@
 # F105 — Alpaca News + Screener als geteilte Research-Quellen
 
-Status: live auf der Box (15.08.2026), Entitlement-Prüfung am ersten Lauf offen (§5)
+Status: live auf der Box (15.08.2026), Entitlement bestätigt (§5)
 Datum: 2026-08-11
 Phase: 3-Nachzügler (Ingestion), wirkt auf den Pool aller Personas
 
@@ -132,11 +132,19 @@ Filter auf den neuen Quellen.
   Telegram (bestehender `_run_with_failure_alert`-Pfad) — kein anderer Job und
   kein Zyklus wird dadurch beeinträchtigt. Falls nur eine der beiden Quellen
   entitled ist, den anderen Schedule-Eintrag auf `enabled: false` setzen.
-- **Nach dem ersten Lauf verifizieren** (hier nachtragen): Zeilenzahl in
-  `market_news_headline` mit `guid LIKE 'alpaca:%'` und in `market_mover`;
-  danach im nächsten Zyklus stichprobenhaft ein `research_item` mit
+- **Entitlement bestätigt (15.08.2026).** Der erste Lauf um 07:10 UTC schrieb
+  **50 Zeilen** in `market_news_headline` (`guid LIKE 'alpaca:%'`, entspricht
+  `alpaca_news.limit`) und **50** in `market_mover` — kein `APIError`, kein
+  Telegram-Alert. Das IEX-Entitlement reicht für beide Endpoints, der
+  `enabled: false`-Notausgang wird nicht gebraucht.
+- **Noch anzusehen:** im nächsten Zyklus stichprobenhaft ein `research_item` mit
   `source_type='market_mover'` und eines mit gefülltem `instruments` in der UI
-  (Decision Journal / Agent Trace) ansehen.
+  (Decision Journal / Agent Trace).
+- **Nebenbefund beim Zählen:** unter den Movern stehen auch Krypto-Paare
+  (`BONK/USD`) und Warrants (`TMCWW`). Für CRYPTOR ist Ersteres ggf. brauchbar,
+  für die Aktien-Personas ist beides Rauschen — zu klären, ob der Screener-Job
+  auf `us_equity` eingegrenzt wird. Kein Fehler, deshalb nicht eigenmächtig
+  geändert.
 - **Rollback-Pfad:** `schedule.alpaca_news.enabled: false` bzw.
   `schedule.alpaca_screener.enabled: false` in `config/ingestion.yaml` — die
   Jobs werden dann gar nicht erst registriert, die Synthese findet nichts Neues
