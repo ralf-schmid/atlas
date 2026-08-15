@@ -90,6 +90,21 @@ _NUMERIC_COMPARE: dict[str, Callable[[float, float], bool]] = {
 }
 
 
+ASSET_CLASSES = frozenset({"equities", "crypto"})
+
+
+def symbol_asset_class(symbol: str) -> str:
+    """ "crypto" for an Alpaca pair (`BTC/USD`), else "equities".
+
+    Deliberately keyed on the pair notation rather than on
+    `slippage._asset_class`'s substring list: that list exists to price spreads
+    and has to guess from a ticker fragment, while `market_bar` stores crypto
+    unambiguously as `BASE/QUOTE`. Using it here also keeps the universe stable
+    when someone adds a ticker to `crypto_symbols` for pricing reasons.
+    """
+    return "crypto" if "/" in symbol else "equities"
+
+
 @dataclass(frozen=True, slots=True)
 class Universe:
     """Which symbols may be considered at all, and under which per-day screen.
@@ -101,6 +116,7 @@ class Universe:
     """
 
     symbols: list[str] | None  # None = every symbol in market_bar
+    asset_class: str | None  # "equities" | "crypto"; None = no restriction
     filters: list[Condition]
 
 
@@ -209,8 +225,15 @@ def _parse_universe(block: dict[str, Any], path: Path) -> Universe:
         if not isinstance(symbols, list) or not all(isinstance(s, str) for s in symbols):
             raise SpecError(f"{path.name}: universe.symbols must be a list of strings")
         symbols = list(symbols)
+    asset_class = block.get("asset_class")
+    if asset_class is not None and asset_class not in ASSET_CLASSES:
+        raise SpecError(
+            f"{path.name}: universe.asset_class must be one of {sorted(ASSET_CLASSES)}, "
+            f"got {asset_class!r}"
+        )
     return Universe(
         symbols=symbols,
+        asset_class=asset_class,
         filters=_parse_conditions(block.get("filters") or [], path, "universe.filters"),
     )
 

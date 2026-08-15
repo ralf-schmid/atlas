@@ -12,6 +12,7 @@ persona: CRYPTOR
 screen_modelled: [universe]
 
 universe:
+  asset_class: crypto
   # Deckungsgleich mit config/personas/cryptor.yaml universe_screen
   # (charter_version 3, ADR-0016) — der Proxy bildet den Charter nach, er waehlt
   # sich kein eigenes Universum.

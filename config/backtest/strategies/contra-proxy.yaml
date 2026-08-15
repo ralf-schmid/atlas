@@ -13,6 +13,10 @@ persona: CONTRA
 screen_modelled: [drawdown_min_pct, drawdown_window_days]
 
 universe:
+  # Aktien-Persona: Krypto-Paare gehoeren nicht ins Universum. Ohne diese Zeile
+  # sieht eine Spec ohne `symbols` ALLE Symbole in market_bar, seit ADR-0016 also
+  # auch zehn Krypto-Paare (F114 §5: contra-proxy kaufte AAVE/ADA/AVAX/DOT/SOL).
+  asset_class: equities
   filters:
     - {signal: drawdown_20d, op: gte, value: 0.15}
 

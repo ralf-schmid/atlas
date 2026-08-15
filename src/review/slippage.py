@@ -103,7 +103,12 @@ def compute_slippage_malus(
     spread_cost = 0.5 * spread_bps / 10_000 * order_value
 
     # --- Volume penalty ---
-    daily_dollar_volume = _get_daily_dollar_volume(session, decision.instrument, order.submitted_at)
+    observed_volume = _get_daily_dollar_volume(session, decision.instrument, order.submitted_at)
+    daily_dollar_volume = (
+        estimated_market_dollar_volume(observed_volume, decision.instrument, config)
+        if observed_volume
+        else observed_volume
+    )
     penalty = (
         _compute_penalty(order_value, daily_dollar_volume, config)
         if daily_dollar_volume
@@ -139,13 +144,65 @@ def _get_spread_bps(order: OrderRecord, symbol: str, config: dict[str, Any]) -> 
 
 def _flat_spread_bps(symbol: str, config: dict[str, Any]) -> float:
     """Return the spread in basis points for *symbol* based on asset class."""
+    return float(config.get("spread_bps", {}).get(_asset_class(symbol, config), 5))
+
+
+def _asset_class(symbol: str, config: dict[str, Any]) -> str:
+    """ "crypto" or "equities", by the configured suffix heuristic.
+
+    Shared by the spread rate and the volume coverage (F114) on purpose: two
+    copies of this classification would eventually disagree about a symbol, and
+    then one half of the malus would treat it as crypto and the other as equity.
+    """
     crypto_symbols = config.get(
         "crypto_symbols",
         ["BTC", "ETH", "USDT", "USDC", "XRP", "DOGE", "SOL"],
     )
-    is_crypto = any(sym in symbol.upper() for sym in crypto_symbols)
-    key = "crypto" if is_crypto else "equities"
-    return float(config.get("spread_bps", {}).get(key, 5))
+    return "crypto" if any(sym in symbol.upper() for sym in crypto_symbols) else "equities"
+
+
+def estimated_market_dollar_volume(
+    observed_dollar_volume: float, symbol: str, config: dict[str, Any]
+) -> float:
+    """Scale the observed daily dollar volume up to an estimate of the whole market.
+
+    F114. `market_bar.volume` is not the consolidated tape: `market_data_sync.py`
+    requests `feed=DataFeed.IEX` because the paper key has no SIP entitlement, so
+    the number covers only IEX's share of US equity trading (AAPL reported
+    1.87M against roughly 50M traded on 15.08.2026). ARCHITECTURE.md §7.8 defines
+    the penalty against "1 % des Tagesvolumens", meaning the market — so the
+    denominator has to be an estimate of the market, not of one venue.
+
+    **The factor is an estimate, not a measurement.** ATLAS holds no consolidated
+    volume source to calibrate against; `screener_result` was checked and carries
+    the same IEX data at a different time of day (ratios 0.88-3.87 against
+    `market_bar`, i.e. noise, not coverage). It therefore lives in
+    `config/review.yaml` as a named parameter with its provenance documented in
+    F114 §2, and a missing or nonsensical value means "do not correct" rather than
+    a silent shift of a competition metric.
+    """
+    coverage = _volume_coverage(symbol, config)
+    if coverage <= 0 or coverage > 1:
+        logger.warning(
+            "slippage: implausible volume_coverage %s for %s — leaving volume uncorrected",
+            coverage,
+            symbol,
+        )
+        return observed_dollar_volume
+    return observed_dollar_volume / coverage
+
+
+def _volume_coverage(symbol: str, config: dict[str, Any]) -> float:
+    """Fraction of the real market volume the feed captures. 1.0 = no correction.
+
+    Crypto deliberately defaults to 1.0: Alpaca's crypto bars report volume on
+    Alpaca's own venue (BTC/USD showed ~1 BTC on 14.08.2026), so the shortfall is
+    real but its size is unknown — and crypto is the only asset class whose orders
+    come anywhere near the threshold. Guessing a factor there would loosen a live
+    metric on nothing; 1.0 keeps the stricter status quo (F114 §2).
+    """
+    coverage = config.get("volume_coverage", {})
+    return float(coverage.get(_asset_class(symbol, config), 1.0))
 
 
 def _get_daily_dollar_volume(

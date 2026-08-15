@@ -14,6 +14,10 @@ screen_modelled: [price_max, daily_volume_min]
 screen_not_modelled: [market_cap_max]
 
 universe:
+  # Aktien-Persona: Krypto-Paare gehoeren nicht ins Universum. Ohne diese Zeile
+  # sieht eine Spec ohne `symbols` ALLE Symbole in market_bar, seit ADR-0016 also
+  # auch zehn Krypto-Paare (F114 §5: contra-proxy kaufte AAVE/ADA/AVAX/DOT/SOL).
+  asset_class: equities
   filters:
     - {signal: close, op: lte, value: 5}
     - {signal: volume, op: gte, value: 500000}

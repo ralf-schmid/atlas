@@ -14,6 +14,7 @@ from src.backtest.spec import (
     SpecError,
     load_all_strategies,
     load_strategy,
+    symbol_asset_class,
 )
 from tests.backtest.conftest import write_spec
 
@@ -185,3 +186,42 @@ def _guardrails() -> dict[str, object]:
         "min_cash_pct": 0.0,
         "stop_loss_policy": {"type": "fixed", "max_loss_pct": 0.15},
     }
+
+
+def test_every_shipped_spec_declares_its_asset_class() -> None:
+    """F114 §5. A spec without `symbols` sees the whole universe, and since ADR-0016
+    widened CRYPTOR's charter that universe contains ten crypto pairs. contra-proxy
+    bought five of them (22 trades) although CONTRA trades US Mid/Large Caps.
+
+    Declaring the class is therefore mandatory, not optional — an undeclared spec
+    would silently inherit the mixed universe again the next time one is added.
+    """
+    for spec in load_all_strategies(DEFAULT_STRATEGY_DIR):
+        assert spec.universe.asset_class is not None, spec.name
+    by_name = {spec.name: spec for spec in load_all_strategies(DEFAULT_STRATEGY_DIR)}
+    assert by_name["cryptor-proxy"].universe.asset_class == "crypto"
+    for name in ("chartist-proxy", "contra-proxy", "vulture-proxy", "baseline-sma-crossover"):
+        assert by_name[name].universe.asset_class == "equities", name
+
+
+def test_unknown_asset_class_fails_at_load(tmp_path) -> None:
+    with pytest.raises(SpecError, match="asset_class"):
+        write_spec(
+            tmp_path,
+            {
+                "name": "broken",
+                "description": "test",
+                "guardrails": _guardrails(),
+                "universe": {"asset_class": "commodities"},
+                "entry": [{"signal": "close", "op": "gt", "value": 1}],
+            },
+        )
+
+
+def test_symbol_asset_class_uses_the_pair_notation() -> None:
+    """Keyed on `BASE/QUOTE`, not on the spread config's substring list — otherwise
+    adding a ticker there for pricing reasons would move symbols between universes."""
+    assert symbol_asset_class("BTC/USD") == "crypto"
+    assert symbol_asset_class("AAVE/USD") == "crypto"
+    assert symbol_asset_class("AAPL") == "equities"
+    assert symbol_asset_class("LINK") == "equities"  # the equity ticker, not the coin

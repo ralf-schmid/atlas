@@ -22,6 +22,13 @@ slippage:
     crypto: 15
 
   # Suffix-based heuristic to distinguish crypto from equity symbols.
+  # MUSS jedes Paar aus CRYPTORs universe_screen enthalten (config/personas/
+  # cryptor.yaml) — sonst bekommt ein Krypto-Paar den Aktien-Spread (5 statt 15 bps)
+  # und seit F114 zusaetzlich den Aktien-Deckungsgrad auf ein Boersenvolumen, fuer
+  # das er nicht gilt. AVAX/AAVE/UNI/LINK fehlten nach der Universums-Erweiterung
+  # aus ADR-0016 und wurden am 15.08.2026 nachgetragen; der Test
+  # `test_every_cryptor_pair_is_classified_as_crypto` haelt beide Dateien jetzt
+  # zusammen.
   crypto_symbols:
     - BTC
     - ETH
@@ -33,6 +40,31 @@ slippage:
     - ADA
     - DOT
     - MATIC
+    - AVAX
+    - AAVE
+    - UNI
+    - LINK
+
+  # F114: Anteil des echten Marktvolumens, den der Datenfeed ueberhaupt sieht.
+  # Der Nenner der Volumen-Penalty ist `market_bar.volume x close`, und
+  # market_data_sync.py holt Bars mit feed=DataFeed.IEX (der Paper-Key hat kein
+  # SIP-Entitlement). Gemessen 15.08.2026: AAPL meldet 1,87 Mio. Stueck gegen
+  # real ~50 Mio., META 746k, JPM 237k. Ohne Korrektur schlaegt die Penalty
+  # entsprechend zu frueh zu.
+  #
+  # ACHTUNG, das ist eine SCHAETZUNG, keine Messung: ATLAS hat keine Quelle fuer
+  # konsolidiertes Volumen, gegen die sich das kalibrieren liesse (screener_result
+  # wurde geprueft und ist dieselbe IEX-Quelle zu anderer Uhrzeit). Herleitung und
+  # Vorbehalte in docs/features/F114-volumen-penalty-iex-massstab.md §2.
+  # 1.0 = keine Korrektur und exakt das Verhalten vor F114 (= Rollback-Pfad).
+  volume_coverage:
+    equities: 0.035
+    # Krypto bewusst unkorrigiert: Alpacas Krypto-Bars melden das Volumen der
+    # eigenen Boerse (BTC/USD am 14.08.2026: rund 1 BTC), der Deckungsgrad ist
+    # also unbekannt und sicher nicht 3,5 %. Krypto ist zugleich die einzige
+    # Assetklasse, deren Orders der Schwelle nahekommen (BTC 0,61 % gegen 1 %) —
+    # ein geratener Faktor wuerde dort eine Live-Kennzahl auf nichts lockern.
+    crypto: 1.0
 
   # Volume-based penalty: additional cost when an order exceeds
   # a fraction of the daily trading volume (simulates market impact).

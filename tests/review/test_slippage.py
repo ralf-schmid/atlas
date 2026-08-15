@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 from sqlalchemy.orm import Session
@@ -23,7 +24,12 @@ from src.db.models import (
     Portfolio,
     PortfolioMode,
 )
-from src.review.slippage import compute_slippage_malus
+from src.review.slippage import (
+    _asset_class,
+    compute_slippage_malus,
+    estimated_market_dollar_volume,
+    load_slippage_config,
+)
 
 
 def _add_bar(
@@ -149,6 +155,11 @@ class TestSlippageSpread:
 
     def test_equity_penalty_triggered(self, session: Session) -> None:
         """Order 20% of daily dollar volume → penalty applies.
+
+        Runs with `volume_coverage` neutralised (F114): this test pins the F083
+        penalty *formula*, and the shipped 0.035 equity coverage would push the
+        same order below the threshold and silently turn it into a spread-only
+        test. The coverage factor has its own tests in `TestVolumeCoverage`.
         order_value = $100 × 200k = $20,000,000
         daily_dollar_volume = 1M shares × $100 = $100,000,000
         order_vol_pct = $20M / $100M = 20% → above 1% threshold
@@ -167,7 +178,7 @@ class TestSlippageSpread:
             fill_price=fill_price,
             qty=Decimal(str(order_qty)),
         )
-        result = compute_slippage_malus(session, order)
+        result = compute_slippage_malus(session, order, _coverage_neutral_config())
         assert result is not None
         assert result == pytest.approx(Decimal("105000.00"))
 
@@ -308,3 +319,144 @@ class TestMeasuredSpread:
         )
 
         assert result == pytest.approx(Decimal("0.25"))
+
+
+def _coverage_neutral_config() -> dict:
+    """The shipped config with the F114 feed correction switched off (1.0).
+
+    Used by tests that pin the F083 penalty formula itself, so a change to the
+    coverage estimate can never quietly rewrite what they assert.
+    """
+    config = load_slippage_config()
+    config = {**config, "volume_coverage": {"equities": 1.0, "crypto": 1.0}}
+    return config
+
+
+class TestVolumeCoverage:
+    """F114 §4 — the IEX correction on the penalty denominator."""
+
+    def test_volume_coverage_scales_the_penalty_denominator(self, session: Session) -> None:
+        """Test 1. Order = 20 % of the *observed* volume. At coverage 0.10 the
+        estimated market volume is 10x larger, so the order is 2 % of it:
+
+            order_value          = $100 x 200k        = $20,000,000
+            observed $-volume    = 1M x $100          = $100,000,000
+            estimated $-volume   = $100M / 0.10       = $1,000,000,000
+            order_vol_pct        = 20M / 1B           = 2 %   (was 20 %)
+            penalty_bps          = 10 x (2/1 - 1)     = 10    (was capped at 50)
+            penalty_usd          = 10/10000 x $20M    = $20,000
+            spread_usd           = 0.5 x 5bps x $20M  = $5,000
+            total                                     = $25,000
+        """
+        _add_bar(session, "AAPL", volume=1_000_000, close=100.0)
+        order = _make_order(
+            session, symbol="AAPL", fill_price=Decimal("100.00"), qty=Decimal("200000")
+        )
+        config = {**_coverage_neutral_config(), "volume_coverage": {"equities": 0.10}}
+
+        result = compute_slippage_malus(session, order, config)
+
+        assert result == pytest.approx(Decimal("25000.00"))
+
+    def test_coverage_of_one_reproduces_the_old_behaviour(self, session: Session) -> None:
+        """Test 3. The documented rollback path (F114 §6) must be exact, not close."""
+        _add_bar(session, "AAPL", volume=1_000_000, close=100.0)
+        order = _make_order(
+            session, symbol="AAPL", fill_price=Decimal("100.00"), qty=Decimal("200000")
+        )
+
+        result = compute_slippage_malus(session, order, _coverage_neutral_config())
+
+        assert result == pytest.approx(Decimal("105000.00"))
+
+    def test_penalty_below_threshold_stays_zero_after_correction(self, session: Session) -> None:
+        """Test 2. Enlarging the denominator can only ever reduce the penalty — an
+        order already below the threshold must not acquire one (sign error guard)."""
+        _add_bar(session, "AAPL", volume=1_000_000, close=100.0)
+        order = _make_order(session, symbol="AAPL", qty=Decimal("5000"))  # 0.5 %
+
+        corrected = compute_slippage_malus(session, order)
+        neutral = compute_slippage_malus(session, order, _coverage_neutral_config())
+
+        assert corrected == neutral == pytest.approx(Decimal("125.00"))  # spread only
+
+    def test_crypto_uses_its_own_coverage(self, session: Session) -> None:
+        """Test 4. Crypto ships uncorrected (1.0) because Alpaca reports its own
+        venue's volume, not the world's — F114 §2. An equity coverage of 0.035 must
+        not leak onto BTC."""
+        _add_bar(session, "BTC/USD", volume=1_000_000, close=100.0)
+        order = _make_order(
+            session, symbol="BTC/USD", fill_price=Decimal("100.00"), qty=Decimal("200000")
+        )
+        config = {
+            **_coverage_neutral_config(),
+            "volume_coverage": {"equities": 0.035, "crypto": 1.0},
+        }
+
+        result = compute_slippage_malus(session, order, config)
+
+        # Uncorrected: 20 % of volume -> capped penalty, crypto spread 15 bps.
+        # penalty 50/10000 x $20M = $100,000; spread 0.5 x 15bps x $20M = $15,000
+        assert result == pytest.approx(Decimal("115000.00"))
+
+    def test_missing_coverage_config_defaults_to_uncorrected(self, session: Session) -> None:
+        """Test 5. A missing parameter must not move a competition metric."""
+        _add_bar(session, "AAPL", volume=1_000_000, close=100.0)
+        order = _make_order(
+            session, symbol="AAPL", fill_price=Decimal("100.00"), qty=Decimal("200000")
+        )
+        config = {key: value for key, value in _coverage_neutral_config().items()}
+        config.pop("volume_coverage", None)
+
+        result = compute_slippage_malus(session, order, config)
+
+        assert result == pytest.approx(Decimal("105000.00"))
+
+    @pytest.mark.parametrize("bad", [0, -0.5, 1.5])
+    def test_coverage_zero_or_out_of_range_is_ignored(self, session: Session, bad: float) -> None:
+        """Test 6. 0 would divide by zero, > 1 would claim the feed sees more than
+        the market. Both fall back to "no correction" instead of producing a number."""
+        _add_bar(session, "AAPL", volume=1_000_000, close=100.0)
+        order = _make_order(
+            session, symbol="AAPL", fill_price=Decimal("100.00"), qty=Decimal("200000")
+        )
+        config = {**_coverage_neutral_config(), "volume_coverage": {"equities": bad}}
+
+        result = compute_slippage_malus(session, order, config)
+
+        assert result == pytest.approx(Decimal("105000.00"))
+
+    def test_shipped_config_corrects_equities_and_not_crypto(self) -> None:
+        """The values that actually ship — a typo in review.yaml would otherwise only
+        surface as a quietly shifted leaderboard."""
+        config = load_slippage_config()
+
+        assert config["volume_coverage"]["equities"] == 0.035
+        assert config["volume_coverage"]["crypto"] == 1.0
+        assert estimated_market_dollar_volume(3_500.0, "AAPL", config) == pytest.approx(100_000.0)
+        assert estimated_market_dollar_volume(3_500.0, "BTC/USD", config) == pytest.approx(3_500.0)
+
+
+def test_every_cryptor_pair_is_classified_as_crypto() -> None:
+    """Anti-drift between config/personas/cryptor.yaml and config/review.yaml.
+
+    A pair missing from `crypto_symbols` silently gets the equity spread (5 instead
+    of 15 bps) and, since F114, the equity volume coverage applied to an exchange
+    volume it was never meant for. Exactly that happened to AVAX/AAVE/UNI/LINK when
+    ADR-0016 widened CRYPTOR's universe from three pairs to ten — found on
+    15.08.2026 while verifying F114, fixed in the same commit.
+    """
+    import yaml as _yaml
+
+    charter = _yaml.safe_load(Path("config/personas/cryptor.yaml").read_text(encoding="utf-8"))
+    config = load_slippage_config()
+
+    misclassified = [
+        pair
+        for pair in charter["universe_screen"]["universe"]
+        if _asset_class(pair, config) != "crypto"
+    ]
+    assert not misclassified, (
+        f"{misclassified} would be priced as equities — add their ticker to "
+        "slippage.crypto_symbols in config/review.yaml"
+    )

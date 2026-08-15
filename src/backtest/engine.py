@@ -18,9 +18,13 @@ from typing import Any
 
 from src.backtest.data import BarUniverse, SymbolSeries
 from src.backtest.signals import SignalValue, atr14_at, compute_signals
-from src.backtest.spec import Condition, StrategySpec
+from src.backtest.spec import Condition, StrategySpec, symbol_asset_class
 from src.orchestrator.decision_sizing import compute_position_value_usd, compute_stop_loss_price
-from src.review.slippage import _compute_penalty, _flat_spread_bps
+from src.review.slippage import (
+    _compute_penalty,
+    _flat_spread_bps,
+    estimated_market_dollar_volume,
+)
 from src.risk.gate import evaluate_decision
 from src.risk.models import SystemGuardrails, TradeAction
 
@@ -307,10 +311,24 @@ def run_backtest(
 
 
 def symbols_for(spec: StrategySpec, universe: BarUniverse) -> list[str]:
-    """The spec's symbols that survived the data-quality gate."""
-    if spec.universe.symbols is None:
-        return sorted(universe.series)
-    return sorted(symbol for symbol in spec.universe.symbols if symbol in universe.series)
+    """The spec's symbols that survived the data-quality gate.
+
+    The asset-class restriction is not cosmetic: a spec without `symbols` sees the
+    *whole* universe, and since CRYPTOR's charter grew to ten pairs (ADR-0016) that
+    includes crypto. CONTRA's proxy quietly bought AAVE, ADA, AVAX, DOT and SOL —
+    22 of its trades — although the persona trades US Mid/Large Caps. Found on
+    15.08.2026 while verifying F114 (see F114 §5).
+    """
+    candidates = (
+        sorted(universe.series)
+        if spec.universe.symbols is None
+        else sorted(symbol for symbol in spec.universe.symbols if symbol in universe.series)
+    )
+    if spec.universe.asset_class is None:
+        return candidates
+    return [
+        symbol for symbol in candidates if symbol_asset_class(symbol) == spec.universe.asset_class
+    ]
 
 
 def _entry_matches(spec: StrategySpec, signals: dict[str, list[SignalValue]], index: int) -> bool:
@@ -403,7 +421,11 @@ def _slippage_usd(
     spread_bps = _flat_spread_bps(series.symbol, slippage_config)
     spread_cost = 0.5 * spread_bps / 10_000 * order_value
     bar = series.bars[bar_index]
-    daily_dollar_volume = bar.volume * bar.close
+    # Same IEX correction as the live path (F114) — through the shared helper, not
+    # a second copy of the arithmetic.
+    daily_dollar_volume = estimated_market_dollar_volume(
+        bar.volume * bar.close, series.symbol, slippage_config
+    )
     penalty = (
         float(_compute_penalty(order_value, daily_dollar_volume, slippage_config))
         if daily_dollar_volume > 0

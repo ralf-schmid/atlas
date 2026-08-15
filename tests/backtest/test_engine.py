@@ -13,7 +13,14 @@ from src.backtest.engine import REASON_STOP_LOSS, run_backtest
 from src.backtest.spec import load_strategy
 from src.risk.config import load_system_guardrails
 from src.risk.models import StopLossPolicy, StopLossPolicyType, SystemGuardrails
-from tests.backtest.conftest import bar, day, engine_config, make_universe, simple_spec
+from tests.backtest.conftest import (
+    SLIPPAGE_CONFIG,
+    bar,
+    day,
+    engine_config,
+    make_universe,
+    simple_spec,
+)
 
 SYSTEM = load_system_guardrails()
 
@@ -323,3 +330,36 @@ def test_stop_loss_is_mandatory_for_every_entry(tmp_path):
     assert spec.guardrails.stop_loss_policy == StopLossPolicy(
         type=StopLossPolicyType.FIXED, max_loss_pct=0.15
     )
+
+
+@pytest.mark.parametrize("symbol", ["AAA", "BTC/USD"])
+def test_backtest_slippage_matches_the_live_formula(tmp_path, symbol):
+    """F114 §4 test 7. The engine must charge exactly what
+    `review.slippage.compute_slippage_malus` would charge for the same order —
+    same spread rate, same coverage correction, same penalty.
+
+    Recomputed here from the documented formula rather than from the engine, so a
+    change on either side has to be a deliberate change to both.
+    """
+    from src.backtest.engine import _slippage_usd
+    from src.review.slippage import _compute_penalty, _flat_spread_bps
+
+    bars = [bar(index, 100.0, volume=1_000_000.0) for index in range(3)]
+    universe = make_universe({symbol: bars}, first_day=day(0))
+    series = universe.series[symbol]
+    config = SLIPPAGE_CONFIG | {"volume_coverage": {"equities": 0.035, "crypto": 1.0}}
+    order_value = 2_000_000.0
+
+    charged = _slippage_usd(order_value, series, 1, config)
+
+    expected_spread = 0.5 * _flat_spread_bps(symbol, config) / 10_000 * order_value
+    observed = bars[1].volume * bars[1].close
+    coverage = 0.035 if symbol == "AAA" else 1.0
+    expected_penalty = float(_compute_penalty(order_value, observed / coverage, config))
+    assert charged == pytest.approx(expected_spread + expected_penalty)
+    # And the correction must actually bite for the equity, not silently no-op.
+    if symbol == "AAA":
+        uncorrected = _slippage_usd(
+            order_value, series, 1, SLIPPAGE_CONFIG | {"volume_coverage": {"equities": 1.0}}
+        )
+        assert charged < uncorrected
