@@ -335,9 +335,8 @@ unverändert).
   2026-08-15 — dort 1 Einstieg, also weiterhin `insufficient_data`. Das Artefakt
   sagt das seit dem Fix ausdrücklich, statt eine Null auszuweisen, die wie ein
   Ergebnis aussieht.
-- **Offene Kleinigkeit:** `src/backtest/run.py` liest die Slippage-Config über
-  `slippage._load_config`. Sobald F113 gemergt ist, gibt es dafür ein öffentliches
-  `load_slippage_config` — einzeiliger Nachzug.
+- **Erledigt:** `src/backtest/run.py` liest die Slippage-Config seit dem Merge von
+  F113 über das öffentliche `load_slippage_config` statt über `_load_config`.
 
 ## 10. Betrieb, Rollback, Livesetzung
 

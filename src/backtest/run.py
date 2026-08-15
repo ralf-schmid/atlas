@@ -31,7 +31,7 @@ from src.backtest.engine import EngineConfig, run_backtest
 from src.backtest.report import render_report, render_strategy_list
 from src.backtest.spec import DEFAULT_STRATEGY_DIR, StrategySpec, load_all_strategies
 from src.db.base import get_session_factory
-from src.review.slippage import _load_config as load_slippage_config
+from src.review.slippage import load_slippage_config
 from src.risk.config import load_system_guardrails
 
 logger = logging.getLogger(__name__)
