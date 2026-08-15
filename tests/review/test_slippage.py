@@ -26,6 +26,7 @@ from src.db.models import (
 )
 from src.review.slippage import (
     _asset_class,
+    _flat_spread_bps,
     compute_slippage_malus,
     estimated_market_dollar_volume,
     load_slippage_config,
@@ -214,10 +215,10 @@ class TestSlippageSpread:
 
     def test_crypto_15bps(self, session: Session) -> None:
         """Test 6: crypto uses 15 bps spread config."""
-        _add_bar(session, "BTCUSD", volume=10_000_000)
+        _add_bar(session, "BTC/USD", volume=10_000_000)
         order = _make_order(
             session,
-            symbol="BTCUSD",
+            symbol="BTC/USD",
             fill_price=Decimal("30000.00"),
             qty=Decimal("0.1"),  # $3000 order
         )
@@ -440,11 +441,11 @@ class TestVolumeCoverage:
 def test_every_cryptor_pair_is_classified_as_crypto() -> None:
     """Anti-drift between config/personas/cryptor.yaml and config/review.yaml.
 
-    A pair missing from `crypto_symbols` silently gets the equity spread (5 instead
-    of 15 bps) and, since F114, the equity volume coverage applied to an exchange
-    volume it was never meant for. Exactly that happened to AVAX/AAVE/UNI/LINK when
-    ADR-0016 widened CRYPTOR's universe from three pairs to ten — found on
-    15.08.2026 while verifying F114, fixed in the same commit.
+    Exactly this went wrong once: ADR-0016 widened CRYPTOR's universe from three
+    pairs to ten and AVAX/AAVE/UNI/LINK kept the equity spread, found on
+    15.08.2026 while verifying F114. Since F116 the classification is structural
+    (`BASE/QUOTE`) rather than a maintained list, so this test should now hold for
+    any pair the charter ever gains — which is exactly what it asserts.
     """
     import yaml as _yaml
 
@@ -458,5 +459,38 @@ def test_every_cryptor_pair_is_classified_as_crypto() -> None:
     ]
     assert not misclassified, (
         f"{misclassified} would be priced as equities — add their ticker to "
-        "slippage.crypto_symbols in config/review.yaml"
+        "them as BASE/QUOTE (see slippage._asset_class)"
     )
+
+
+class TestAssetClassification:
+    """F116 — Krypto/Aktie am Paar-Format statt an einer gepflegten Ticker-Liste."""
+
+    @pytest.mark.parametrize(
+        "symbol", ["BTC/USD", "ETH/USD", "SOL/USD", "AVAX/USD", "AAVE/USD", "UNI/USD", "LINK/USD"]
+    )
+    def test_alpaca_pairs_are_crypto(self, symbol: str) -> None:
+        assert _asset_class(symbol, {}) == "crypto"
+
+    @pytest.mark.parametrize("symbol", ["AAPL", "LINK", "UNI", "DOTM", "ADAP", "SOLV", "BTCS"])
+    def test_equity_tickers_containing_coin_fragments_are_equities(self, symbol: str) -> None:
+        """The old substring list would have priced LINK, UNI, ADAP and SOLV as
+        crypto — all of them are real US equity tickers."""
+        assert _asset_class(symbol, {}) == "equities"
+
+    @pytest.mark.parametrize("symbol", ["SEAGATE/QCOM", "NUKE... N/A", "Boost Run Inc.", ""])
+    def test_free_text_instruments_are_not_crypto(self, symbol: str) -> None:
+        """`decision.instrument` is LLM-written and the production table really does
+        contain these. A bare "has a slash" rule would price SEAGATE/QCOM as crypto
+        and charge it three times the spread."""
+        assert _asset_class(symbol, {}) == "equities"
+
+    def test_classification_needs_no_config(self) -> None:
+        """Structural, so an empty or missing config cannot change how an instrument
+        is classified — only how the resulting class is priced."""
+        assert _asset_class("BTC/USD", {}) == "crypto"
+        assert _flat_spread_bps("BTC/USD", load_slippage_config()) == 15.0
+        assert _flat_spread_bps("AAPL", load_slippage_config()) == 5.0
+
+    def test_case_and_whitespace_are_tolerated(self) -> None:
+        assert _asset_class(" btc/usd ", {}) == "crypto"

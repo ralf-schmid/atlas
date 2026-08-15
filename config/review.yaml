@@ -21,29 +21,12 @@ slippage:
     equities: 5
     crypto: 15
 
-  # Suffix-based heuristic to distinguish crypto from equity symbols.
-  # MUSS jedes Paar aus CRYPTORs universe_screen enthalten (config/personas/
-  # cryptor.yaml) — sonst bekommt ein Krypto-Paar den Aktien-Spread (5 statt 15 bps)
-  # und seit F114 zusaetzlich den Aktien-Deckungsgrad auf ein Boersenvolumen, fuer
-  # das er nicht gilt. AVAX/AAVE/UNI/LINK fehlten nach der Universums-Erweiterung
-  # aus ADR-0016 und wurden am 15.08.2026 nachgetragen; der Test
-  # `test_every_cryptor_pair_is_classified_as_crypto` haelt beide Dateien jetzt
-  # zusammen.
-  crypto_symbols:
-    - BTC
-    - ETH
-    - USDT
-    - USDC
-    - XRP
-    - DOGE
-    - SOL
-    - ADA
-    - DOT
-    - MATIC
-    - AVAX
-    - AAVE
-    - UNI
-    - LINK
+  # F116: die Klassifikation Krypto/Aktie haengt seit 15.08.2026 nicht mehr an
+  # dieser Liste, sondern am Paar-Format `BASE/QUOTE` (src/review/slippage.py,
+  # `_asset_class`). Die Liste war zweimal die Fehlerquelle: sie ging nach
+  # ADR-0016 still veraltet (AVAX/AAVE/UNI/LINK bekamen den Aktien-Spread), und
+  # kurze Fragmente wie "UNI" oder "LINK" haetten jeden Aktien-Ticker treffen
+  # koennen, der sie enthaelt. Bewusst ersatzlos entfernt statt gepflegt.
 
   # F114: Anteil des echten Marktvolumens, den der Datenfeed ueberhaupt sieht.
   # Der Nenner der Volumen-Penalty ist `market_bar.volume x close`, und

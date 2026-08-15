@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime
 import logging
+import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -148,17 +149,30 @@ def _flat_spread_bps(symbol: str, config: dict[str, Any]) -> float:
 
 
 def _asset_class(symbol: str, config: dict[str, Any]) -> str:
-    """ "crypto" or "equities", by the configured suffix heuristic.
+    """ "crypto" or "equities", decided on Alpaca's pair notation.
 
     Shared by the spread rate and the volume coverage (F114) on purpose: two
     copies of this classification would eventually disagree about a symbol, and
     then one half of the malus would treat it as crypto and the other as equity.
+
+    F116: this used to be a substring match against a configured ticker list, and
+    that list silently went stale — ADR-0016 widened CRYPTOR's universe to ten
+    pairs and AVAX/AAVE/UNI/LINK kept getting the equity spread until 15.08.2026.
+    Worse, the list had to grow with short fragments like "UNI" and "LINK", which
+    any equity ticker could contain.
+
+    A plain "does it have a slash" check — what `backtest.spec.symbol_asset_class`
+    can afford — is *not* safe here: this function is called with
+    `decision.instrument`, which is LLM-written free text and really does contain
+    values like `SEAGATE/QCOM` and `NUKE... N/A` in the production table. So the
+    quote currency has to match too, which no equity ticker pair does.
     """
-    crypto_symbols = config.get(
-        "crypto_symbols",
-        ["BTC", "ETH", "USDT", "USDC", "XRP", "DOGE", "SOL"],
-    )
-    return "crypto" if any(sym in symbol.upper() for sym in crypto_symbols) else "equities"
+    return "crypto" if _CRYPTO_PAIR.match(symbol.strip().upper()) else "equities"
+
+
+#: `BASE/QUOTE` as Alpaca writes crypto (`BTC/USD`, `SOL/USD`). The quote leg is
+#: enumerated on purpose — see `_asset_class` on why a bare slash is not enough.
+_CRYPTO_PAIR = re.compile(r"^[A-Z0-9]{2,10}/(USD|USDT|USDC|USDG|BTC|ETH)$")
 
 
 def estimated_market_dollar_volume(

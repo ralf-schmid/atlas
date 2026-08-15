@@ -29,7 +29,6 @@ DAY_ZERO = datetime.date(2026, 1, 5)  # a Monday
 SLIPPAGE_CONFIG: dict[str, Any] = {
     "enabled": True,
     "spread_bps": {"equities": 5, "crypto": 15},
-    "crypto_symbols": ["BTC", "ETH", "SOL"],
     "penalty": {"volume_threshold_pct": 1.0, "bps_per_x": 10, "cap_bps": 50},
 }
 
