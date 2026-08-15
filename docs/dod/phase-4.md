@@ -521,3 +521,66 @@ ist damit erfüllt.**
   verfallen lassen). Braucht Ralfs Go, weil es echte Paper-Orders verzögert.
 - **Digest „kommt täglich":** die Zahlen sind jetzt gegen DB-Queries verifiziert
   (siehe oben); die Zustellung selbst bestätigt Ralf aus dem Telegram-Verlauf.
+
+## Crash-Recovery-Test (15.08.2026) — letzter offener P4-DoD-Punkt
+
+Freigabe von Ralf für einen Extra-Zyklus eigens zum Test (statt auf einen
+regulären zu warten). Durchgeführt auf der Box gegen den echten Stack.
+
+**Aufbau.** Ein Zyklus mit `seq=9` bzw. `seq=8` — bewusst außerhalb der
+regulären Nummern (C1–C4 = 1–4, Crypto = 0), damit weder ein laufender noch ein
+späterer Zyklus kollidiert. Der erste Lauf (`seq=9`) war nach knapp zwei Minuten
+komplett durch, bevor ein Kill möglich war; er dient als Referenz für den
+Normalablauf. Der zweite (`seq=8`) wurde nach 40 Sekunden hart abgeschossen:
+
+```
+sudo docker kill atlas-scheduler-1      # SIGKILL, kein geordnetes Herunterfahren
+sudo docker compose up -d scheduler
+sudo docker exec -i -w /app atlas-scheduler-1 uv run python - 2026-08-15-8-us_equity \
+    < scripts/resume_cycle.py
+```
+
+**Der Kill traf die Naht zwischen zwei Nodes** — nachweislich, nicht nach
+Gefühl: unmittelbar danach standen für `seq=8` **369 `research_item`-Zeilen, aber
+0 Decisions** in der DB. `research_synthesis` war fertig, `persona_analysis` noch
+nicht gelaufen.
+
+**Resume-Ausgabe:**
+
+```
+checkpoint found (created 2026-08-15T08:40:31.702461+00:00); pending tasks:
+['persona_analysis', 'persona_analysis', 'persona_analysis',
+ 'persona_analysis', 'persona_analysis', 'persona_analysis']
+resume finished; cycle_id=674d0c4e-365c-4d44-8a84-c308ded470d8
+```
+
+Sechsmal `persona_analysis` — eine offene Aufgabe je Persona, exakt der
+LangGraph-`Send`-Fächer aus §3.4.
+
+**Ergebnis, der eigentliche Nachweis:**
+
+| | vor dem Resume | nach dem Resume |
+|---|---|---|
+| `research_item` (seq=8) | 369 | **369** |
+| `decision` (seq=8) | 0 | **6** |
+
+Die Research-Zeilen bleiben **unverändert**: der abgeschlossene Node wurde nicht
+erneut ausgeführt, es entstanden keine Dubletten, und der Zyklus lief von der
+Checkpoint-Grenze aus zu Ende (1× BUY, 9× HOLD, 2× REJECT_IDEA). Damit ist
+belegt, was der DoD-Punkt verlangt: ein Prozesstod mitten im Zyklus verliert
+keine Arbeit und wiederholt keine.
+
+**Nebenwirkung, die ich falsch vorhergesagt hatte.** Ich hatte argumentiert, ein
+Zyklus um 04:40 ET sei unkritisch, weil der US-Markt geschlossen ist und deshalb
+keine Fills entstehen. Das stimmt nicht: CONTRA hat aus dem Testzyklus heraus
+**AAPL zu 305,94 USD gekauft, Status `FILLED`** (Alpaca Paper füllt auch
+außerhalb der regulären Handelszeit). Der Test hat damit genau den Effekt
+erzeugt, den ich vermeiden wollte — CONTRA bekam eine Handelsgelegenheit, die
+kein anderes Depot hatte. Das berührt Invariante #10 und das Wertungskriterium
+Trade-Count. **Entscheidung darüber liegt bei Ralf** (Position stehen lassen und
+hier vermerkt, oder rückabwickeln — wobei die Rückabwicklung selbst wieder ein
+Trade wäre). Bis dahin bleibt die Position unangetastet.
+
+**Nebenbefund, positiv:** das Log des Testzyklus zeigt F108 im Echtbetrieb —
+`technical indicators skipped: symbol=XHG reason=price_level_break factor=5.23
+at=2026-08-13`. Damit ist auch die Wirkungs-Verifikation aus F108 §5 erbracht.

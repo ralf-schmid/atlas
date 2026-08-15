@@ -1,8 +1,9 @@
 # Phase 5 — Review, Journal & Wettbewerbsstart: Planung & Definition of Done
 
-Checkliste aus ARCHITECTURE.md §8. **Status:** Planung erstellt 25.07.2026,
-Phase noch nicht gestartet. Voraussetzung: Phase-4-Abschluss — davon fehlt
-nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
+Checkliste aus ARCHITECTURE.md §8. **Status:** Planung erstellt 25.07.2026.
+Voraussetzung Phase-4-Abschluss ist erfüllt — der letzte offene Punkt, der
+Crash-Recovery-Test, wurde am 15.08.2026 durchgeführt (Nachweis in
+`phase-4.md`, Abschnitt am Ende).
 
 - [x] Review-Agent verarbeitet fällige Decisions automatisch; jede geschlossene
       Position hat binnen 7 Tagen ein Review mit Verdict
@@ -106,10 +107,10 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
 
 **Block 0 — P4-Abschluss + Aufräumer (vor dem P5-Start):**
 
-1. **Crash-Recovery-Test** (letzter offener P4-DoD-Punkt): Container-Kill
-   mitten im Zyklus → Resume via Postgres-Checkpointer nachweisen. Kein
-   Feature, ein dokumentierter Test in `phase-4.md`. Jetzt gefahrlos möglich,
-   da der 5-Tage-Nachweis steht.
+1. ✅ **Crash-Recovery-Test** (letzter offener P4-DoD-Punkt): Container-Kill
+   mitten im Zyklus → Resume via Postgres-Checkpointer nachweisen. **Erledigt
+   am 15.08.2026**, Nachweis am Ende von `phase-4.md`: 369 Research-Zeilen vor
+   und nach dem Resume, 6 offene `persona_analysis`-Tasks liefen nach.
 2. ✅ **F079 — Sizing erzeugt keine Sub-1-Aktien-Orders mehr** (25.07.2026,
    `9cf0509`): die
    Ganzaktien-Rundung (F052) sitzt erst im Broker-Adapter; die Sizing-Schicht
