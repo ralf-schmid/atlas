@@ -4,8 +4,37 @@ Checkliste aus ARCHITECTURE.md §8. **Status:** Planung erstellt 25.07.2026,
 Phase noch nicht gestartet. Voraussetzung: Phase-4-Abschluss — davon fehlt
 nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
 
-- [ ] Review-Agent verarbeitet fällige Decisions automatisch; jede geschlossene
+- [x] Review-Agent verarbeitet fällige Decisions automatisch; jede geschlossene
       Position hat binnen 7 Tagen ein Review mit Verdict
+      **Nachweis geführt am 15.08.2026** gegen die Produktions-DB. Definition wie
+      im Code (`src/review/agent.py`): eine geschlossene Position ist eine
+      `EXECUTED`-Decision mit `SELL`/`CLOSE` und einer `FILLED`-Order; das
+      Ergebnis ist im Moment des Fills realisiert. Vorsaison-Portfolios
+      (`archived_at`) zählen nicht mit.
+
+      | | |
+      |---|---|
+      | geschlossene Positionen seit Stichtag 27.07. | **6** |
+      | davon mit Review **binnen 7 Tagen** | **6** |
+      | mit Review, aber zu spät | 0 |
+      | ohne Review, Frist noch offen | 0 |
+      | ohne Review, Frist gerissen | **0** |
+
+      Vorlauf Fill → Review: min 0,09 d, Median 1,60 d, max 4,40 d. Verdicts:
+      2× `thesis_confirmed`, 1× `thesis_failed`, 3× `inconclusive`.
+
+      **Der Nachweis hat einen Bug gefunden, der ihn zunächst verhinderte.** Zwei
+      der sechs Positionen (VULTURE/LUNG, CHARTIST/ADSK) standen bei der ersten
+      Messung ohne Review da. Ursache war nicht der Scheduler und kein
+      Budget-Stopp, sondern ein überzähliges Komma in der JSON-Antwort des
+      Modells, an dem der Review-Parser scheiterte —
+      [F110](../features/F110-review-json-trailing-comma.md). Behoben und
+      deployt; danach liefen beide Reviews durch, und der Sweep meldet
+      `failed=0`. Die Zahlen oben sind der Stand **nach** dem Fix. Ohne den
+      Nachweis wäre die Fehlerquote weitergelaufen: `find_due_decisions` ist
+      stateless, die Decisions kamen täglich wieder, scheiterten täglich neu und
+      hinterließen nur eine Log-Zeile, die der nächste Container-Rebuild
+      wegräumt.
 - [ ] Slippage-Malus implementiert; Leaderboard weist Roh- und adjustierte
       Performance getrennt aus
 - [x] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
