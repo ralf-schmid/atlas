@@ -84,6 +84,11 @@ services:
       # scan_ingest_directory() globs that tree. Read-only: the job only ever loads
       # the state, refreshing it is a manual, human-driven step.
       - ./data/ingest/boersenmedien:/data/ingest/boersenmedien:ro
+      # F117: abgelegte Newsletter-Mails (.eml) fuer den Nachhol-Weg, wenn eine
+      # Ausgabe am n8n-IMAP-Trigger vorbeigelaufen ist (F106 §6 — der Trigger hakt
+      # sie als gelesen ab, sie kommen nicht von selbst nach). Read-only: das
+      # Skript liest nur, Aufraeumen ist eine bewusste Handbewegung.
+      - ./data/ingest/newsletter:/data/ingest/newsletter:ro
     depends_on:
       postgres:
         condition: service_healthy
