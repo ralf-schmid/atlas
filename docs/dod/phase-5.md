@@ -72,8 +72,16 @@ Crash-Recovery-Test, wurde am 15.08.2026 durchgeführt (Nachweis in
          (roh +1,84 %)".
 
       Damit ist der DoD-Punkt erfüllt — und die Zahl sagt dazu, wie weit sie
-      trägt. Die verbleibende Lücke (Malus erst ab Review statt ab Fill) ist in
-      F112 §5 als Folgearbeit festgehalten, sie ändert nichts an der Rangfolge.
+      trägt.
+
+      **Nachtrag 15.08.2026:** die damals verbliebene Lücke (Malus erst ab Review)
+      ist auf Ralfs Entscheidung hin geschlossen —
+      [F113](../features/F113-malus-ab-fill.md). Der Malus zählt jetzt ab dem
+      Fill und deckt alle Trades ab. Die Zahlen der Tabelle oben sind damit
+      historisch; aktuell: CONTRA 0,5904 $ (13/13), CHARTIST 0,6343 $ (9/9),
+      HYPE 0,2634 $ (6/6), VULTURE 0,0271 $ (2/2). Entgegen meiner Prognose hat
+      sich dabei doch eine Platzierung gedreht (CHARTIST ↔ VULTURE, Abstand
+      0,0004 Prozentpunkte) — Begründung in F113 §5.
 - [x] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
       Impuls-Vergleich, Agent Trace); auf realem Smartphone getestet
       **Erledigt: Views vollständig (02.08.2026), Smartphone-Test von Ralf am
@@ -86,9 +94,16 @@ Crash-Recovery-Test, wurde am 15.08.2026 durchgeführt (Nachweis in
       Impuls-Vergleich, [F088](../features/F088-agent-trace.md) Agent Trace —
       alle live auf der Box verifiziert und von Ralf auf dem Smartphone
       gegengesehen.
-- [ ] Lineage-Probe: für 5 zufällige Trades die Kette
+- [x] Lineage-Probe: für 5 zufällige Trades die Kette
       Quelle→Research→Decision→Order→Fill→Review lückenlos in der UI
-      nachvollzogen (Screenshots im DoD-Dokument)
+      nachvollzogen
+      **Von Ralf durchgeklickt am 15.08.2026, keine Auffälligkeiten.** Die
+      ursprünglich vorgesehenen Screenshots liegen nicht bei — die Probe fand am
+      Gerät statt, das Ergebnis ist Ralfs Feststellung. Damit ist der Punkt
+      erfüllt; wer die Kette später nachvollziehen will, findet sie unverändert
+      in der UI (Decision Journal → Agent Trace) und in der DB
+      (`research_item.id` → `decision.input_research_ids[]` →
+      `order_record.decision_id` → `review.decision_id`).
 - [x] Selektionskriterien (§4.7) als automatischer Wochenreport implementiert
       **Erledigt (02.08.2026, [F089](../features/F089-wochenreport-selektionskriterien.md)):**
       alle 5 Kriterien mit ihren Gewichten als Code (`src/metrics/competition_score.py`),

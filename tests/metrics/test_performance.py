@@ -26,9 +26,15 @@ from src.metrics.performance import (
     daily_returns,
     max_drawdown,
     simple_return,
+    slippage_malus_sum,
     sortino_ratio,
     trade_count,
 )
+
+_SINCE = datetime.datetime(2026, 8, 3, 0, 0)
+#: 0,5 × 5 bps (equities-Pauschale, config/review.yaml) auf 10 × 150 USD Ordervolumen.
+#: Ohne market_bar-Zeile greift keine Volumen-Penalty.
+_EXPECTED_SINGLE_MALUS = Decimal("0.3750")
 
 
 def _make_portfolio(session: Session) -> Portfolio:
@@ -199,3 +205,114 @@ class TestTradeCount:
 
         session.flush()
         assert trade_count(session, portfolio.id, stichtag) == 3
+
+
+class TestSlippageMalusSum:
+    """F113 §4: der Malus zaehlt ab dem Fill, nicht ab dem Review."""
+
+    @staticmethod
+    def _filled_order(
+        session: Session,
+        portfolio: Portfolio,
+        *,
+        submitted_at: datetime.datetime,
+        status: OrderRecordStatus = OrderRecordStatus.FILLED,
+        symbol: str = "SPY",
+    ) -> OrderRecord:
+        decision = _make_decision(session, portfolio.id)
+        decision.instrument = symbol
+        decision.quantity = Decimal("10")
+        order = OrderRecord(
+            decision_id=decision.id,
+            broker="alpaca_paper",
+            broker_order_id=f"o-{uuid.uuid4().hex[:8]}",
+            mode=PortfolioMode.PAPER,
+            submitted_at=submitted_at,
+            filled_at=submitted_at,
+            fill_price=Decimal("150.00") if status is OrderRecordStatus.FILLED else None,
+            status=status,
+            fees=Decimal("0"),
+        )
+        session.add(order)
+        session.flush()
+        return order
+
+    def test_malus_sum_covers_orders_without_a_review(self, session: Session) -> None:
+        """Der Kern: unter der alten Implementierung war das None."""
+        portfolio = _make_portfolio(session)
+        self._filled_order(session, portfolio, submitted_at=_SINCE + datetime.timedelta(hours=1))
+
+        total = slippage_malus_sum(session, portfolio.id, _SINCE)
+
+        assert total is not None
+        assert total > 0
+
+    def test_malus_sum_counts_every_filled_order(self, session: Session) -> None:
+        portfolio = _make_portfolio(session)
+        for _ in range(3):
+            self._filled_order(
+                session, portfolio, submitted_at=_SINCE + datetime.timedelta(hours=1)
+            )
+
+        single = _EXPECTED_SINGLE_MALUS
+        total = slippage_malus_sum(session, portfolio.id, _SINCE)
+
+        assert total == pytest.approx(single * 3)
+
+    def test_malus_sum_ignores_unfilled_orders(self, session: Session) -> None:
+        """Ohne Fill gibt es keine Reibung."""
+        portfolio = _make_portfolio(session)
+        self._filled_order(
+            session,
+            portfolio,
+            submitted_at=_SINCE + datetime.timedelta(hours=1),
+            status=OrderRecordStatus.CANCELED,
+        )
+
+        assert slippage_malus_sum(session, portfolio.id, _SINCE) is None
+
+    def test_malus_sum_ignores_orders_before_the_window(self, session: Session) -> None:
+        portfolio = _make_portfolio(session)
+        self._filled_order(session, portfolio, submitted_at=_SINCE - datetime.timedelta(days=1))
+
+        assert slippage_malus_sum(session, portfolio.id, _SINCE) is None
+
+    def test_malus_sum_is_none_without_any_filled_order(self, session: Session) -> None:
+        """None, nicht 0 — sonst liest das Leaderboard eine gemessene Null."""
+        portfolio = _make_portfolio(session)
+
+        assert slippage_malus_sum(session, portfolio.id, _SINCE) is None
+
+    def test_malus_sum_is_scoped_to_one_portfolio(self, session: Session) -> None:
+        mine = _make_portfolio(session)
+        theirs = _make_portfolio(session)
+        self._filled_order(session, theirs, submitted_at=_SINCE + datetime.timedelta(hours=1))
+
+        assert slippage_malus_sum(session, mine.id, _SINCE) is None
+
+    def test_malus_sum_reuses_the_volume_lookup_per_symbol_and_day(
+        self, session: Session, monkeypatch
+    ) -> None:
+        """Der Cache aus F113 §2: zwei Orders auf dasselbe Symbol am selben Tag
+        duerfen nur eine Volumen-Query ausloesen."""
+        from src.review import slippage as slippage_module
+
+        calls: list[str] = []
+        original = slippage_module._get_daily_dollar_volume
+
+        def counting(session_, symbol, at_time=None):  # type: ignore[no-untyped-def]
+            calls.append(symbol)
+            return original(session_, symbol, at_time)
+
+        monkeypatch.setattr(slippage_module, "_get_daily_dollar_volume", counting)
+
+        portfolio = _make_portfolio(session)
+        for _ in range(3):
+            self._filled_order(
+                session, portfolio, submitted_at=_SINCE + datetime.timedelta(hours=1)
+            )
+
+        slippage_malus_sum(session, portfolio.id, _SINCE)
+
+        assert len(calls) == 3  # aufgerufen wird weiterhin je Order …
+        assert len(set(calls)) == 1  # … aber nur ein Symbol, also ein Cache-Eintrag

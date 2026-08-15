@@ -23,7 +23,11 @@ from src.db.models import (
     OrderRecordStatus,
     PortfolioSnapshot,
     PositionSnapshot,
-    Review,
+)
+from src.review.slippage import (
+    compute_slippage_malus,
+    load_slippage_config,
+    volume_lookup_cache,
 )
 
 # ---------------------------------------------------------------------------
@@ -172,18 +176,49 @@ def open_position_count(session: Session, portfolio_id: uuid.UUID) -> int:
 def slippage_malus_sum(
     session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
 ) -> Decimal | None:
-    """Σ `review.slippage_malus` (F083) over this portfolio's reviewed decisions.
+    """Σ slippage malus (F083) over every FILLED order of this portfolio.
 
-    Returns None when the portfolio has no review with a malus yet — the
-    leaderboard shows "adjusted = raw" plus a hint in that case instead of
-    pretending a zero malus is a measured one.
+    F113: this used to sum `review.slippage_malus`, i.e. only the trades a review
+    had already reached. Since a review appears once a position closes or a buy
+    turns 14 days old, that covered 22–50 % of the trades and — worse — covered
+    them unevenly: a persona with short holding periods got reviewed sooner and
+    was therefore charged more friction than one that sits on its positions. The
+    malus is computable the moment an order fills (`fill_price`, `spread_bps`
+    since F104, daily volume), so it is computed here for all of them.
+
+    Deliberately computed rather than stored: a persisted malus freezes the
+    `config/review.yaml` parameters of its computation time, and ARCHITECTURE.md
+    §7.8 explicitly foresees tuning those in P5. Computing keeps every trade of a
+    season on one set of parameters — see F113 §2.
+
+    Returns None when the portfolio has no filled order at all, so the leaderboard
+    can show "adjusted = raw" as *unknown* rather than as a measured zero.
     """
-    stmt = (
-        select(func.sum(Review.slippage_malus))
-        .join(Decision, Decision.id == Review.decision_id)
-        .where(Decision.portfolio_id == portfolio_id, Review.reviewed_at >= since)
-    )
-    return session.scalar(stmt)
+    orders = session.scalars(
+        select(OrderRecord)
+        .join(Decision, Decision.id == OrderRecord.decision_id)
+        .where(
+            and_(
+                Decision.portfolio_id == portfolio_id,
+                OrderRecord.status == OrderRecordStatus.FILLED,
+                OrderRecord.submitted_at >= since,
+            )
+        )
+    ).all()
+    if not orders:
+        return None
+
+    # One config read and one volume lookup per (symbol, day) for the whole call:
+    # a portfolio's orders cluster on few symbols, and this sits on the
+    # leaderboard's request path.
+    config = load_slippage_config()
+    total = Decimal("0")
+    with volume_lookup_cache():
+        for order in orders:
+            malus = compute_slippage_malus(session, order, config)
+            if malus is not None:
+                total += malus
+    return total
 
 
 def trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
@@ -232,22 +267,22 @@ def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int
 
 
 def malus_trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
-    """How many of the portfolio's trades actually carry a slippage malus.
+    """How many of the portfolio's trades carry a slippage malus (F112).
 
-    `slippage_malus_sum` only sums what `review` holds, and a review exists once a
-    position closed or a buy passed the intermediate age (F084). Most recent buys
-    have neither, so the adjusted return in the leaderboard is systematically
-    optimistic — it prices in the friction of the reviewed trades only. Reporting
-    this count next to the malus is what keeps that honest (F112).
+    Since F113 that is every filled order, so this equals `trade_count` — the
+    leaderboard only spells the coverage out when the two differ. The function
+    stays because the guarantee is worth a test rather than an assumption: it is
+    what turns "the adjusted return prices in all friction" from a claim into
+    something the UI can check.
     """
     stmt = (
-        select(func.count(Review.id))
-        .join(Decision, Decision.id == Review.decision_id)
+        select(func.count(OrderRecord.id))
+        .join(Decision, Decision.id == OrderRecord.decision_id)
         .where(
             and_(
                 Decision.portfolio_id == portfolio_id,
-                Review.reviewed_at >= since,
-                Review.slippage_malus.is_not(None),
+                OrderRecord.status == OrderRecordStatus.FILLED,
+                OrderRecord.submitted_at >= since,
             )
         )
     )

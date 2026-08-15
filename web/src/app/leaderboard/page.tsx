@@ -199,9 +199,13 @@ function Row({
 
       {sort === "adjusted" && row.slippage_malus_usd !== null && (
         <p className="text-[11px] text-gray-500">
-          Slippage-Malus: {malusCurrency.format(row.slippage_malus_usd)} aus{" "}
-          {row.malus_trade_count} von {row.trade_count} Trades (roh{" "}
-          {percent.format(row.raw_return)})
+          Slippage-Malus: {malusCurrency.format(row.slippage_malus_usd)}
+          {/* F113: der Malus deckt seit dem Fill-Zeitpunkt alle Trades ab. Die
+              Abdeckung steht nur noch da, wenn sie ausnahmsweise unvollständig
+              ist — "aus 13 von 13" wäre nur Rauschen. */}
+          {row.malus_trade_count < row.trade_count &&
+            ` aus ${row.malus_trade_count} von ${row.trade_count} Trades`}{" "}
+          (roh {percent.format(row.raw_return)})
         </p>
       )}
     </Link>

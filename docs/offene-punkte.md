@@ -178,9 +178,13 @@ Invariante #5). Was auf Phasen-Ebene wirklich offen ist:
         Darstellungsmängel gefunden (Malus als „0 $" gerundet; Abdeckung nur
         über gereviewte Trades) — behoben und live als
         [F112](../features/F112-leaderboard-malus-transparenz.md).
-  - [ ] **Entscheidung (aus F112 §5): Malus ab Fill statt ab Review?** Heute
-        trägt nur ein Viertel bis die Hälfte der Trades einen Slippage-Malus,
-        weil er erst beim Review verbucht wird. Seit F104 stünden die Daten
-        schon beim Fill bereit. Die Umstellung würde die adjustierte Rendite auf
-        alle Trades stellen — ein Eingriff in eine Wettbewerbskennzahl mitten in
-        der Saison, deshalb deine Entscheidung.
+  - [x] **Malus ab Fill statt ab Review** — von dir entschieden und umgesetzt am
+        15.08.2026 ([F113](../features/F113-malus-ab-fill.md)). Die adjustierte
+        Rendite deckt jetzt alle Trades ab (vorher 22–50 %). **Achtung, eine
+        Platzierung hat sich gedreht:** CHARTIST und VULTURE tauschen Platz 2
+        und 3, weil CHARTIST größere Volumina handelt und das unter der alten
+        Rechnung unsichtbar war. Abstand 0,0004 Prozentpunkte — Rauschen, aber
+        die Grundlage ist jetzt für alle Personas dieselbe.
+
+**Damit ist die Phase-5-DoD-Checkliste vollständig abgehakt**
+(`docs/dod/phase-5.md`).

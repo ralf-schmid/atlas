@@ -16,6 +16,9 @@ from __future__ import annotations
 
 import datetime
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -30,11 +33,41 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "review.yaml"
 
+#: F113: per-call memo for `_get_daily_dollar_volume`, keyed by (symbol, day).
+#: A `ContextVar` rather than a module global because the scheduler runs jobs on
+#: APScheduler threads — a shared dict would leak lookups between concurrent runs.
+#: `None` means "no cache active", which is the normal single-order path.
+_volume_cache: ContextVar[dict[tuple[str, datetime.date], float | None] | None] = ContextVar(
+    "slippage_volume_cache", default=None
+)
+
 
 def _load_config(path: Path = _DEFAULT_CONFIG_PATH) -> dict[str, Any]:
     raw = yaml.safe_load(path.read_text()) or {}
     result: dict[str, Any] = raw.get("slippage", {})
     return result
+
+
+def load_slippage_config(path: Path = _DEFAULT_CONFIG_PATH) -> dict[str, Any]:
+    """Public read of the slippage section, so a caller scoring many orders reads
+    `config/review.yaml` once instead of once per order (F113)."""
+    return _load_config(path)
+
+
+@contextmanager
+def volume_lookup_cache() -> Iterator[None]:
+    """Memoises the daily-volume lookup for the duration of the block.
+
+    A portfolio's orders cluster on a handful of symbols and days, so scoring a
+    whole season goes from one query per order to one per (symbol, day). Scoped
+    rather than permanent: `market_bar` gets a fresh row every day, and a
+    long-lived cache would keep serving yesterday's volume.
+    """
+    token = _volume_cache.set({})
+    try:
+        yield
+    finally:
+        _volume_cache.reset(token)
 
 
 def compute_slippage_malus(
@@ -124,6 +157,12 @@ def _get_daily_dollar_volume(
     recent marketbar <= *at_time*, or None if no bar is found."""
     if at_time is None:
         at_time = datetime.datetime.now(datetime.UTC)
+
+    cache = _volume_cache.get()
+    key = (symbol, at_time.date())
+    if cache is not None and key in cache:
+        return cache[key]
+
     stmt = (
         select(MarketBar.volume, MarketBar.close)
         .where(
@@ -135,11 +174,10 @@ def _get_daily_dollar_volume(
         .limit(1)
     )
     row = session.execute(stmt).one_or_none()
-    if row is None:
-        return None
-    vol = float(row[0])
-    close = float(row[1])
-    return vol * close
+    result = None if row is None else float(row[0]) * float(row[1])
+    if cache is not None:
+        cache[key] = result
+    return result
 
 
 def _compute_penalty(

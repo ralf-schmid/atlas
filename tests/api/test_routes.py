@@ -669,12 +669,13 @@ def test_get_leaderboard_subtracts_the_slippage_malus_from_the_adjusted_return(
     )
     cycle = make_cycle(session)
     research_item = make_research_item(session, cycle)
-    decision = make_decision(session, cycle, portfolio, research_item)
-    make_review(
+    # F113: 1333,34 Stueck a 150 USD ⇒ 0,5 × 5 bps auf 200.001 USD = 50,00 USD.
+    make_order_record(
         session,
-        decision,
-        slippage_malus=Decimal("50.00"),
-        reviewed_at=_competition_start() + datetime.timedelta(days=1),
+        make_decision(session, cycle, portfolio, research_item, quantity=Decimal("1333.34")),
+        status=OrderRecordStatus.FILLED,
+        fill_price=Decimal("150.00"),
+        submitted_at=_competition_start() + datetime.timedelta(hours=17),
     )
     session.flush()
 
@@ -682,11 +683,10 @@ def test_get_leaderboard_subtracts_the_slippage_malus_from_the_adjusted_return(
 
     row = body["rows"][0]
     assert body["has_reviews"] is True
-    assert row["slippage_malus_usd"] == 50.0
+    assert row["slippage_malus_usd"] == pytest.approx(50.0, abs=0.01)
     # raw 2 % minus 50 USD on 5000 start capital = 1 %
     assert row["raw_return"] == pytest.approx(0.02)
-    assert row["adjusted_return"] == pytest.approx(0.01)
-    # F112: the malus covers exactly the one reviewed decision
+    assert row["adjusted_return"] == pytest.approx(0.01, abs=1e-5)
     assert row["malus_trade_count"] == 1
 
 
@@ -701,11 +701,14 @@ def test_get_leaderboard_sort_adjusted_changes_the_ranking(client: TestClient, s
     )
     cycle = make_cycle(session)
     research_item = make_research_item(session, cycle)
-    make_review(
+    # F113: der Malus haengt am Fill. 2000 Stueck a 150 USD ⇒ 0,5 × 5 bps auf
+    # 300.000 USD = 75 USD Malus, genug um die 50 USD Depot-Vorsprung zu drehen.
+    make_order_record(
         session,
-        make_decision(session, cycle, good_raw, research_item),
-        slippage_malus=Decimal("150.00"),
-        reviewed_at=_competition_start() + datetime.timedelta(days=1),
+        make_decision(session, cycle, good_raw, research_item, quantity=Decimal("2000")),
+        status=OrderRecordStatus.FILLED,
+        fill_price=Decimal("150.00"),
+        submitted_at=_competition_start() + datetime.timedelta(hours=17),
     )
     steady = make_portfolio(session, make_persona(session, name="GUARDIAN"))
     make_portfolio_snapshot(
@@ -1115,12 +1118,9 @@ def test_get_cycle_trace_unknown_cycle_returns_404(client: TestClient, session):
     assert client.get(f"/api/cycles/{_uuid.uuid4()}/trace").status_code == 404
 
 
-def test_get_leaderboard_reports_how_many_trades_the_malus_covers(
-    client: TestClient, session
-) -> None:
-    """F112: der Malus stammt nur aus gereviewten Trades. Steht die Zahl nicht
-    daneben, liest sich die adjustierte Rendite belastbarer als sie ist —
-    live waren es 3 von 13 Trades bei CONTRA."""
+def test_leaderboard_malus_covers_all_trades_after_f113(client: TestClient, session) -> None:
+    """F113: der Malus haengt nicht mehr am Review-Takt — jede gefuellte Order
+    zaehlt, also deckt er alle Trades ab."""
     persona = make_persona(session, name="CONTRA")
     portfolio = make_portfolio(session, persona)
     make_portfolio_snapshot(
@@ -1132,8 +1132,6 @@ def test_get_leaderboard_reports_how_many_trades_the_malus_covers(
     )
     cycle = make_cycle(session)
     research_item = make_research_item(session, cycle)
-
-    # drei gefüllte Orders, aber nur eine davon ist schon gereviewt
     for _ in range(3):
         traded = make_decision(session, cycle, portfolio, research_item)
         make_order_record(
@@ -1142,15 +1140,11 @@ def test_get_leaderboard_reports_how_many_trades_the_malus_covers(
             status=OrderRecordStatus.FILLED,
             submitted_at=_competition_start() + datetime.timedelta(hours=17),
         )
-    make_review(
-        session,
-        traded,
-        slippage_malus=Decimal("2.00"),
-        reviewed_at=_competition_start() + datetime.timedelta(days=1),
-    )
-    session.flush()
+    session.flush()  # bewusst ohne jedes Review
 
     row = client.get("/api/leaderboard").json()["rows"][0]
 
     assert row["trade_count"] == 3
-    assert row["malus_trade_count"] == 1
+    assert row["malus_trade_count"] == 3
+    assert row["slippage_malus_usd"] > 0
+    assert row["adjusted_return"] < row["raw_return"]
