@@ -68,10 +68,21 @@ crypto_market_data:
   # fuer Aktien generisch berechnet werden (F036 ist bereits symbol-agnostisch).
   key_id_env: ALPACA_MARKET_DATA_KEY_ID
   secret_key_env: ALPACA_MARKET_DATA_SECRET_KEY
+  # F115/ADR-0016: deckungsgleich mit CRYPTORs universe_screen (charter_version 3).
+  # Beide Listen muessen zusammenpassen — ein Symbol im Charter ohne Bars hier
+  # waere handelbar, aber ohne Indikatoren; Bars ohne Charter-Eintrag waeren
+  # Research-Rauschen fuer alle sechs Personas.
   watchlist:
     - BTC/USD
     - ETH/USD
     - SOL/USD
+    - XRP/USD
+    - AVAX/USD
+    - AAVE/USD
+    - UNI/USD
+    - LINK/USD
+    - ADA/USD
+    - DOT/USD
   lookback_days: 90
 
 edgar:

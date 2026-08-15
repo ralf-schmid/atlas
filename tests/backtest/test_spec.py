@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -45,7 +47,12 @@ def test_persona_specs_inherit_the_real_guardrails() -> None:
 
     cryptor = specs["cryptor-proxy"]
     assert cryptor.guardrails.max_position_pct == 0.20
-    assert cryptor.universe.symbols == ["BTC/USD", "ETH/USD", "SOL/USD"]
+    # Der Proxy bildet CRYPTORs Charter nach, er waehlt sich kein eigenes
+    # Universum — deshalb gegen die Charter-Datei geprueft und nicht gegen eine
+    # zweite Liste im Test. Sonst haette ADR-0016 (3 -> 10 Paare) zwei Stellen
+    # auseinanderlaufen lassen, ohne dass es auffaellt.
+    charter = yaml.safe_load((Path("config/personas/cryptor.yaml")).read_text(encoding="utf-8"))
+    assert cryptor.universe.symbols == charter["universe_screen"]["universe"]
 
 
 def test_unknown_signal_fails_at_load(tmp_path) -> None:

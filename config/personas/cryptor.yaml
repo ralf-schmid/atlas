@@ -4,7 +4,12 @@
 # Bitte von Ralf gegenpruefen/fixieren, siehe docs/features/F004-risk-gate.md §2.
 
 name: CRYPTOR
-charter_version: 2
+# v3 (15.08.2026, ADR-0016): Universum von 3 auf 10 liquide USD-Paare erweitert.
+# ARCHITECTURE.md §4.6 sah "BTC, ETH, SOL + wenige weitere" immer schon vor — die
+# 3-Symbol-Liste war eine Verengung. Auswahl gemessen, nicht geschaetzt: Alpacas
+# eigenes Tagesvolumen ueber 30 Tage, ohne Stablecoins (kein Trend) und ohne
+# Meme-Coins (Charter §4.6 verbietet sie ausdruecklich).
+charter_version: 3
 model: claude-sonnet-5
 
 max_position_pct: 0.20
@@ -19,4 +24,19 @@ stop_loss_policy:
 order_types_allowed: [market, stop]
 
 universe_screen:
-  universe: [BTC/USD, ETH/USD, SOL/USD]
+  # Reihenfolge = gemessenes Alpaca-Tagesvolumen (30 Tage, Stand 15.08.2026).
+  # Achtung Slippage: bei 20 % Positionsgroesse auf 5.000 USD (= 1.000 USD/Order)
+  # reisst schon BTC die 1-%-Volumenschwelle aus config/review.yaml — jeder
+  # Krypto-Trade traegt also die Volumen-Penalty. Das ist kein Fehler, sondern
+  # Alpacas duennes Krypto-Buch; siehe ADR-0016 §Konsequenzen.
+  universe:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
+    - XRP/USD
+    - AVAX/USD
+    - AAVE/USD
+    - UNI/USD
+    - LINK/USD
+    - ADA/USD
+    - DOT/USD

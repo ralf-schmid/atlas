@@ -12,7 +12,20 @@ persona: CRYPTOR
 screen_modelled: [universe]
 
 universe:
-  symbols: [BTC/USD, ETH/USD, SOL/USD]
+  # Deckungsgleich mit config/personas/cryptor.yaml universe_screen
+  # (charter_version 3, ADR-0016) — der Proxy bildet den Charter nach, er waehlt
+  # sich kein eigenes Universum.
+  symbols:
+    - BTC/USD
+    - ETH/USD
+    - SOL/USD
+    - XRP/USD
+    - AVAX/USD
+    - AAVE/USD
+    - UNI/USD
+    - LINK/USD
+    - ADA/USD
+    - DOT/USD
 
 entry:
   - {signal: sma_crossover, op: eq, value: golden_cross}

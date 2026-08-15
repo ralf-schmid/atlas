@@ -35,12 +35,25 @@ def test_chartist_charter_uses_atr_stop_not_fixed_stop() -> None:
     assert "Stop-Loss: fest" not in charter
 
 
+#: Erwartete Charter-Version je Persona. Absichtlich hart verdrahtet: ein Bump ist
+#: laut CLAUDE.md nur mit ADR erlaubt, und dieser Test ist die Stelle, an der ein
+#: stiller Bump auffliegt. Wer hier eine Zahl aendert, braucht den ADR dazu.
+_CHARTER_VERSIONS = {
+    "VULTURE": 2,
+    "HYPE": 2,
+    "GUARDIAN": 2,
+    "CHARTIST": 2,
+    "CONTRA": 2,
+    "CRYPTOR": 3,  # ADR-0016: Universum 3 -> 10 liquide USD-Paare (15.08.2026)
+}
+
+
 @pytest.mark.parametrize("persona_name", _ALL_PERSONAS)
 def test_all_personas_render_with_their_charter_version(persona_name: str) -> None:
     charter = render_charter(persona_name)
 
     assert charter != ""
-    assert "Charter-Version 2" in charter
+    assert f"Charter-Version {_CHARTER_VERSIONS[persona_name]}" in charter
 
 
 @pytest.mark.parametrize("persona_name", _ALL_PERSONAS)
