@@ -272,6 +272,22 @@ die Zukunft ist.
 25. `src/backtest` importiert weder `src.broker` noch einen LLM-Client
     (Leitplanken 1 und 3).
 
+**Report und CLI** (`test_report.py`, `test_run.py`) — nachgetragen am 15.08.2026
+26. Der Report enthält immer Disclaimer und Caveats, markiert `insufficient_data`
+    sichtbar, zeigt die SPY-Zeile als „kein simuliertes Portfolio" und ist
+    reihenfolgeunabhängig (zwei Läufe ⇒ byte-gleicher Text).
+27. Die CLI: `--list`, unbekannte Strategie, keine Strategie (Exit 2), zu wenig
+    Historie (Exit 1), `--no-save` schreibt nichts, `--json` schreibt das Artefakt,
+    und ein Ende-zu-Ende-Lauf über den dokumentierten Aufruf.
+
+> **Warum nachgetragen:** Die ursprüngliche Testdefinition deckte Rechenkerne und
+> Invarianten ab, aber weder den Renderer noch den Entrypoint — beide galten mir
+> als „nur Ausgabe". Ergebnis: `report.py` 11 %, `run.py` 30 % Coverage, und der
+> CI-Build scheiterte an der repo-weiten Schwelle (89,06 % gegen `--cov-fail-under=90`).
+> Das Gate gilt für **alle** Module, nicht nur für die in CLAUDE.md eigens genannten
+> `src/risk`/`src/broker`. Lehre für die nächste Testdefinition: jede neue Datei
+> braucht einen Eintrag, auch Renderer und CLIs.
+
 ## 9. Ergebnis des Testdurchlaufs und Verifikation
 
 **Automatische Tests:** 60 neue Tests in `tests/backtest/`, alle 25 Punkte aus §8

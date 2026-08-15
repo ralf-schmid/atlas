@@ -225,3 +225,150 @@ def test_symbol_asset_class_uses_the_pair_notation() -> None:
     assert symbol_asset_class("AAVE/USD") == "crypto"
     assert symbol_asset_class("AAPL") == "equities"
     assert symbol_asset_class("LINK") == "equities"  # the equity ticker, not the coin
+
+
+class TestSpecValidationRefusals:
+    """Every way a strategy file can be wrong, refused at load time.
+
+    These branches are the anti-drift guard of the whole feature (F111 §6.2): a
+    malformed spec that loads anyway would run *something* and label the artefact
+    with the strategy it was supposed to be.
+    """
+
+    def test_top_level_must_be_a_mapping(self, tmp_path) -> None:
+        path = tmp_path / "list.yaml"
+        path.write_text("- not\n- a mapping\n")
+        with pytest.raises(SpecError, match="mapping"):
+            load_strategy(path)
+
+    def test_name_is_required(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="name"):
+            write_spec(tmp_path, {"description": "d", "guardrails": _guardrails(), "entry": []})
+
+    def test_persona_must_be_a_string(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="persona must be a string"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "persona": 42,
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                },
+            )
+
+    @pytest.mark.parametrize("bad", [0, -3, "sieben"])
+    def test_max_hold_days_must_be_a_positive_integer(self, tmp_path, bad) -> None:
+        with pytest.raises(SpecError, match="max_hold_days"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": _guardrails(),
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                    "max_hold_days": bad,
+                },
+            )
+
+    def test_a_spec_needs_guardrails_from_somewhere(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="persona reference or a guardrails block"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                },
+            )
+
+    def test_incomplete_guardrails_block_is_rejected(self, tmp_path) -> None:
+        """A missing stop-loss policy must not fall back to "no stop" — Invariante #4
+        has no default."""
+        with pytest.raises(SpecError, match="invalid guardrails block"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": {"name": "X", "max_position_pct": 0.1},
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                },
+            )
+
+    def test_universe_symbols_must_be_strings(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="universe.symbols"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": _guardrails(),
+                    "universe": {"symbols": ["AAPL", 7]},
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                },
+            )
+
+    def test_conditions_must_be_a_list_of_mappings(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="entry must be a list"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": _guardrails(),
+                    "entry": {"signal": "close"},
+                },
+            )
+        with pytest.raises(SpecError, match="entries must be mappings"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": _guardrails(),
+                    "entry": ["close > 1"],
+                },
+            )
+
+    @pytest.mark.parametrize("bad", ["dreissig", True, None])
+    def test_numeric_signal_rejects_a_non_numeric_threshold(self, tmp_path, bad) -> None:
+        """`True` is caught deliberately: in Python it would compare as 1 and quietly
+        become a threshold nobody wrote."""
+        with pytest.raises(SpecError, match="needs a numeric value"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "guardrails": _guardrails(),
+                    "entry": [{"signal": "rsi14", "op": "lt", "value": bad}],
+                },
+            )
+
+    def test_declaring_a_screen_key_the_persona_does_not_have(self, tmp_path) -> None:
+        with pytest.raises(SpecError, match="does not have"):
+            write_spec(
+                tmp_path,
+                {
+                    "name": "n",
+                    "description": "d",
+                    "persona": "CONTRA",
+                    "screen_modelled": ["drawdown_min_pct", "drawdown_window_days", "erfunden"],
+                    "entry": [{"signal": "close", "op": "gt", "value": 1}],
+                },
+            )
+
+
+def test_categorical_condition_supports_negation() -> None:
+    """`ne` on a categorical signal: "any day that is not a death cross"."""
+    condition = Condition("sma_crossover", "ne", "death_cross")
+
+    assert condition.matches("golden_cross") is True
+    assert condition.matches("death_cross") is False
+    assert condition.matches(None) is False
+
+
+def test_categorical_signal_rejects_ordering_operators() -> None:
+    """A crossover has no order, so `lt` on it is meaningless rather than false."""
+    assert Condition("sma_crossover", "lt", "golden_cross").matches("death_cross") is False
