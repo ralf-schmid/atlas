@@ -45,6 +45,7 @@ from src.db.models import (
 )
 from src.llm.client import LiteLLMClient
 from src.llm.config import LlmConfig
+from src.llm.json_output import excerpt, parse_json_object
 from src.llm.ledger import BudgetExceededError, guarded_complete
 from src.review.embeddings import EmbeddingProvider, embed_lesson
 from src.review.slippage import compute_slippage_malus
@@ -245,9 +246,12 @@ def parse_review_output(content: str) -> tuple[ReviewVerdict, str | None]:
     silently recording a made-up judgement would corrupt the very record the
     competition is evaluated on.
     """
-    parsed = _parse_json_object(content)
+    parsed = parse_json_object(content)
     if parsed is None:
-        raise ReviewParseError("no JSON object in review response")
+        # F110: the excerpt is the whole point — without it the only trace of a
+        # failed review was "no JSON object", and finding the trailing comma that
+        # caused it took a live capture against the production DB.
+        raise ReviewParseError(f"no JSON object in review response: {excerpt(content)}")
 
     raw_verdict = parsed.get("verdict")
     if not isinstance(raw_verdict, str):
@@ -379,23 +383,6 @@ def _research_for(session: Session, decision: Decision) -> list[ResearchItem]:
     if not ids:
         return []
     return list(session.scalars(select(ResearchItem).where(ResearchItem.id.in_(ids))).all())
-
-
-def _parse_json_object(content: str) -> dict[str, object] | None:
-    text = content.strip()
-    if not text:
-        return None
-    try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
-        start, end = text.find("{"), text.rfind("}")
-        if start == -1 or end <= start:
-            return None
-        try:
-            parsed = json.loads(text[start : end + 1])
-        except json.JSONDecodeError:
-            return None
-    return parsed if isinstance(parsed, dict) else None
 
 
 def find_lessons_for_persona(
