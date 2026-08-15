@@ -9,6 +9,16 @@ const currency = new Intl.NumberFormat("de-DE", {
   maximumFractionDigits: 0,
 });
 
+// F112: the depot-value formatter rounds to whole dollars, which turned a real
+// malus of 0,0893 $ into "0 $" — it read as if nothing had been computed at all.
+// A slippage malus lives in cents by nature, so it gets its own precision.
+const malusCurrency = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const percent = new Intl.NumberFormat("de-DE", {
   style: "percent",
   minimumFractionDigits: 2,
@@ -189,7 +199,8 @@ function Row({
 
       {sort === "adjusted" && row.slippage_malus_usd !== null && (
         <p className="text-[11px] text-gray-500">
-          Slippage-Malus: {currency.format(row.slippage_malus_usd)} (roh{" "}
+          Slippage-Malus: {malusCurrency.format(row.slippage_malus_usd)} aus{" "}
+          {row.malus_trade_count} von {row.trade_count} Trades (roh{" "}
           {percent.format(row.raw_return)})
         </p>
       )}

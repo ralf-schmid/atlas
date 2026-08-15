@@ -54,6 +54,9 @@ class LeaderboardRowOut(BaseModel):
     raw_return: float
     adjusted_return: float
     slippage_malus_usd: float | None  # None = no review with a malus yet (F083/F084)
+    # F112: how many trades the malus above actually covers. Less than `trade_count`
+    # means the adjusted return is optimistic — only reviewed trades carry friction.
+    malus_trade_count: int
     sortino: float | None  # None until 20 daily returns exist (F082)
     max_drawdown: float
     trade_count: int

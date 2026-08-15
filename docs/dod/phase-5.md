@@ -36,8 +36,44 @@ Crash-Recovery-Test, wurde am 15.08.2026 durchgeführt (Nachweis in
       stateless, die Decisions kamen täglich wieder, scheiterten täglich neu und
       hinterließen nur eine Log-Zeile, die der nächste Container-Rebuild
       wegräumt.
-- [ ] Slippage-Malus implementiert; Leaderboard weist Roh- und adjustierte
+- [x] Slippage-Malus implementiert; Leaderboard weist Roh- und adjustierte
       Performance getrennt aus
+      **Nachweis geführt am 15.08.2026** gegen die Produktions-DB und die live
+      gerenderte Seite. Malus-Formel F083/F104 (`src/review/slippage.py`),
+      Ausweisung F085 (`/api/leaderboard`, `web/src/app/leaderboard/page.tsx`),
+      Umschalter Roh ↔ Slippage-adjustiert serverseitig über `?sort=`.
+
+      | Persona | roh | adjustiert | Malus USD | aus Trades |
+      |---|---|---|---|---|
+      | CONTRA | 1,8420 % | 1,8402 % | 0,0893 | 3 von 13 |
+      | CHARTIST | 0,6000 % | 0,5962 % | 0,1876 | 2 von 9 |
+      | VULTURE | 0,5882 % | 0,5879 % | 0,0137 | 1 von 2 |
+      | HYPE | 0,0784 % | 0,0758 % | 0,1322 | 3 von 6 |
+      | CRYPTOR / GUARDIAN | 0,0000 % | 0,0000 % | — | 0 von 0 |
+
+      Von Hand gegengerechnet, damit die Zahl nicht sich selbst bestätigt:
+      CONTRA 0,018420 − 0,0893/5000 = **0,01840214** — exakt der ausgelieferte
+      Wert. CHARTIST 0,006000 − 0,1876/5000 = **0,00596248**, ebenfalls exakt.
+      Die Formel `adjusted = raw − malus / start_capital` stimmt also bis auf
+      die letzte Stelle.
+
+      **Der Nachweis hat zwei Darstellungsmängel aufgedeckt, beide behoben
+      ([F112](../features/F112-leaderboard-malus-transparenz.md)):**
+
+      1. Der Malus lief durch den Depotwert-Formatter mit `maximumFractionDigits:
+         0` und wurde als **„0 $"** angezeigt — bei einem echten Wert von
+         0,0893 $. Die Seite behauptete damit optisch, es werde gar nicht
+         gerechnet. Jetzt eigener Formatter mit zwei Nachkommastellen.
+      2. Der Malus stammt ausschließlich aus **gereviewten** Trades
+         (`slippage_malus_sum` summiert `review.slippage_malus`), also bei CONTRA
+         aus 3 von 13. Die adjustierte Rendite ist dadurch systematisch zu
+         optimistisch, ohne dass man es der Zahl ansah. Das Leaderboard weist die
+         Abdeckung jetzt aus: „Slippage-Malus: 0,09 $ **aus 3 von 13 Trades**
+         (roh +1,84 %)".
+
+      Damit ist der DoD-Punkt erfüllt — und die Zahl sagt dazu, wie weit sie
+      trägt. Die verbleibende Lücke (Malus erst ab Review statt ab Fill) ist in
+      F112 §5 als Folgearbeit festgehalten, sie ändert nichts an der Rangfolge.
 - [x] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
       Impuls-Vergleich, Agent Trace); auf realem Smartphone getestet
       **Erledigt: Views vollständig (02.08.2026), Smartphone-Test von Ralf am

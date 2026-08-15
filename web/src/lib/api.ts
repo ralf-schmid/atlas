@@ -44,6 +44,7 @@ export interface LeaderboardRow {
   raw_return: number;
   adjusted_return: number;
   slippage_malus_usd: number | null;
+  malus_trade_count: number;
   sortino: number | null;
   max_drawdown: number;
   trade_count: number;

@@ -173,7 +173,14 @@ Invariante #5). Was auf Phasen-Ebene wirklich offen ist:
   - [ ] **Lineage-Probe** — 5 zufällige Trades, Kette
         Quelle→Research→Decision→Order→Fill→Review in der UI durchklicken,
         Screenshots ins DoD-Dokument. Braucht dich.
-  - [ ] **Slippage-Malus im Leaderboard** — gebaut und live (F083/F085/F104),
-        aber der Haken ist nie gesetzt worden. Vermutlich nur ein
-        Verifikationsschritt, kein Bau: Leaderboard gegen die DB gegenlesen und
-        das Ergebnis eintragen.
+  - [x] **Slippage-Malus im Leaderboard** — Nachweis geführt am 15.08.2026,
+        Zahlen und Nachrechnung in `docs/dod/phase-5.md`. Der Nachweis hat zwei
+        Darstellungsmängel gefunden (Malus als „0 $" gerundet; Abdeckung nur
+        über gereviewte Trades) — behoben und live als
+        [F112](../features/F112-leaderboard-malus-transparenz.md).
+  - [ ] **Entscheidung (aus F112 §5): Malus ab Fill statt ab Review?** Heute
+        trägt nur ein Viertel bis die Hälfte der Trades einen Slippage-Malus,
+        weil er erst beim Review verbucht wird. Seit F104 stünden die Daten
+        schon beim Fill bereit. Die Umstellung würde die adjustierte Rendite auf
+        alle Trades stellen — ein Eingriff in eine Wettbewerbskennzahl mitten in
+        der Saison, deshalb deine Entscheidung.

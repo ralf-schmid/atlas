@@ -229,3 +229,26 @@ def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int
     )
     measured, flat = session.execute(stmt).one()
     return measured or 0, flat or 0
+
+
+def malus_trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
+    """How many of the portfolio's trades actually carry a slippage malus.
+
+    `slippage_malus_sum` only sums what `review` holds, and a review exists once a
+    position closed or a buy passed the intermediate age (F084). Most recent buys
+    have neither, so the adjusted return in the leaderboard is systematically
+    optimistic — it prices in the friction of the reviewed trades only. Reporting
+    this count next to the malus is what keeps that honest (F112).
+    """
+    stmt = (
+        select(func.count(Review.id))
+        .join(Decision, Decision.id == Review.decision_id)
+        .where(
+            and_(
+                Decision.portfolio_id == portfolio_id,
+                Review.reviewed_at >= since,
+                Review.slippage_malus.is_not(None),
+            )
+        )
+    )
+    return session.scalar(stmt) or 0
