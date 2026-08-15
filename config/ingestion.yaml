@@ -386,6 +386,12 @@ newsletters:
       - "ANZEIGE"
       - "MORE BRIEFINGS"
       - "WHAT DO YOU MEME"
+      # 15.08.2026: fehlte hier, waehrend marketscrunch es hatte — ein
+      # App-Waitlist-Push stand dadurch als Research-Impuls in der DB.
+      - "APP-PFIFF"
+      # Bezahlte Platzierung mit wechselndem Partnernamen im Abschnittstitel
+      # ("UNSER PARTNER: [HOLVI](affiliate-url)"), deshalb nur das Praefix.
+      - "UNSER PARTNER"
     # Zusaetzlich zur Abschnitts-Liste: ein einzelner Block, der auf eine dieser
     # Domains verlinkt, fliegt raus — so erwischt der Filter auch den Affiliate-
     # Einschub mitten im redaktionellen Intro. beehiiv-Domains sind hier nicht nur
@@ -430,6 +436,10 @@ newsletters:
       - "ANZEIGE"
       - "MORE BRIEFINGS"
       - "APP-PFIFF"
+      # 15.08.2026: sechs Werbeblocks eines Geschaeftskonto-Anbieters standen als
+      # Research-Impulse in der DB. Partnername und Affiliate-URL wechseln, also
+      # matcht nur das Praefix (der Vergleich ist ein Substring-Test).
+      - "UNSER PARTNER"
     blocked_link_domains:
       - unsub.beehiiv.com
       - magic.beehiiv.com
@@ -456,6 +466,10 @@ newsletters:
       - "ANZEIGE"
       - "MORE BRIEFINGS"
       - "APP-PFIFF"
+      # 15.08.2026: sechs Werbeblocks eines Geschaeftskonto-Anbieters standen als
+      # Research-Impulse in der DB. Partnername und Affiliate-URL wechseln, also
+      # matcht nur das Praefix (der Vergleich ist ein Substring-Test).
+      - "UNSER PARTNER"
     blocked_link_domains:
       - unsub.beehiiv.com
       - magic.beehiiv.com

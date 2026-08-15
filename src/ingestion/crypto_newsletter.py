@@ -39,6 +39,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import yaml
+from sqlalchemy import delete
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -318,12 +319,23 @@ def sync_newsletter_items(
     """Idempotent on (message_id, seq): a re-delivered mail (n8n retry, IMAP replay)
     updates its rows in place instead of duplicating the issue into the research pool.
 
-    Unlike F011's publication pipeline this does *not* delete-then-insert, because
-    `seq` here is assigned after all filtering, not before it — re-parsing the same
-    body yields the same count, so there are no orphan high-seq rows to clean up.
+    Not a delete-then-insert like F011's publication pipeline — the rows keep their
+    identity across a re-run. But the tail *is* pruned, because the old assumption
+    ("re-parsing the same body yields the same count") only holds while the config
+    does not change. It changed on 15.08.2026: two ad sections were added to
+    `drop_sections`, the same issues then parsed to fewer impulses, and without the
+    prune the dropped advertising would have stayed in the pool precisely because a
+    re-ingest could not reach it (F117 §8).
     """
     if not impulses:
         return 0
+
+    session.execute(
+        delete(NewsletterItem).where(
+            NewsletterItem.message_id == message_id,
+            NewsletterItem.seq >= len(impulses),
+        )
+    )
 
     rows: list[dict[str, Any]] = [
         {

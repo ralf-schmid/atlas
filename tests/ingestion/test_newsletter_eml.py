@@ -237,3 +237,65 @@ def test_end_to_end_is_idempotent(session, tmp_path: Path) -> None:
 
     assert first == second
     assert session.query(NewsletterItem).filter_by(message_id=mail.message_id).count() == first
+
+
+def test_reingest_after_a_config_change_prunes_the_dropped_tail(session, tmp_path: Path) -> None:
+    """F117 §8 — the case that let advertising into the pool on 15.08.2026.
+
+    An issue is ingested, then a section is added to `drop_sections`. Re-ingesting
+    now yields fewer impulses; without pruning, the rows beyond the new count would
+    survive at their old seq — and they are exactly the ones that were just
+    declared unwanted, so no re-run could ever remove them.
+    """
+    from src.db.models import NewsletterItem
+    from src.ingestion.crypto_newsletter import (
+        NewsletterConfig,
+        extract_issue_url,
+        parse_newsletter,
+        sync_newsletter_items,
+    )
+    from tests.ingestion.test_crypto_newsletter import MARKETS_ISSUE
+
+    path = _write(tmp_path, sender="<markets@m.morningcrunch.de>", plain=MARKETS_ISSUE)
+    mail = parse_eml(path)
+    lenient = identify_newsletter(mail.sender, load_newsletters())
+    assert lenient is not None
+
+    def _ingest(config: NewsletterConfig) -> int:
+        count = sync_newsletter_items(
+            session,
+            config.slug,
+            mail.message_id,
+            mail.subject,
+            extract_issue_url(mail.body_text),
+            mail.received_at,
+            parse_newsletter(mail.body_text, config),
+        )
+        session.flush()
+        return count
+
+    before = _ingest(lenient)
+
+    stricter = NewsletterConfig(
+        slug=lenient.slug,
+        sender=lenient.sender,
+        subject_marker=lenient.subject_marker,
+        drop_sections=[*lenient.drop_sections, "WHAT TO WATCH", "MARKET MOVER"],
+        blocked_link_domains=lenient.blocked_link_domains,
+        ticker_map=lenient.ticker_map,
+        single_item_sections=lenient.single_item_sections,
+    )
+    after = _ingest(stricter)
+
+    assert after < before, "the stricter config must drop something, or the test proves nothing"
+    rows = session.query(NewsletterItem).filter_by(message_id=mail.message_id).all()
+    assert len(rows) == after, "orphaned tail rows survived the re-ingest"
+    assert not [row for row in rows if "WHAT TO WATCH" in row.section]
+    assert not [row for row in rows if "MARKET MOVER" in row.section]
+
+
+def test_shipped_config_drops_the_two_ad_sections_found_on_15_08() -> None:
+    """Both gaps that put advertising into the pool, pinned per newsletter."""
+    for newsletter in load_newsletters():
+        assert "APP-PFIFF" in newsletter.drop_sections, newsletter.slug
+        assert "UNSER PARTNER" in newsletter.drop_sections, newsletter.slug

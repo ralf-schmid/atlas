@@ -112,13 +112,22 @@ Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
 - [x] `docker compose build` + `up -d` (mit dem Deploy aus §1 zusammengefallen);
       Config auf der Box verifiziert: alle drei Slugs geladen, Absender
       `hello@morningcrunch.de` und `markets@m.morningcrunch.de` sitzen.
-- [ ] **Nach der ersten automatisch verarbeiteten Ausgabe:** `newsletter_item` auf
-      Zeilen mit `newsletter_slug IN ('materialscrunch','marketscrunch')` prüfen
-      (Erwartung: 13–14 je Ausgabe) und im nächsten Zyklus ein `research_item` mit
-      `source_type='newsletter'` in der UI ansehen. **Das ist frühestens am
-      16.08. morgens möglich:** die Ausgaben vom 15.08. kamen um 05:59/06:01 MESZ
-      an, also bevor die Zweige existierten, und der IMAP-Trigger hat sie bereits
-      als gelesen abgehakt (`lastMessageUid`). Sie kommen nicht von selbst nach.
+- [x] **Ausgaben vom 13./14.08. nachgeholt (15.08.2026)** — nicht über n8n,
+      sondern aus gespeicherten `.eml`-Dateien über den neuen Nachhol-Weg
+      ([F117](../features/F117-newsletter-nachhol-ingest.md)). 50 Impulse aus drei
+      Dateien: cryptocrunch 13.08. (18), marketscrunch 13.08. (17) und 14.08. (15).
+      Die Nachkontrolle hat dabei **sieben Werbeblöcke** gefunden, die als
+      Research-Impulse in der DB standen (`APP-PFIFF` fehlte in cryptocrunchs
+      `drop_sections`, `UNSER PARTNER` in keiner) — behoben, Zeilen entfernt,
+      nichts davon hat den Research-Pool erreicht. Details in F117 §8.
+- [ ] **`materialscrunch` fehlt noch.** Von den beiden Newslettern, die am
+      Trigger vorbeigelaufen sind, kam nur marketscrunch. Falls die
+      materialscrunch-Ausgaben noch im Postfach liegen: `.eml` nach
+      `data/ingest/newsletter/` und `scripts/ingest_newsletters.py` (erst
+      `--dry-run`).
+- [ ] **Weiterhin offen:** im nächsten Zyklus ein `research_item` mit
+      `source_type='newsletter'` in der UI ansehen — die 50 Impulse werden erst
+      beim nächsten Zyklus synthetisiert.
 - [x] **Zwei Default-Entscheidungen von Ralf bestätigt (15.08.2026):** alle drei
       Newsletter teilen sich einen `source_type` (Kosten), und
       `APP-PFIFF`/`ANZEIGE`/`MORE BRIEFINGS` fliegen raus, während

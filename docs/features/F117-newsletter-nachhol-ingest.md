@@ -1,6 +1,6 @@
 # F117 — Newsletter-Ausgaben aus `.eml`-Dateien nachholen
 
-Status: live auf der Box (15.08.2026) — wartet auf Ralfs Dateien
+Status: live auf der Box (15.08.2026), drei Ausgaben eingespielt
 Datum: 2026-08-15
 Phase: 5 (Ingestion, ergänzt F102/F106)
 Auslöser: Ralf — die Ausgaben vom 14./15.08. liegen noch in seinem Postfach
@@ -93,9 +93,20 @@ Zwei Dinge, die beim Verifizieren aufgefallen sind:
   Container-User (UID 3001, Gruppe `familie`) darf lesen, Datei gefunden,
   Umlaute dekodiert, Absender erkannt, Datum aus dem Header. Testdatei danach
   entfernt, `newsletter_item` unverändert (0 Zeilen mit der Test-ID).
-- **Noch offen:** Ralfs echte Ausgaben. Das Verzeichnis
-  `/mnt/apps/docker/atlas/data/ingest/newsletter/` war am 15.08.2026 15:14 leer —
-  der Kopiervorgang ist nicht durchgelaufen.
+- **Echtlauf am 15.08.2026** durch Ralf, drei Dateien, Dry-Run und Schreiblauf
+  beide sauber: 57 Impulse. Die Nachkontrolle hat darin zwei Fehler gefunden —
+  siehe §8. Nach deren Behebung sind es **50 Impulse**:
+
+  | Datei | Slug | Ausgabe | Impulse |
+  |---|---|---|---:|
+  | `2026-08-13_cryptocrunch.eml` | cryptocrunch | 13.08. 04:01 | 18 |
+  | `2026-08-13_marketscrunch.eml` | marketscrunch | 13.08. 06:11 | 17 |
+  | `2026-08-14_marketscrunch.eml` | marketscrunch | 14.08. 04:00 | 15 |
+
+- **`materialscrunch` fehlt.** F106 §6 nennt materialscrunch und marketscrunch als
+  die beiden Ausgaben, die am Trigger vorbeigelaufen sind; eingespielt wurden
+  marketscrunch (zweimal) und cryptocrunch. Wenn die materialscrunch-Ausgaben noch
+  im Postfach liegen, gehören sie dazu.
 
 ## 6. Bedienung
 
@@ -120,3 +131,51 @@ das nach einer Werbe-Ausgabe aussieht.
 Skript nicht aufrufen — es läuft nichts automatisch. Der Compose-Mount ist
 read-only und additiv; ein Entfernen kostet nur einen `up -d`. Kein
 Schema-Change, keine Migration.
+
+## 8. Nachkontrolle des Echtlaufs — zwei Fehler gefunden
+
+Der Lauf meldete 57 Impulse aus drei Dateien. Die Gegenkontrolle gegen die
+Erwartung aus F106 (13–14 je Ausgabe) hat zwei Probleme sichtbar gemacht.
+Beide betreffen **nicht** den `.eml`-Adapter, sondern lagen vorher schon im
+regulären Webhook-Weg.
+
+**(a) Sieben Werbeblöcke standen als Research-Impulse in der DB.**
+
+| Abschnitt | Newsletter | Zeilen |
+|---|---|---:|
+| `**APP-PFIFF**` | cryptocrunch | 1 |
+| `UNSER PARTNER: [HOLVI](affiliate-url)` | marketscrunch | 6 |
+
+Inhaltlich ein App-Waitlist-Push und die Bewerbung eines Geschäftskontos —
+also genau das, was F102s Modul-Docstring ausdrücklich draußen halten soll
+(„Without this, CRYPTOR would read … as research and not as the ad it is").
+
+Ursachen, beide in `config/ingestion.yaml`:
+- `APP-PFIFF` stand in marketscrunchs `drop_sections`, fehlte aber bei
+  cryptocrunch. Der Vergleich selbst ist ein Substring-Test, die
+  Markdown-Sternchen um `**APP-PFIFF**` waren also nicht das Problem.
+- `UNSER PARTNER` stand in keiner Liste. Partnername und Affiliate-URL stehen
+  mit im Abschnittstitel und wechseln, deshalb greift jetzt das Präfix.
+
+Ralfs Grundsatzentscheidung dazu steht seit F106 §6 fest (Werbung raus,
+`STAT OF THE DAY/WEEK` bleibt) — hier wurde sie nur auf zwei Labels angewandt,
+die die Config noch nicht kannte.
+
+**(b) Ein Re-Ingest hätte die Werbung nicht entfernen können.**
+`sync_newsletter_items` war reines Upsert auf `(message_id, seq)`; sein
+Docstring begründete das damit, dass „re-parsing the same body yields the same
+count". Diese Annahme hält genau so lange, wie die Config sich nicht ändert.
+Nach dem Fix parsen dieselben Ausgaben zu **weniger** Impulsen, die Zeilen
+jenseits der neuen Zahl wären liegengeblieben — und das sind die eben erst für
+unerwünscht erklärten. Die Funktion räumt den Schwanz jetzt ab
+(`seq >= len(impulses)`), bleibt sonst Upsert.
+
+**Verifikation nach dem Fix:** Re-Ingest derselben drei Dateien → 50 Impulse,
+**0** Werbezeilen, und `max(seq) = count − 1` bei jeder Ausgabe, also keine
+Waisen. Die ältere, über den Webhook eingelaufene Ausgabe vom 07.08. wurde
+gegengeprüft und enthält keine Werbeabschnitte.
+
+**Nichts davon hat den Research-Pool erreicht.** `research_item` enthielt zum
+Zeitpunkt der Korrektur keine Zeile mit den Werbetexten — der nächste Zyklus,
+der `newsletter_item` synthetisiert hätte, wäre der Krypto-Lauf um 18:00 UTC
+gewesen. Keine Persona hat die Werbung gesehen, keine Decision zitiert sie.
