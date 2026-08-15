@@ -315,14 +315,10 @@ unverändert).
 
 ### 9.1 Befunde für Ralf — wichtiger als die Renditezahlen
 
-- **CHARTIST hat im Backtest praktisch kein Universum.** Nur **3 von 325** Symbolen
-  erfüllen seinen Charter-Screen (Preis ≥ 10 USD *und* ≥ 1 Mio. Stück Tagesvolumen).
-  Von 212 Golden Crosses im Fenster überleben **6** den Liquiditätsfilter. Deshalb
-  sind `chartist-proxy` und die Baseline zahlengleich: dieselben 6 Signale, bei
-  allen war MACD > 0, kein Stop wurde ausgelöst. Kein Bug — aber der Backtest kann
-  über CHARTIST nichts aussagen. Das ist zugleich ein Hinweis auf die
-  *Datenabdeckung* des Wettbewerbs: `market_bar` ist screener-getrieben und
-  dominiert von Werten unter 10 USD (195 von 325) bzw. zu dünnen (124).
+- **CHARTIST hatte im ersten Lauf praktisch kein Universum — Ursache war das
+  IEX-Feed-Entitlement, nicht der Screener.** Siehe §9.2; die ursprüngliche
+  Zuschreibung „screener-getrieben" in einer früheren Fassung dieses Abschnitts
+  war falsch und ist dort korrigiert.
 - **CONTRAs +25,28 % sind mit Vorsicht zu lesen.** Genau diese Konstellation —
   Mean Reversion auf ein Universum, das aus dem *heutigen* Screener stammt — ist
   der Lehrbuchfall für Survivorship Bias: gekauft werden Werte nach 15 % Rückgang,
@@ -337,6 +333,79 @@ unverändert).
   Ergebnis aussieht.
 - **Erledigt:** `src/backtest/run.py` liest die Slippage-Config seit dem Merge von
   F113 über das öffentliche `load_slippage_config` statt über `_load_config`.
+
+### 9.2 Der IEX-Befund und die Folgeänderung am CHARTIST-Proxy (15.08.2026)
+
+**Ursachenanalyse.** `market_data_sync.py` holt Bars mit `feed=DataFeed.IEX` — der
+Alpaca-Paper-Key hat kein SIP-Entitlement (dort seit F035 kommentiert).
+`market_bar.volume` ist deshalb nur der IEX-Anteil am konsolidierten Volumen,
+rund 2–4 %:
+
+| Symbol | `market_bar` | real (konsolidiert, Größenordnung) |
+|---|---:|---|
+| AAPL | 1.870.038 | ~50 Mio. |
+| MSFT | 1.299.660 | ~25 Mio. |
+| META | 746.193 | ~15 Mio. |
+| JPM | 236.882 | ~10 Mio. |
+
+Zerlegung über 675 Aktien-Symbole im Fenster: **149** haben Kurs ≥ 10 $, aber nur
+**42** ≥ 1 Mio. Stück, beides zusammen **8**. Die *Volumen*schwelle bindet, nicht
+der Preis — die Preisbreite ist seit F068/F069 in Ordnung. Der VULTURE-Screener
+steuert 185 Pennywerte bei (davon 4 ≥ 10 $), verdünnt also, verdrängt aber nichts.
+
+**Nebenbefund:** `universe_screen` in `config/personas/*.yaml` wird im Live-Pfad
+von **keinem** Code gelesen — ein Grep über `src/` findet nur `backtest/spec.py`.
+Live erreicht das Kriterium die Persona nur als Prosa im Charter-Prompt, und
+CHARTIST hält sich nicht daran: gekauft wurden u. a. ABG (20k IEX-Volumen), ATLC
+(7k), AMPH (33k). **Der Proxy war damit strenger als die Persona, die er abbildet.**
+
+**Änderung.** `daily_volume_min` ist jetzt als `screen_not_modelled` deklariert
+(erzeugt automatisch einen Caveat), an seine Stelle tritt
+`volume_ratio_20d >= 1.2` als Volumenbestätigung des Crossovers — ein relatives
+Maß, aus dem sich der IEX-Anteil herauskürzt. Das ist ein **Austausch, keine
+Übersetzung**: gemessen wird jetzt Beteiligung am Signaltag statt Liquidität des
+Wertes. Der Proxy hat damit keine Liquiditätsuntergrenze mehr; bei 5.000 USD
+Startkapital ist das unkritisch (kleinster gehandelter Wert AGYS ≈ 1,6 Mio. USD
+IEX-Tagesumsatz gegen eine 480-USD-Order = 0,03 %), bei größerem Kapital nicht.
+
+**Ergebnis des Neulaufs** — `data_fingerprint` unverändert, die Differenz kommt
+also nachweislich allein aus der Regel (Lineage-Diff im Artefakt):
+
+| | vorher | nachher |
+|---|---:|---:|
+| Status | insufficient_data | **ok** |
+| Einstiege | 5 | **13** |
+| Rendite netto | −0,07 % | **+11,71 %** |
+| Sortino | — | 6,02 |
+| Max Drawdown | 0,73 % | 3,26 % |
+
+**Die +11,71 % sind trotzdem keine Strategieaussage.** Nachgerechnet: Summe der 13
+Round-Trips +588,55 USD brutto − 3,01 USD Slippage = +585,54 auf 5.000 USD. Aber:
+
+1. **10 der 13 Positionen waren am Ende noch offen** und wurden zum letzten Kurs
+   glattgestellt. Das Ergebnis misst überwiegend offene Positionen in einem
+   steigenden Markt, nicht abgeschlossene Trades.
+2. **Ein Wert trägt 35 %.** AGYS allein macht +203,82 USD von +588,55. Ohne ihn
+   bleiben +7,7 %.
+3. **Der Sortino von 6,02 ist überhöht, weil das Depot überwiegend Cash war.**
+   13 Positionen à ~450 USD auf 5.000 USD Kapital heißt selten mehr als die Hälfte
+   investiert; das dämpft Schwankung und Drawdown und bläht jede
+   risiko-adjustierte Kennzahl auf. Gegen die voll investierten Strategien im
+   selben Feld ist dieser Sortino **nicht vergleichbar** — der §4.7-Score setzt
+   `chartist-proxy` genau deshalb auf Rang 1 (0,881).
+
+Konsequenz: der Proxy liefert jetzt genug Signale, um überhaupt zu rechnen, und
+das war das Ziel der Änderung. Eine Aussage über CHARTISTs Regelgüte ist er
+weiterhin nicht — dafür braucht es mehr Historie und einen Vergleich bei
+ähnlichem Investitionsgrad.
+
+**Offen für Ralf (nicht angefasst):** dieselbe IEX-Zahl steckt in der
+Volumen-Penalty des Slippage-Modells (`config/review.yaml`,
+`penalty.volume_threshold_pct` gegen `volume × close`). Dort wirkt sie in die
+andere Richtung — das Tagesvolumen ist zu klein angesetzt, die Penalty schlägt
+also *früher* zu als sie sollte. Betrifft Leaderboard und §4.7-Score der
+laufenden Saison, ist aber eine Geld-/Wettbewerbsfrage und damit deine
+Entscheidung.
 
 ## 10. Betrieb, Rollback, Livesetzung
 

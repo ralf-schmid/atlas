@@ -2,23 +2,45 @@
 # Von allen sechs Personas die ehrlichste Näherung: CHARTIST handelt laut Charter
 # ausschließlich code-berechnete Preis-/Volumenindikatoren, der LLM-Anteil ist
 # bewusst klein ("Signal-Synthese und Konfliktaufloesung, keine Mustererkennung").
+#
+# WARUM HIER KEIN ABSOLUTER VOLUMENFILTER STEHT (Messung 15.08.2026):
+# market_data_sync.py holt Bars mit feed=DataFeed.IEX — der Alpaca-Paper-Key hat
+# kein SIP-Entitlement. `market_bar.volume` ist damit nur der IEX-Anteil am
+# konsolidierten Volumen, rund 2-4 %: AAPL meldet 1,87 Mio. statt real ~50 Mio.,
+# META 746k, JPM 237k. Der Charter-Wert "Tagesvolumen > 1 Mio. Stueck" meint
+# konsolidiertes Volumen; gegen IEX-Zahlen angewandt verlangt er faktisch 25-50
+# Mio. echte Stueck und laesst von 675 Symbolen 42 uebrig (mit Preis >= 10 $: 8).
+# Deshalb ist `daily_volume_min` hier ausdruecklich NICHT modelliert — das taucht
+# als Caveat in jedem Lauf auf. An seine Stelle tritt eine relative
+# Volumenbestaetigung: `volume_ratio_20d` setzt das Tagesvolumen ins Verhaeltnis
+# zum eigenen 20-Tage-Schnitt, wodurch sich der IEX-Anteil herauskuerzt.
+#
+# Das ist ein Austausch, keine Uebersetzung: die Schwelle misst jetzt
+# Beteiligung am Signaltag statt Liquiditaet des Wertes. Volumenbestaetigung
+# eines Crossovers ist klassische TA und charter-konform ("Preis-/Volumenmuster"),
+# aber der Proxy hat damit keinen Liquiditaetsschutz mehr — siehe F111 §9.2.
 
 name: chartist-proxy
 description: >-
-  SMA-20/50-Crossover mit MACD-Bestaetigung auf liquiden US-Werten, Exit auf
-  Death-Cross, Stop nach ATR-Policy der Persona.
+  SMA-20/50-Crossover mit MACD- und Volumenbestaetigung (Tagesvolumen >= 1,2x
+  20-Tage-Schnitt) auf US-Werten ab 10 $, Exit auf Death-Cross, Stop nach
+  ATR-Policy der Persona.
 persona: CHARTIST
 
-screen_modelled: [daily_volume_min, price_min]
+screen_modelled: [price_min]
+screen_not_modelled: [daily_volume_min]
 
 universe:
   filters:
-    - {signal: volume, op: gte, value: 1000000}
     - {signal: close, op: gte, value: 10}
 
 entry:
   - {signal: sma_crossover, op: eq, value: golden_cross}
   - {signal: macd_histogram, op: gt, value: 0}
+  # Der Cross soll auf echter Beteiligung stattfinden, nicht auf duennem Band.
+  # 1,2 statt 2,0 (VULTUREs Spike-Schwelle): hier geht es um Bestaetigung, nicht
+  # um die Jagd nach dem Ausreisser.
+  - {signal: volume_ratio_20d, op: gte, value: 1.2}
 
 exit:
   - {signal: sma_crossover, op: eq, value: death_cross}
@@ -26,3 +48,4 @@ exit:
 not_modelled:
   - "Bollinger-Breakouts und 15-Minuten-Bars fuers Timing innerhalb der Zyklen"
   - "LLM-Signalsynthese und Konfliktaufloesung bei widerspruechlichen Indikatoren"
+  - "Absolute Liquiditaetsuntergrenze (IEX-Volumen laesst sie nicht zu, s. Kopf)"
