@@ -1,0 +1,33 @@
+# VULTURE als deterministischer Proxy — ARCHITECTURE.md §4.1.
+# Vorsicht bei der Interpretation: der Charter nennt EDGAR-Filings und News-Nennungen
+# als gleichwertige Signale neben Volumen-Spikes und Kurssprüngen. Der Proxy kennt
+# nur die beiden preisbasierten. Und die Marktkapitalisierung — das Kriterium, das
+# "Micro-Cap" ueberhaupt definiert — liegt nicht in market_bar.
+
+name: vulture-proxy
+description: >-
+  Volumen-Spike (>= 2x 20-Tage-Schnitt) plus 5-Tage-Kurssprung >= 10 % auf
+  Penny-Werten unter 5 USD; Exit bei Momentum-Bruch oder nach 30 Kalendertagen.
+persona: VULTURE
+
+screen_modelled: [price_max, daily_volume_min]
+screen_not_modelled: [market_cap_max]
+
+universe:
+  filters:
+    - {signal: close, op: lte, value: 5}
+    - {signal: volume, op: gte, value: 500000}
+
+entry:
+  - {signal: volume_ratio_20d, op: gte, value: 2.0}
+  - {signal: return_5d, op: gte, value: 0.10}
+
+exit:
+  - {signal: close_vs_sma20, op: lt, value: -0.05}
+
+# "Tage bis wenige Wochen" aus dem Charter.
+max_hold_days: 30
+
+not_modelled:
+  - "EDGAR-Filings (8-K, Insider-Kaeufe) als Einstiegssignal"
+  - "News-Nennungen und bewusst spekulative Quellen"

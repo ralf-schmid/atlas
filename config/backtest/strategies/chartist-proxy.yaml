@@ -1,0 +1,28 @@
+# CHARTIST als deterministischer Proxy — ARCHITECTURE.md §4.4.
+# Von allen sechs Personas die ehrlichste Näherung: CHARTIST handelt laut Charter
+# ausschließlich code-berechnete Preis-/Volumenindikatoren, der LLM-Anteil ist
+# bewusst klein ("Signal-Synthese und Konfliktaufloesung, keine Mustererkennung").
+
+name: chartist-proxy
+description: >-
+  SMA-20/50-Crossover mit MACD-Bestaetigung auf liquiden US-Werten, Exit auf
+  Death-Cross, Stop nach ATR-Policy der Persona.
+persona: CHARTIST
+
+screen_modelled: [daily_volume_min, price_min]
+
+universe:
+  filters:
+    - {signal: volume, op: gte, value: 1000000}
+    - {signal: close, op: gte, value: 10}
+
+entry:
+  - {signal: sma_crossover, op: eq, value: golden_cross}
+  - {signal: macd_histogram, op: gt, value: 0}
+
+exit:
+  - {signal: sma_crossover, op: eq, value: death_cross}
+
+not_modelled:
+  - "Bollinger-Breakouts und 15-Minuten-Bars fuers Timing innerhalb der Zyklen"
+  - "LLM-Signalsynthese und Konfliktaufloesung bei widerspruechlichen Indikatoren"

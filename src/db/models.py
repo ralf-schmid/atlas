@@ -719,3 +719,46 @@ class NewsletterItem(Base):
     synced_at: Mapped[datetime] = mapped_column(
         default=lambda: datetime.now(UTC).replace(tzinfo=None)
     )
+
+
+class BacktestRunStatus(enum.Enum):
+    OK = "ok"
+    INSUFFICIENT_DATA = "insufficient_data"
+
+
+class BacktestRun(Base):
+    """One deterministic backtest of one strategy spec over one window — see
+    docs/features/F111-backtest-modul.md §4.
+
+    Diagnostic artefact only. Nothing in the persona path reads this table
+    (Leitplanke 2, pinned by tests/backtest/test_isolation.py); it exists so a
+    result can be reproduced and compared against an earlier run rather than
+    believed. `strategy_spec`, `config` and `data_fingerprint` together answer
+    "what exactly produced this number", and `parent_run_id`/`lineage` answer
+    "what changed since last time" — the same discipline `decision` already has
+    with `input_research_ids`.
+    """
+
+    __tablename__ = "backtest_run"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    created_at: Mapped[datetime] = mapped_column(
+        default=lambda: datetime.now(UTC).replace(tzinfo=None)
+    )
+    spec_name: Mapped[str] = mapped_column(String(100))
+    status: Mapped[BacktestRunStatus] = mapped_column(
+        Enum(BacktestRunStatus, name="backtest_run_status")
+    )
+    period_start: Mapped[date]
+    period_end: Mapped[date]
+    strategy_spec: Mapped[dict[str, object]] = mapped_column(JSONB)
+    config: Mapped[dict[str, object]] = mapped_column(JSONB)
+    data_fingerprint: Mapped[dict[str, object]] = mapped_column(JSONB)
+    metrics: Mapped[dict[str, object]] = mapped_column(JSONB)
+    caveats: Mapped[list[object]] = mapped_column(JSONB)
+    equity_curve: Mapped[list[object]] = mapped_column(JSONB)
+    trades: Mapped[list[object]] = mapped_column(JSONB)
+    parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("backtest_run.id"), nullable=True
+    )
+    lineage: Mapped[dict[str, object]] = mapped_column(JSONB)

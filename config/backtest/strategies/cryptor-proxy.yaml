@@ -1,0 +1,25 @@
+# CRYPTOR als deterministischer Proxy — ARCHITECTURE.md §4.6.
+# Trend-Following auf den drei Majors, die auch live im Universum stehen. Bewusst
+# ohne Regime-Filter: die BTC-Dominanz liegt zwar in der DB (btc_dominance_snapshot),
+# aber erst ab Saisonstart und damit nicht ueber das Backtest-Fenster.
+
+name: cryptor-proxy
+description: >-
+  SMA-20/50-Trendfolge auf BTC/ETH/SOL, Exit auf Death-Cross, Stop -10 % nach
+  Persona-Policy.
+persona: CRYPTOR
+
+screen_modelled: [universe]
+
+universe:
+  symbols: [BTC/USD, ETH/USD, SOL/USD]
+
+entry:
+  - {signal: sma_crossover, op: eq, value: golden_cross}
+
+exit:
+  - {signal: sma_crossover, op: eq, value: death_cross}
+
+not_modelled:
+  - "News-Sentiment aus dem gemeinsamen Research-Pool"
+  - "BTC-Dominanz als Regime-Filter (Historie reicht nicht zurueck)"

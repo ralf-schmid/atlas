@@ -1,0 +1,31 @@
+# CONTRA als deterministischer Proxy — ARCHITECTURE.md §4.5.
+# Der Charter-Kern (Rueckgang > 15 % in 20 Tagen, RSI < 30, Reversion-Fenster
+# 2-8 Wochen) ist preisbasiert und damit abbildbar. Der Qualitaets-Cross-Check
+# gegen Fundamentaldaten ist es nicht — genau der schuetzt live vor Falling Knives,
+# also faellt der Proxy hier haerter aus als die Persona.
+
+name: contra-proxy
+description: >-
+  Mean Reversion: Einstieg nach >15 % Rueckgang in 20 Tagen bei RSI < 30, Ausstieg
+  bei RSI > 55 oder nach 56 Kalendertagen.
+persona: CONTRA
+
+screen_modelled: [drawdown_min_pct, drawdown_window_days]
+
+universe:
+  filters:
+    - {signal: drawdown_20d, op: gte, value: 0.15}
+
+entry:
+  - {signal: rsi14, op: lt, value: 30}
+
+exit:
+  - {signal: rsi14, op: gt, value: 55}
+
+# Oberes Ende des Reversion-Fensters "2-8 Wochen" aus dem Charter.
+max_hold_days: 56
+
+not_modelled:
+  - "Fundamentaler Cross-Check (aktienfinder-Qualitaet, EDGAR-Filings) gegen Falling Knives"
+  - "Downgrade-Kaskaden und extreme Negativ-Sentiment-Spitzen aus dem Research-Pool"
+  - "Gestaffelter Einstieg in 2 Tranchen (Falling-Knife-Schutz der Persona-Guardrails)"

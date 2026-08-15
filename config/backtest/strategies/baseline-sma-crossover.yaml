@@ -1,0 +1,34 @@
+# Neutrale Vergleichslinie — gehoert zu keiner Persona.
+# Zweck: die Persona-Proxys haben ohne Bezugsgroesse keine lesbare Aussage. Diese
+# Baseline nutzt dieselbe Engine, dieselben Kosten und dasselbe Risk-Gate, aber die
+# simpelste denkbare Regel. Schlaegt ein Proxy sie nicht, liegt der Mehrwert der
+# Persona-Regeln nicht in ihrem preisbasierten Anteil.
+
+name: baseline-sma-crossover
+description: >-
+  Nackter SMA-20/50-Crossover auf liquiden US-Werten, ohne Zusatzbedingung, mit
+  generischen Guardrails (10 % je Position, Stop -15 %).
+
+# Keine Persona -> eigene Guardrails. Bewusst in der Mitte des Personenfelds
+# angesiedelt, damit die Baseline weder durch besonders enge noch besonders weite
+# Grenzen bevorteilt wird.
+guardrails:
+  name: BASELINE
+  max_position_pct: 0.10
+  max_trades_per_day: 8
+  max_open_positions: 15
+  min_cash_pct: 0.0
+  stop_loss_policy:
+    type: fixed
+    max_loss_pct: 0.15
+
+universe:
+  filters:
+    - {signal: volume, op: gte, value: 1000000}
+    - {signal: close, op: gte, value: 10}
+
+entry:
+  - {signal: sma_crossover, op: eq, value: golden_cross}
+
+exit:
+  - {signal: sma_crossover, op: eq, value: death_cross}

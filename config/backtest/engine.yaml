@@ -1,0 +1,39 @@
+# Backtest-Engine — Parameter eines Laufs. Siehe docs/features/F111-backtest-modul.md.
+# Diese Werte landen im Artefakt (`backtest_run.config`); eine Änderung hier macht
+# einen Lauf nicht vergleichbar mit dem vorigen und taucht deshalb im Lineage-Diff auf.
+
+# Wie im Wettbewerb (ARCHITECTURE.md §7, 5.000 USD je Persona-Paper-Account).
+start_capital_usd: 5000
+
+# Der Live-Pfad multipliziert die Positionsgröße mit der LLM-Conviction (0-1,
+# src/orchestrator/decision_sizing.py). Eine Regel hat keine Conviction-Abstufung,
+# also läuft der Proxy auf 1.0 = persona-eigene Obergrenze. Das ist die aggressivere
+# Annahme und steht bewusst hier statt im Code.
+conviction: 1.0
+
+# Bars vor dem ersten Simulationstag, damit SMA50/Crossover von Tag eins an definiert
+# sind (_MIN_BARS_FOR_CROSSOVER = 51). Symbole ohne so viel Vorlauf fallen raus.
+warmup_bars: 60
+
+# Über-Nacht-Sprung, ab dem eine Kursreihe als "nicht mittelbar" gilt (F108).
+max_gap_factor: 1.5
+
+# Harte Schwellen aus F111 §5.4: darunter Status insufficient_data — Artefakt ja,
+# Sortino und §4.7-Score nein.
+min_trading_days: 60
+min_trades: 10
+
+# Reine Kurs-Referenzlinie im Report, kein simuliertes Portfolio (F111 §6.4).
+reference_symbol: SPY
+
+# Personas, deren Charter-Signale historisch nicht in der DB liegen. Bewusst ohne
+# Ersatzregel: eine erfundene Näherung wäre schlechter als ein ehrliches "geht nicht".
+not_backtestable:
+  HYPE: >-
+    Kernquelle sind Zeitschriften-Empfehlungen der letzten 14 Tage
+    (ARCHITECTURE.md §4.2). Historische Empfehlungslisten existieren in der DB erst
+    ab Saisonstart, ein Backtest darüber hinaus hätte kein Einstiegssignal.
+  GUARDIAN: >-
+    Braucht Fundamentaldaten und Fair-Value-Abschläge aus aktienfinder.de
+    (ARCHITECTURE.md §4.3). market_bar enthält nur OHLCV — jede Preis-Näherung wäre
+    eine andere Strategie, nicht GUARDIAN.
