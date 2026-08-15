@@ -1,6 +1,11 @@
 # ADR-0015: Alpaca Agent-Research-Tooling (CLI, MCP-Server, Skills Library) — Abgrenzung und selektive Übernahme
 
-* Status: proposed
+* Status: accepted — angenommen von Ralf am 15.08.2026. Die drei Folgearbeiten
+  sind seitdem umgesetzt und live (F103 Bar-Adjustment inkl. Backfill, F104
+  gemessener Spread, F105 News/Screener). Mit derselben Freigabe ist das unten
+  „geparkte" Backtest-Modul **beauftragt** — als deterministisches Code-Modul im
+  Review-Zweig, mit eigenem Feature-Dokument; die Ablehnung von CLI, MCP-Server
+  und LLM-geschriebenem Simulationscode im Zyklus bleibt davon unberührt.
 * Deciders: Ralf Schmid
 * Datum: 2026-08-11
 * Betrifft Invariante(n): **#2** (Privilege Separation), **#9** (Untrusted Content),
@@ -133,8 +138,10 @@ Persona-Pfad — sonst entstehen Kosten- und Fairness-Asymmetrien.
   3. `F105` Alpaca-News-/Screener-Ingestion (P3-Nachzügler). Vor Umsetzung
      Kostenwirkung prüfen: mehr `research_item`-Zeilen ⇒ größerer Persona-Prompt je
      Zyklus gegen den 1-$-Cap.
-* Backtest-Modul: geparkt. Wiedervorlage frühestens P5, dann als ADR mit eigenem
-  Scope.
+* ~~Backtest-Modul: geparkt.~~ **Beauftragt am 15.08.2026** (Ralf). Umsetzung
+  entlang der hier gesetzten Leitplanken: deterministisches Code-Modul im
+  Review-Zweig, kein Zugriff aus dem Persona-Pfad, Artefakt-Kontrakt der Skill
+  als Vorlage. Siehe das zugehörige Feature-Dokument.
 
 ## Pro/Contra der Optionen
 

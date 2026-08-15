@@ -39,6 +39,15 @@ CATEGORY_MOST_ACTIVE = "most_active"
 CATEGORY_GAINER = "gainer"
 CATEGORY_LOSER = "loser"
 
+# F109: US ticker convention — a fifth character of W/R/U marks a warrant, right or
+# unit rather than common stock. Alpaca's screener carries no instrument class, and
+# an asset-directory lookup per run would be a second call over ~11k assets for a
+# handful of symbols. A warrant's percent move is leverage mechanics, not a company
+# event, and ATLAS doesn't trade them — see F109 §2 for why the heuristic's downside
+# is acceptable.
+_DERIVATIVE_CLASS_SUFFIXES = ("W", "R", "U")
+_COMMON_STOCK_MAX_LEN = 4
+
 
 @dataclass(frozen=True, slots=True)
 class Mover:
@@ -123,6 +132,61 @@ def _naive(value: datetime.datetime) -> datetime.datetime:
     return value.replace(tzinfo=None)
 
 
+def _is_derivative_class(symbol: str) -> bool:
+    """True for warrants/rights/units by US ticker convention. Crypto pairs carry a
+    slash and are never judged by this rule — `SHIB/USD` has five characters before
+    the slash but is an ordinary asset."""
+    if "/" in symbol:
+        return False
+    return len(symbol) > _COMMON_STOCK_MAX_LEN and symbol.endswith(_DERIVATIVE_CLASS_SUFFIXES)
+
+
+def _base_asset(symbol: str) -> str:
+    return symbol.split("/", 1)[0]
+
+
+def _filter_movers(
+    movers: list[Mover], exclude_derivatives: bool, crypto_quote: str | None
+) -> list[Mover]:
+    """Drops warrant-class stock symbols and collapses a crypto asset quoted in
+    several currencies to one row — see F109 §1.
+
+    An asset is only collapsed when the preferred quote is actually present in the
+    batch: otherwise a genuine mover that happens to trade only against USDT would
+    vanish instead of being deduplicated.
+    """
+    kept: list[Mover] = []
+    quoted_in_preferred = {
+        _base_asset(m.symbol)
+        for m in movers
+        if crypto_quote and m.symbol.endswith(f"/{crypto_quote}")
+    }
+    for mover in movers:
+        if exclude_derivatives and _is_derivative_class(mover.symbol):
+            continue
+        if crypto_quote and "/" in mover.symbol:
+            base = _base_asset(mover.symbol)
+            if base in quoted_in_preferred and not mover.symbol.endswith(f"/{crypto_quote}"):
+                continue
+        kept.append(mover)
+    return kept
+
+
+def _take_top_per_group(movers: list[Mover], top: int) -> list[Mover]:
+    """Cuts back to `top` per (market, category) *after* filtering — that's what the
+    oversampling is for. Ranks stay Alpaca's original ones: renumbering would claim a
+    ranking we didn't measure."""
+    counts: dict[tuple[str, str], int] = {}
+    kept: list[Mover] = []
+    for mover in movers:
+        key = (mover.market, mover.category)
+        if counts.get(key, 0) >= top:
+            continue
+        counts[key] = counts.get(key, 0) + 1
+        kept.append(mover)
+    return kept
+
+
 def sync_market_movers(session: Session, movers: list[Mover]) -> int:
     """Upserts `movers` and returns the number of rows written."""
     if not movers:
@@ -172,11 +236,19 @@ def run_alpaca_screener_sync(
     # personas read every cycle.
     top = int(config.get("top", 10))
     markets: list[str] = config.get("market_types", ["stocks"])
+    # F109: fetch more than `top` so the filter below still yields `top` real
+    # impulses. Same single API call per endpoint, so no extra cost.
+    exclude_derivatives = bool(config.get("exclude_derivative_classes", False))
+    crypto_quote: str | None = config.get("crypto_quote")
+    oversample = int(config.get("oversample", 1)) if (exclude_derivatives or crypto_quote) else 1
+    fetch_top = top * oversample
 
-    movers = list(provider.fetch_most_actives(top))
+    movers = list(provider.fetch_most_actives(fetch_top))
     for market in markets:
-        movers.extend(provider.fetch_movers(market, top))
-    return sync_market_movers(session, movers)
+        movers.extend(provider.fetch_movers(market, fetch_top))
+
+    movers = _filter_movers(movers, exclude_derivatives, crypto_quote)
+    return sync_market_movers(session, _take_top_per_group(movers, top))
 
 
 def _require_env(var_name: str) -> str:

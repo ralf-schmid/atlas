@@ -85,7 +85,7 @@ Tracking-Pixel).
 
 ## 4. Entscheidungen, die ich mangels Rückmeldung selbst getroffen habe
 
-Alle drei sind Config und ohne Deploy umkehrbar — Widerspruch jederzeit möglich:
+Alle drei sind Config und ohne Deploy umkehrbar. **Von Ralf bestätigt am 15.08.2026:**
 
 1. **Instrument-Tagging: Variante C** — zunächst nur `$TICKER`, Namensabgleich als
    Folge-Feature. **Überholt am selben Tag:** Ralf hat den Namensabgleich beauftragt,

@@ -243,6 +243,22 @@ alpaca_screener:
   market_types:
     - stocks
     - crypto
+  # F109 Rauschfilter. Der erste Produktivlauf (15.08.2026) lieferte 50 Zeilen,
+  # davon gut die Haelfte ohne Informationswert: 12 Warrants/Rights in den
+  # Aktien-Movern (AACBR, TMCWW, ...) und 9 Krypto-Duplikate desselben Assets in
+  # anderer Notierung (LINK/USD + /USDC + /USDT + /BTC).
+  # exclude_derivative_classes: fuenfstellige Symbole auf W/R/U sind per
+  #   US-Ticker-Konvention Warrant/Right/Unit — Hebelmechanik statt
+  #   Unternehmensereignis, und ATLAS handelt sie nicht.
+  # crypto_quote: je Krypto-Asset nur die USD-Notierung behalten (CRYPTORs
+  #   Charter-Universum ist USD). Assets ohne USD-Paar bleiben unangetastet.
+  # oversample: deshalb top*3 holen und erst NACH dem Filter auf top kappen,
+  #   sonst kommen aus 10 angefragten Gainern nur 5 an. Ein API-Call wie bisher.
+  # ROLLBACK: exclude_derivative_classes: false + crypto_quote: null ⇒ Verhalten
+  #   wie F105. Achtung, config/ ist ins Image gebacken ⇒ Rebuild noetig.
+  exclude_derivative_classes: true
+  crypto_quote: USD
+  oversample: 3
 
 market_news:
   # F058: Ralfs Auftrag war reuters.com/markets/us/ als Analystenquelle — dessen

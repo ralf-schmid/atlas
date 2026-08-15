@@ -105,7 +105,9 @@ def synthesize_research_items(
         ),
         *_research_items_from_btc_dominance_snapshots(session, cycle.id, window_start, window_end),
         *_research_items_from_reddit_posts(session, cycle.id, window_start, window_end),
-        *_research_items_from_aktienfinder_blog_posts(session, cycle.id, window_start, window_end),
+        *_research_items_from_aktienfinder_blog_posts(
+            session, cycle.id, window_start, window_end, aliases
+        ),
         *_research_items_from_market_news_headlines(
             session, cycle.id, window_start, window_end, aliases
         ),
@@ -561,6 +563,7 @@ def _research_items_from_aktienfinder_blog_posts(
     cycle_id: uuid.UUID,
     window_start: datetime.datetime,
     window_end: datetime.datetime,
+    aliases: dict[str, str] | None = None,
 ) -> list[ResearchItem]:
     """Title/date/category/tags only — never the Premium article body (F041,
     no login used for this source, see aktienfinder_blog.py)."""
@@ -581,7 +584,11 @@ def _research_items_from_aktienfinder_blog_posts(
                 f"aktienfinder-Blog ({', '.join(post.categories)}"
                 f"{', Premium' if post.is_premium else ', frei'}): {post.title}"
             ),
-            instruments=[],
+            # F107-Folgearbeit: the title names the company in prose ("Zoetis — 70%-Crash",
+            # "General Mills — 7,2 % Dividende"). The tags carry it too, but only as a
+            # lowercase slug (`general-mills`), which the case-sensitive matcher would
+            # never hit — so the title is the whole surface here.
+            instruments=match_instruments(post.title, aliases or {}),
             raw={"categories": post.categories, "tags": post.tags, "is_premium": post.is_premium},
         )
         for post in posts

@@ -8,17 +8,18 @@ nur noch der Crash-Recovery-Test (siehe `phase-4.md`, Update 25.07.2026).
       Position hat binnen 7 Tagen ein Review mit Verdict
 - [ ] Slippage-Malus implementiert; Leaderboard weist Roh- und adjustierte
       Performance getrennt aus
-- [ ] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
+- [x] UI komplett (Leaderboard, Decision Journal inkl. Rejected-Filter,
       Impuls-Vergleich, Agent Trace); auf realem Smartphone getestet
-      **Views vollständig (02.08.2026), Smartphone-Test offen:**
+      **Erledigt: Views vollständig (02.08.2026), Smartphone-Test von Ralf am
+      15.08.2026 bestätigt („GUI sieht gut aus, Test erfolgreich"):**
       [F100](../features/F100-portfolio-history-chart.md) Verlaufs-Charts auf der
       Startseite, [F085](../features/F085-leaderboard-view.md) Leaderboard (roh
       und slippage-adjustiert, SPY-Benchmark),
       [F086](../features/F086-decision-journal.md) Decision Journal mit
       Rejected-Filter, [F087](../features/F087-impuls-vergleich.md)
       Impuls-Vergleich, [F088](../features/F088-agent-trace.md) Agent Trace —
-      alle live auf der Box verifiziert. **Offen bleibt allein der DoD-Schritt
-      „auf realem Smartphone getestet" (Ralf, ~390 px).**
+      alle live auf der Box verifiziert und von Ralf auf dem Smartphone
+      gegengesehen.
 - [ ] Lineage-Probe: für 5 zufällige Trades die Kette
       Quelle→Research→Decision→Order→Fill→Review lückenlos in der UI
       nachvollzogen (Screenshots im DoD-Dokument)

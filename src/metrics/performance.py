@@ -202,3 +202,30 @@ def trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datet
         )
     )
     return session.scalar(stmt) or 0
+
+
+def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int, int]:
+    """(measured, flat) counts of FILLED orders since *since*, across all portfolios.
+
+    F104 started measuring the real bid/ask spread at order time; orders placed
+    before that carry `spread_bps IS NULL` and their review falls back to the
+    configured flat rate. Historical quotes aren't reconstructible, so the two
+    methods coexist until the last pre-F104 order has left the scoring window.
+    The weekly report uses this to say so out loud (F104 §2) rather than
+    presenting one malus number as if it came from one method.
+    """
+    stmt = (
+        select(
+            func.count(OrderRecord.id).filter(OrderRecord.spread_bps.isnot(None)),
+            func.count(OrderRecord.id).filter(OrderRecord.spread_bps.is_(None)),
+        )
+        .join(Decision, Decision.id == OrderRecord.decision_id)
+        .where(
+            and_(
+                OrderRecord.status == OrderRecordStatus.FILLED,
+                OrderRecord.submitted_at >= since,
+            )
+        )
+    )
+    measured, flat = session.execute(stmt).one()
+    return measured or 0, flat or 0

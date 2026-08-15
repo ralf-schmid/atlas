@@ -49,6 +49,12 @@ aliases:
   Eli Lilly: LLY
   Coinbase: COIN
 
+  # --- aus den aktienfinder-Blog-Titeln (angeschlossen 15.08.2026) ---
+  # Die Blog-Analysen tragen die Firma im Titel ("Zoetis - 70%-Crash trotz
+  # Rekordgewinne"), beide bei Alpaca handelbar.
+  General Mills: GIS
+  Zoetis: ZTS
+
   # --- Krypto: der Klartextname ist hier die haeufigste Schreibweise ueberhaupt ---
   Bitcoin: BTC/USD
   Ethereum: ETH/USD

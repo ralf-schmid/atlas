@@ -655,6 +655,8 @@ def test_aktienfinder_blog_item_mapping_inside_window(session: Session) -> None:
     assert "General Mills" in blog_items[0].summary
     assert "Premium" in blog_items[0].summary
     assert blog_items[0].raw["is_premium"] is True
+    # F107-Folgearbeit (15.08.2026): the title runs through the shared name map.
+    assert blog_items[0].instruments == ["GIS"]
 
 
 def test_aktienfinder_blog_item_excluded_outside_window(session: Session) -> None:
@@ -1085,3 +1087,29 @@ def test_filter_is_off_without_config_value(session: Session, tmp_path) -> None:
 
     indicator_symbols = {i.source_ref for i in items if i.source_type == "technical_indicator"}
     assert "MSFT" in indicator_symbols
+
+
+def test_aktienfinder_blog_item_without_a_company_name_stays_untagged(session: Session) -> None:
+    """Gegenprobe zum Namensabgleich: die Sammel-Artikel der Serie nennen keine
+    einzelne Firma im Titel — ein Tag wäre hier eine Erfindung."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    session.add(
+        AktienfinderBlogPost(
+            post_id="32200",
+            title="Kaufenswerte Aktien – August 2026",
+            url="https://aktienfinder.net/blog/kaufenswerte-aktien-august-2026/",
+            categories=["artikelserie", "kaufenswerte-aktien"],
+            tags=["aktien", "aktientipps", "investieren", "kaufenswert"],
+            is_premium=False,
+            published_at=datetime.date(2026, 8, 3),
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    blog_items = [item for item in items if item.source_type == "aktienfinder_blog"]
+    assert len(blog_items) == 1
+    assert blog_items[0].instruments == []

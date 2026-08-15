@@ -34,6 +34,7 @@ from src.metrics.performance import (
     simple_return,
     slippage_malus_sum,
     sortino_ratio,
+    spread_method_split,
     trade_count,
 )
 from src.orchestrator.competition_config import load_competition_config
@@ -58,6 +59,13 @@ Gewertet: {{ counted_labels }}
 {% if score.skipped_criteria -%}
 Nicht wertbar (Gewicht umverteilt): {{ skipped_labels }}
 {% endif -%}
+{% if mixed_spread_method -%}
+ℹ️ Slippage-Malus aus zwei Methoden: {{ orders_measured }} von \
+{{ orders_measured + orders_flat }} Orders mit am Ordermoment gemessenem Spread, \
+der Rest mit der Pauschale (historische Quotes sind nicht rekonstruierbar). \
+Der Schnitt verläuft zeitlich, nicht je Persona — die Rangfolge ist davon nicht \
+verzerrt, die absolute Malus-Zahl aber nicht einheitlich gerechnet.
+{% endif -%}
 
 ⚠️ 8 Wochen ≈ 40 Handelstage trennen Können nicht von Zufall (§4.7). \
 Zwischenstand, kein Ergebnis.\
@@ -74,6 +82,11 @@ class WeeklyReportData:
     score: CompetitionScore
     benchmark_symbol: str
     benchmark_return: float | None
+    # F104 §2: only ever both non-zero while pre- and post-F104 orders share the
+    # scoring window. Once the last flat-rate order ages out, the note disappears
+    # on its own.
+    orders_measured_spread: int = 0
+    orders_flat_spread: int = 0
 
 
 def _format_pct(value: float | None) -> str:
@@ -115,6 +128,9 @@ def render_weekly_report(data: WeeklyReportData) -> str:
         )
         or "keine",
         skipped_labels=", ".join(CRITERION_LABELS[name] for name in data.score.skipped_criteria),
+        mixed_spread_method=bool(data.orders_measured_spread and data.orders_flat_spread),
+        orders_measured=data.orders_measured_spread,
+        orders_flat=data.orders_flat_spread,
         format_pct=_format_pct,
         format_plain=_format_pct_plain,
         format_ratio=_format_ratio,
@@ -172,10 +188,14 @@ def build_weekly_report(
         else None
     )
 
+    measured, flat = spread_method_split(session, since)
+
     return WeeklyReportData(
         as_of=as_of,
         trading_days=trading_days,
         score=score_personas(criteria, competition.start_date),
         benchmark_symbol=competition.benchmark_symbol,
         benchmark_return=benchmark_return,
+        orders_measured_spread=measured,
+        orders_flat_spread=flat,
     )

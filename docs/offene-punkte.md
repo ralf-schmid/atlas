@@ -46,7 +46,13 @@ brauchen — kein Deploy-Schritt mehr.
       `spread_bps` prüfen und den Wert gegen den Alpaca-Dashboard-Spread des
       Symbols plausibilisieren; danach das zugehörige Review auf einen Malus > 0
       kontrollieren. Nachweis in F104 §5.
-- [ ] **Entscheiden, ob der Methodenbruch in den Wochenreport-Kommentar geht.**
+- [x] **Methodenbruch steht seit 15.08.2026 im Wochenreport** (Ralfs
+      Entscheidung). Der Report weist aus, wie viele der gewerteten Orders einen
+      gemessenen Spread tragen und wie viele die Pauschale, samt Hinweis, dass
+      der Schnitt zeitlich und nicht persona-bezogen verläuft. Der Kommentar
+      erscheint nur, solange beide Methoden im Wertungsfenster stecken, und
+      verschwindet von selbst, sobald die letzte Pauschal-Order herausgelaufen
+      ist. Ursprünglicher Text des Punktes:
       Orders vor dem Deploy haben keinen gemessenen Spread (historische Quotes
       sind nicht rekonstruierbar) und behalten die Pauschale. Der Schnitt verläuft
       zeitlich, nicht persona-bezogen — Fairness (#10) bleibt gewahrt, aber die
@@ -104,12 +110,11 @@ Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
       16.08. morgens möglich:** die Ausgaben vom 15.08. kamen um 05:59/06:01 MESZ
       an, also bevor die Zweige existierten, und der IMAP-Trigger hat sie bereits
       als gelesen abgehakt (`lastMessageUid`). Sie kommen nicht von selbst nach.
-- [ ] **Zwei Entscheidungen, die ich per Default getroffen habe** — Widerspruch
-      jederzeit, beides Config und ohne Deploy umkehrbar (F106 §4): alle drei
+- [x] **Zwei Default-Entscheidungen von Ralf bestätigt (15.08.2026):** alle drei
       Newsletter teilen sich einen `source_type` (Kosten), und
       `APP-PFIFF`/`ANZEIGE`/`MORE BRIEFINGS` fliegen raus, während
       `STAT OF THE DAY/WEEK` bleibt. (Die dritte — Instrument-Tagging nur über
-      `$TICKER` — ist durch F107 überholt.)
+      `$TICKER` — war schon durch F107 überholt.)
 
 ## 7. F107 — Namensabgleich für Instrumente (umgesetzt)
 

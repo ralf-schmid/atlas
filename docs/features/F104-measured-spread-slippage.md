@@ -150,6 +150,23 @@ Bestehende Slippage-Tests bleiben unverändert gültig (Alt-Orders haben
   `config/review.yaml` (sofort wirksam, Spalte bleibt befüllt). Die Migration
   selbst hat ein funktionierendes `downgrade()`, muss für den Rollback aber
   nicht angefasst werden.
+- **Der Methodenbruch steht seit 15.08.2026 im Wochenreport** (Ralfs
+  Entscheidung zum offenen Punkt aus §2). `spread_method_split()` in
+  `src/metrics/performance.py` zählt die gewerteten FILLED-Orders mit und ohne
+  `spread_bps`; der Sonntagsreport (F089) hängt daraus eine Zeile an:
+
+  > ℹ️ Slippage-Malus aus zwei Methoden: 1 von 3 Orders mit am Ordermoment
+  > gemessenem Spread, der Rest mit der Pauschale (historische Quotes sind nicht
+  > rekonstruierbar). Der Schnitt verläuft zeitlich, nicht je Persona — die
+  > Rangfolge ist davon nicht verzerrt, die absolute Malus-Zahl aber nicht
+  > einheitlich gerechnet.
+
+  Die Zeile erscheint **nur**, solange beide Methoden im Wertungsfenster
+  stecken: heute gibt es noch gar keine gemessene Order (der Hinweis wäre eine
+  Falschaussage), und sobald die letzte Pauschal-Order herausgelaufen ist,
+  verschwindet er von selbst. Beide Randfälle sind als Tests festgehalten
+  (`test_weekly_report_stays_silent_before_the_first_measured_order`,
+  `..._once_every_order_is_measured`).
 
 ## 6. Offene Punkte
 
