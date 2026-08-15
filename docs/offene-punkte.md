@@ -1,32 +1,45 @@
 # Offene Punkte für Ralf
 
 Was auf der Box passieren muss, damit die fertig entwickelten Features auch
-wirken. Stand: 2026-08-11. Reihenfolge = empfohlene Abarbeitung.
+wirken. Stand: 2026-08-15. Reihenfolge = empfohlene Abarbeitung.
 
-Alles hier ist **Betrieb**, nicht Entwicklung: Code, Tests und Doku sind fertig
-und liegen auf `claude/alpaca-research-api-h1kcg2`. Erledigte Punkte abhaken und
+Alles hier ist **Betrieb**, nicht Entwicklung. Erledigte Punkte abhaken und
 den Nachweis im jeweiligen Feature-Dokument (§5) nachtragen — nicht hier.
 
-## 1. Deploy F103–F105 (ein Durchgang)
+**Deploy-Durchgang vom 15.08.2026:** F103–F107 sind auf der Box live (rsync,
+`build api web scheduler telegram-bot`, `up -d`, `alembic upgrade head`, beide
+n8n-Zweige aktiv, F103-Backfill gelaufen). Was hier noch offen steht, sind
+ausschließlich Beobachtungs- und Entscheidungspunkte, die Zeit oder dich
+brauchen — kein Deploy-Schritt mehr.
 
-Alle drei hängen an denselben zwei Containern; ein Deploy reicht.
+## 1. Deploy F103–F105 (ein Durchgang) — erledigt 15.08.2026
 
-- [ ] `alembic upgrade head` — zwei Migrationen: `f7a1c2d3e4b5`
+- [x] `alembic upgrade head` — beide Migrationen gelaufen: `f7a1c2d3e4b5`
       (`order_record.spread_bps`, F104) und `c9e8d7f6a5b4` (`market_mover` +
-      `market_news_headline.instruments`, F105). Beide nur `add_column`/
-      `create_table`, kein Rewrite, kein Backfill.
-- [ ] `docker compose build api scheduler` + `up -d api scheduler`.
+      `market_news_headline.instruments`, F105). DB stand vorher auf
+      `e1f2a3b4c5d6`, jetzt auf `c9e8d7f6a5b4`.
+- [x] `docker compose build` + `up -d` — alle sechs Container laufen, `api`
+      healthy, `/health` → `{"status":"ok"}`, Web auf `:3001` → 200. Der
+      Scheduler registriert die neuen Jobs `_alpaca_news_job` und
+      `_alpaca_screener_job`.
 
 ## 2. F103 — Split-adjustierte Markt-Bars
 
-- [ ] **Einmaliger Re-Sync mit `lookback_days=180`** direkt nach dem Deploy.
-      Ohne ihn wird nur das rollierende 90-Tage-Fenster auf die adjustierte Basis
-      umgeschrieben; die Historie ab 13.04.2026 (F048-Backfill) behält Rohbasis,
-      und an der Nahtstelle steht Mischbestand. Fertiges Snippet inkl. korrekt
-      aufgelöstem Symbol-Universum: `docs/features/F103-split-adjusted-market-bars.md` §5.
-- [ ] **Verifikation:** ein Symbol mit Split im Fenster vorher/nachher
-      vergleichen; `compute_indicator_snapshot` für AAPL/MSFT/SPY gegen die echte
-      DB laufen lassen und die Werte in F103 §5 notieren.
+- [x] **Einmaliger Re-Sync mit `lookback_days=180`** — gelaufen, 375 Symbole,
+      46.444 Bars geschrieben, `market_bar` 49.079 → 64.836 Zeilen, Historie
+      jetzt ab 2026-02-17 statt 2026-04-13. Kein Mischbestand mehr.
+- [x] **Verifikation** — Adjustment gegen die Alpaca-API nachgewiesen (RCON
+      `raw` 0,4607 vs. `split` 92,14), Indikatorwerte für AAPL/MSFT/SPY in
+      F103 §5 notiert.
+- [ ] **Entscheidung: Nano-Caps mit kaputter Split-Historie bei Alpaca.**
+      Nebenbefund aus der Verifikation: 22 von 376 Universums-Symbolen haben
+      einen Tages-Kurssprung > Faktor 2, der keine Kursbewegung ist, sondern
+      Alpacas eigene Datenlage (RCON: Historie mit Faktor 200 hochadjustiert,
+      Kurse ab Split-Datum unverändert bei ~0,39). Blue Chips sind sauber.
+      Ihre Indikatoren sind Zufallswerte, und eine Persona kann darauf eine
+      These bauen. Zwei Wege, beide ändern die Datenbasis für alle sechs
+      Personas gleichzeitig und brauchen deshalb dein Go: Plausibilitätsfilter
+      im Sync oder Mindest-Marktkapitalisierung im Screener. Details F103 §6.
 
 ## 3. F104 — Gemessener Bid/Ask-Spread
 
@@ -77,15 +90,22 @@ Alle drei hängen an denselben zwei Containern; ein Deploy reicht.
 Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
 `docs/features/F106-morningcrunch-newsletter-ingestion.md`.
 
-- [ ] **`n8n/publications-mail-trigger.json` importieren.** Die Datei enthält jetzt
-      alle drei Newsletter-Zweige (cryptocrunch, materialscrunch, marketscrunch) —
-      damit ist auch der seit F102 offene Krypto-Zweig mit erledigt.
-- [ ] `docker compose build api scheduler` + `up -d` (kein Schema-Change, keine
-      Migration, keine neue Env-Var — kann mit dem Deploy aus §1 zusammenfallen).
+- [x] **n8n-Zweige live (15.08.2026).** Der Workflow „ATLAS - Publications
+      Mail-Trigger" hat jetzt 11 Nodes und ist aktiv; die beiden neuen Filter
+      hängen am bestehenden IMAP-Trigger und posten auf denselben
+      Newsletter-Webhook wie cryptocrunch. Der Krypto-Zweig war entgegen der
+      Notiz in F102 §4 bereits seit dem 08.08. drin. Vorgehen und die zwei
+      n8n-Fallstricke stehen in F106 §7.
+- [x] `docker compose build` + `up -d` (mit dem Deploy aus §1 zusammengefallen);
+      Config auf der Box verifiziert: alle drei Slugs geladen, Absender
+      `hello@morningcrunch.de` und `markets@m.morningcrunch.de` sitzen.
 - [ ] **Nach der ersten automatisch verarbeiteten Ausgabe:** `newsletter_item` auf
       Zeilen mit `newsletter_slug IN ('materialscrunch','marketscrunch')` prüfen
       (Erwartung: 13–14 je Ausgabe) und im nächsten Zyklus ein `research_item` mit
-      `source_type='newsletter'` in der UI ansehen.
+      `source_type='newsletter'` in der UI ansehen. **Das ist frühestens am
+      16.08. morgens möglich:** die Ausgaben vom 15.08. kamen um 05:59/06:01 MESZ
+      an, also bevor die Zweige existierten, und der IMAP-Trigger hat sie bereits
+      als gelesen abgehakt (`lastMessageUid`). Sie kommen nicht von selbst nach.
 - [ ] **Zwei Entscheidungen, die ich per Default getroffen habe** — Widerspruch
       jederzeit, beides Config und ohne Deploy umkehrbar (F106 §4): alle drei
       Newsletter teilen sich einen `source_type` (Kosten), und
@@ -98,8 +118,8 @@ Gegen die echten Ausgaben vom 11.08.2026 verifiziert; Details in
 Deckt Newsletter, Zeitschriften-Artikel und die Yahoo-Marktnews ab; Details in
 `docs/features/F107-instrument-namensabgleich.md`.
 
-- [ ] Nichts Eigenes zu deployen — `docker compose build api scheduler` + `up -d`
-      fällt mit dem Deploy aus §1/§6 zusammen. Kein Schema-Change.
+- [x] Nichts Eigenes zu deployen — mit dem Deploy aus §1/§6 erledigt
+      (15.08.2026), `config/instrument_names.yaml` liegt im Image.
 - [ ] **Laufende Pflege, wenn dir etwas auffällt:** Wenn im Decision Journal ein
       Impuls ohne Instrument-Tag steht, obwohl die Firma genannt wird, ist ein
       Eintrag in `config/instrument_names.yaml` die ganze Arbeit. Pflegeregeln

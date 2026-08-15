@@ -1,6 +1,6 @@
 # F103 — Split-adjustierte Markt-Bars (Indikatoren rechneten auf Roh-Kursen)
 
-Status: umgesetzt (Deploy + Backfill offen, siehe §5)
+Status: live auf der Box (15.08.2026), Backfill gelaufen — Nachweise §5
 Datum: 2026-08-11
 Phase: 4/5 (Datenqualität, wirkt auf F036/F048)
 
@@ -152,9 +152,33 @@ Request-Parameters geändert).
       session.commit()
   ```
 
-- **Verifikation nach dem Backfill** (Nachweis hier nachtragen): für ein Symbol
-  mit Split im Fenster Close-Reihe vor/nach vergleichen; `compute_indicator_snapshot`
-  für AAPL/MSFT/SPY gegen die echte DB laufen lassen und die Werte notieren.
+- **Deployt und gebackfillt am 15.08.2026** (Box, `api`/`scheduler` neu gebaut).
+  Der Re-Sync aus dem Snippet oben lief über 375 Symbole und schrieb **46.444
+  Bars**; `market_bar` wuchs von 49.079 auf 64.836 Zeilen, der älteste Bar der
+  Universums-Symbole reicht jetzt bis **2026-02-17** zurück (vorher 2026-04-13).
+  Damit stammt das gesamte Fenster dieser Symbole aus einem einzigen
+  split-adjustierten Lauf — die Nahtstelle aus §2 Punkt 4 existiert nicht mehr.
+- **Adjustment nachgewiesen** (Direktvergleich gegen die Alpaca-API, RCON,
+  27.07.–04.08.2026): `raw` liefert `0,4607`, `split` liefert `92,14` für den
+  27.07. — der Faktor 200 der Anpassung ist also wirklich im Request wirksam.
+- **`compute_indicator_snapshot` gegen die echte DB** (15.08.2026):
+
+  | Symbol | SMA20 | SMA50 | RSI14 | MACD-Histogramm |
+  |---|---|---|---|---|
+  | AAPL | 318,384 | 309,118 | 25,93 | −3,277 |
+  | MSFT | 450,292 | 412,737 | 84,83 | +2,697 |
+  | SPY | 756,151 | 748,890 | 75,58 | +2,189 |
+
+- **Nebenbefund, nicht von F103 verursacht:** ein Sprung-Check über das
+  Universum (größter Tages-Close-Faktor je Symbol) zeigt 22 von 376 Symbolen mit
+  Faktor > 2, 5 davon > 5 (RCON 157, HAO 104, GMM 50 …). Die Blue Chips sind
+  sauber (AAPL 1,08 / MSFT 1,16 / SPY 1,03 / NVDA 1,07 / TSLA 1,17). Ursache ist
+  Alpacas eigene Datenlage bei Nano-Caps: bei RCON adjustiert Alpaca die Historie
+  mit Faktor 200 hoch, lässt die Kurse ab dem Split-Datum aber unverändert bei
+  ~0,39 stehen — die Lücke steckt in der Quelle, nicht in unserem Sync. Für
+  solche Symbole sind Indikatoren wertlos. Offen als eigenes Thema: entweder ein
+  Plausibilitätsfilter im Screener-Universum oder ein Ausschluss unterhalb einer
+  Mindest-Marktkapitalisierung. Braucht Ralfs Entscheidung, siehe §6.
 - **Rollback-Pfad:** `market_data.bar_adjustment: raw` in `config/ingestion.yaml`,
   Container neu starten, Re-Sync wie oben. Kein Schema-Change, kein Deploy nötig
   außer dem Config-Reload.
@@ -168,3 +192,14 @@ Request-Parameters geändert).
 - Kein Alarm auf Kapitalmaßnahmen. Wenn das gewünscht ist, wäre der
   `CorporateActionsClient` von `alpaca-py` der Ansatz — eigenes Feature
   (ADR-0015, Folgearbeit).
+- **Nano-Caps mit kaputter Split-Historie bei Alpaca** (Nebenbefund aus der
+  Backfill-Verifikation, §5). 22 von 376 Universums-Symbolen haben einen
+  Tages-Close-Sprung > Faktor 2, der nicht durch Kursbewegung erklärbar ist.
+  Sie kommen über den Screener ins Universum, ihre Indikatoren sind Zufallswerte,
+  und eine Persona könnte darauf eine These bauen. Zwei Wege, beide brauchen
+  Ralfs Entscheidung (Geld-Thema): (a) Plausibilitätsfilter im Sync — Bars mit
+  unerklärtem Sprung > Faktor X verwerfen und das Symbol markieren, oder (b)
+  Mindest-Marktkapitalisierung/Mindestkurs als Aufnahmekriterium im Screener.
+  Nicht vorgezogen, weil beides das Universum verkleinert und damit den
+  Wettbewerb beeinflusst (Invariante #10 unberührt, aber die Datenbasis ändert
+  sich für alle sechs Personas gleichzeitig).

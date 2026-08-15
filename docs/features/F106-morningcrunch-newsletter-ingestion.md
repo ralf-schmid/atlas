@@ -1,6 +1,6 @@
 # F106 — Zwei weitere Tages-Newsletter (materialscrunch, marketscrunch)
 
-Status: umgesetzt (Deploy + n8n-Import offen, siehe §7)
+Status: live auf der Box inkl. n8n-Zweigen (15.08.2026), erste automatische Ausgabe steht aus (§7)
 Datum: 2026-08-11
 Auslöser: Ralf, zwei Beispielausgaben vom 11.08.2026 (RTF, danach `.eml`)
 
@@ -150,9 +150,34 @@ bedient. Umbenennen wäre reine Kosmetik mit Import-Churn — bewusst gelassen.
   Scratchpad, nicht im Repo): materialscrunch 13 Impulse aus 5 Abschnitten,
   marketscrunch 14 aus 6; beide Permalinks korrekt erkannt, kein Werbe-Abschnitt und
   kein gesperrter Link in den Ergebnissen, `$BP`/`$TSLA`/`$LLY` korrekt getaggt.
-- **Bei dir:** `n8n/publications-mail-trigger.json` importieren (enthält jetzt alle
-  drei Newsletter-Zweige) und `docker compose build api scheduler` + `up -d`.
-  Kein Schema-Change, keine Migration, keine neue Env-Var.
+- **Erledigt am 15.08.2026:** Deploy auf der Box (`api`, `web`, `scheduler`,
+  `telegram-bot` neu gebaut) und die beiden n8n-Zweige live im Workflow
+  „ATLAS - Publications Mail-Trigger" (`Wmf3Qgf3RGq7cNup`), jetzt 11 Nodes,
+  `active`. Kein Schema-Change, keine Migration, keine neue Env-Var.
+- **Wie der n8n-Import lief — für das nächste Mal wichtig.** Nicht die
+  Repo-Vorlage direkt importieren: sie enthält Platzhalter-Credential-IDs und
+  würde die bestehende Verdrahtung überschreiben. Stattdessen den **Live-Stand
+  exportieren, die zwei Zweige hineinkopieren und zurückimportieren** — dabei
+  bleiben `staticData` (`lastMessageUid` des IMAP-Triggers, sonst würde der
+  Trigger Mails doppelt oder gar nicht ziehen) und die echten Credential-IDs
+  der Header-Auth- und IMAP-Credentials erhalten (die stehen im Live-Export und
+  gehören nicht ins Repo). Ablauf im Container `ix-n8n-n8n-1`:
+
+  ```
+  n8n export:workflow --id=Wmf3Qgf3RGq7cNup --pretty --output=/tmp/backup.json
+  # Zweige ergänzen, dann:
+  n8n import:workflow --input=/tmp/neu.json
+  n8n publish:workflow --id=Wmf3Qgf3RGq7cNup
+  docker restart ix-n8n-n8n-1
+  ```
+
+  Zwei Fallstricke, die das erzwingen: `import:workflow` setzt den Workflow
+  **immer auf `active=false`** (`--activeState=fromJson` gibt es nur im
+  Queue-/Multi-Main-Modus, den diese Instanz nicht fährt) — deshalb das
+  anschließende `publish:workflow`. Und n8n 2.x lädt aktive Workflows beim Start:
+  ohne Container-Neustart liefe der alte Stand weiter. Der Neustart betrifft die
+  ganze n8n-Instanz (auch „Abfallkalender" und „Tägliche Infomail"); beide sind
+  Cron-getrieben und wurden im Log sauber reaktiviert.
 - **Rollback:** den jeweiligen n8n-Zweig deaktivieren — sofort wirksam, ohne Deploy;
   bestehende Zeilen bleiben. Vollständig: die beiden Config-Einträge entfernen.
   Ein Layout-Wechsel beim Verlag ist kein Rollback-Fall: der Webhook antwortet dann

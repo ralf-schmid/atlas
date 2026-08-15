@@ -1,6 +1,6 @@
 # F105 — Alpaca News + Screener als geteilte Research-Quellen
 
-Status: umgesetzt (Deploy + Entitlement-Prüfung offen, siehe §5)
+Status: live auf der Box (15.08.2026), Entitlement-Prüfung am ersten Lauf offen (§5)
 Datum: 2026-08-11
 Phase: 3-Nachzügler (Ingestion), wirkt auf den Pool aller Personas
 

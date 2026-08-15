@@ -1,6 +1,6 @@
 # F104 — Gemessener Bid/Ask-Spread im Slippage-Malus
 
-Status: umgesetzt (Deploy + Live-Verifikation offen, siehe §5)
+Status: live auf der Box (15.08.2026), Live-Verifikation am ersten neuen Trade offen (§5)
 Datum: 2026-08-11
 Phase: 5 (Feinjustierung des Malus, ARCHITECTURE.md §7.8)
 

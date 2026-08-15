@@ -1,6 +1,6 @@
 # F107 — Namensabgleich: Klartext-Firmennamen → handelbare Symbole
 
-Status: umgesetzt (Deploy offen, siehe §5)
+Status: live auf der Box (15.08.2026)
 Datum: 2026-08-11
 Auslöser: Ralf, nach dem Befund aus F106 §3b
 
