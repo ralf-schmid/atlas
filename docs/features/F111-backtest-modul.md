@@ -1,6 +1,6 @@
 # F111 — Deterministisches Backtest-Modul im Review-Zweig
 
-Status: **umgesetzt** (Entscheidungen §5 geklärt am 15.08.2026)
+Status: **live auf der Box (15.08.2026)** — Entscheidungen §5 geklärt am 15.08.2026
 Datum der Beauftragung: 2026-08-15 (Ralf)
 Phase: 5+ (Erweiterung — ARCHITECTURE.md §8 kennt Backtesting in keiner Phase)
 Grundlage: [ADR-0015](../adr/0015-alpaca-agent-research-tooling.md), dort als
@@ -361,15 +361,22 @@ danach `alembic upgrade head` (Migration `d7e8f9a0b1c2`). Die Migration muss
 laufen, **bevor** ein Lauf mit `--save` startet. `config/` ist ins Image gebacken,
 eine reine Spec-Änderung braucht also trotzdem einen Rebuild.
 
-**Stand 15.08.2026: noch nicht produktiv deployt.** Die Verifikation gegen die
-echten Daten lief über einen Wegwerf-Container mit Bind-Mount
-(`docker compose run --rm --no-deps -v .../src:/app/src ... api uv run --no-sync
-python -m src.backtest.run …`), also ohne Rebuild und ohne Schema-Änderung an der
-Produktions-DB. Grund: zum selben Zeitpunkt lag F113 unfertig im Working Tree, und
-ein Image-Rebuild hätte diesen Zwischenstand mitgebacken. Reihenfolge beim
-späteren Deploy beachten — erst `build`, dann `alembic upgrade head`: eine
-migrierte DB mit einem Image ohne diese Revision lässt den nächsten
-`alembic upgrade` auflaufen.
+**Live auf der Box seit 15.08.2026, 13:06** — gemeinsam mit F113 ausgerollt.
+Ablauf: voller Repo-`rsync`, `docker compose build api web scheduler telegram-bot`,
+`up -d`, danach `alembic upgrade head` (`c9e8d7f6a5b4` → `d7e8f9a0b1c2`).
+**Die Reihenfolge ist Pflicht:** eine migrierte DB mit einem Image, das diese
+Revision nicht kennt, lässt den nächsten `alembic upgrade` auflaufen.
+
+Der Zwischenstand davor lief bewusst nur über einen Wegwerf-Container mit
+Bind-Mount, solange F113 uncommittet im Working Tree lag — ein Image-Rebuild hätte
+diesen Zwischenstand mitgebacken.
+
+**Verifikation nach dem Deploy** (aus dem gebauten Image, ohne Bind-Mount):
+`python -m src.backtest.run --all` schreibt 5 Läufe nach `backtest_run`, alle mit
+demselben Data-Fingerprint. Die Zahlen decken sich mit dem Vorab-Lauf; Fingerprint
+und Bar-Zahl haben sich erwartungsgemäß geändert (40.622 → 40.625 Bars), weil
+zwischenzeitlich neue Bars ingestiert wurden — genau wofür der Fingerprint da ist.
+Scheduler, API, Web und Telegram-Bot laufen nach dem Neustart fehlerfrei.
 
 ## 11. Was dieses Feature ausdrücklich nicht ist
 
