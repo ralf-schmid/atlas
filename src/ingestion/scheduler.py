@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import logging
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -32,6 +33,11 @@ from src.ingestion.coingecko_global import run_coingecko_sync
 from src.ingestion.crypto_market_data_sync import run_daily_crypto_sync
 from src.ingestion.edgar_rss import run_current_filings_sync
 from src.ingestion.market_data_sync import run_daily_sync
+from src.ingestion.publications_download import (
+    BoersenmedienSessionExpired,
+    format_session_expired_alert,
+    run_session_check_live,
+)
 from src.ingestion.reddit_sentiment import run_reddit_sync
 from src.ingestion.vulture_screener import run_daily_screener
 from src.ingestion.yahoo_finance_news import run_market_news_sync
@@ -184,6 +190,34 @@ def register_ingestion_jobs(
             replace_existing=True,
         )
 
+    session_check = schedule["publications_session_check"]
+    if session_check.get("enabled", True):
+        # Resolved at registration, not inside the job: an unset variable is a
+        # deployment gap, not a runtime condition — it was missing on this very
+        # service when F119 shipped. At one run per week the job would have surfaced
+        # it as a generic "2x in Folge" alert two weeks late; this way it stands in
+        # the startup log straight away.
+        session_state_env = config["publications"]["session_state_env"]
+        session_state = os.environ.get(session_state_env)
+        if session_state is None:
+            logger.error(
+                "Boersenmedien session check not registered: %s is not set in this container",
+                session_state_env,
+            )
+        else:
+            hour, minute = _parse_time(session_check["time"])
+            scheduler.add_job(
+                _publications_session_check_job,
+                trigger="cron",
+                day_of_week=session_check["day_of_week"],
+                hour=hour,
+                minute=minute,
+                timezone=timezone,
+                args=[Path(session_state)],
+                id="ingestion-publications-session-check",
+                replace_existing=True,
+            )
+
 
 def _edgar_job(session_factory: Callable[[], Session], config_path: Path) -> None:
     def _run() -> None:
@@ -322,6 +356,29 @@ def _alpaca_screener_job(session_factory: Callable[[], Session], config_path: Pa
     _run_with_failure_alert("alpaca_screener", "Alpaca-Screener-Sync", _run)
 
 
+def _publications_session_check_job(session_state_path: Path) -> None:
+    """F119: no DB session and no `session_factory` — this job only asks the portal
+    whether the stored login still works.
+
+    An expired session alerts on the **first** run, unlike every other job here. The
+    2-in-a-row rule exists to swallow transient hiccups, but an expired session is not
+    a hiccup: it is the exact condition this job was built to find, it never heals by
+    itself, and at one run per week the rule would delay the alert by a week — past
+    the next issue, which is the whole point of checking early. Genuine breakage
+    (portal down, Playwright crash) still goes through the usual 2x contract."""
+
+    def _run() -> None:
+        try:
+            cards = run_session_check_live(session_state_path)
+        except BoersenmedienSessionExpired as exc:
+            logger.warning("Boersenmedien session expired: %s", exc)
+            _send_alert(format_session_expired_alert(str(exc)))
+            return
+        logger.info("Boersenmedien session still valid, %d subscription(s) visible", len(cards))
+
+    _run_with_failure_alert("publications_session_check", "Boersenmedien-Session-Check", _run)
+
+
 def _run_with_failure_alert(job_key: str, job_label: str, fn: Callable[[], None]) -> None:
     try:
         fn()
@@ -336,16 +393,18 @@ def _run_with_failure_alert(job_key: str, job_label: str, fn: Callable[[], None]
 
 
 def _send_failure_alert(job_label: str, failure_count: int) -> None:
+    _send_alert(f"⚠️ ATLAS-Ingestion {job_label} ist {failure_count}x in Folge fehlgeschlagen.")
+
+
+def _send_alert(text: str) -> None:
     """Best-effort — a Telegram outage must not take down the scheduler thread
     either (same non-fatal contract as the job failure itself)."""
     from src.telegram.alerts import send_alert
 
     try:
-        telegram_config = load_telegram_config()
-        text = f"⚠️ ATLAS-Ingestion {job_label} ist {failure_count}x in Folge fehlgeschlagen."
-        asyncio.run(send_alert(telegram_config, text))
+        asyncio.run(send_alert(load_telegram_config(), text))
     except Exception:
-        logger.error("failed to send ingestion-failure Telegram alert", exc_info=True)
+        logger.error("failed to send ingestion Telegram alert", exc_info=True)
 
 
 def _parse_time(value: str) -> tuple[int, int]:

@@ -327,6 +327,18 @@ schedule:
   alpaca_screener:
     interval_minutes: 60
     enabled: true
+  publications_session_check:
+    # F119: die gespeicherte Boersenmedien-Browser-Session laeuft periodisch ab und
+    # stirbt lautlos — bis F119 fiel das erst auf, wenn das naechste Heft nicht
+    # automatisch geladen wurde (zuletzt 3 Wochen unbemerkt).
+    # Montag, damit zwischen Alert und der Aktionaer-Ausgabe (Mittwoch frueh) zwei
+    # Tage Vorlauf liegen. Zeit in der o. g. timezone (America/New_York), 07:30 ET
+    # sind 13:30 MESZ — Ralf sieht die Meldung tagsueber.
+    day_of_week: "mon"
+    time: "07:30"
+    # Rollback-Schalter wie bei reddit/alpaca_*: false = Job wird gar nicht erst
+    # registriert. Der Auto-Download selbst bleibt davon unberuehrt.
+    enabled: true
 
 publications:
   # n8n erkennt die Benachrichtigungs-Mail (Absender/Betreff, siehe F013) und ruft den

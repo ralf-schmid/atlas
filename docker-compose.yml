@@ -154,6 +154,10 @@ services:
       # F098: cache dir for the local embedding model (~2.2 GB). Backed by the
       # volume below — without it every container restart re-downloads it.
       EMBEDDING_CACHE_DIR: /data/models
+      # F119: the weekly Boersenmedien session check runs here, not in api — same
+      # path and same read-only mount as the api service, so both look at exactly
+      # the file the auto-download uses.
+      BOERSENMEDIEN_SESSION_STATE: /data/ingest/boersenmedien/session_state.json
     volumes:
       # F098: embedding-model cache. Same reasoning as the ledger mount below —
       # a container rebuild must not throw away 2.2 GB of downloaded weights.
@@ -161,6 +165,9 @@ services:
       # F037: screenshot evidence (F012 lineage) — host-persistent across
       # deploys, same convention as the api service's publications volume.
       - ./data/ingest/aktienfinder/screenshots:/data/ingest/aktienfinder/screenshots
+      # F119: read-only, like on api — the session check only reads the file, and
+      # renewing it stays a deliberate manual step from Ralf's machine.
+      - ./data/ingest/boersenmedien:/data/ingest/boersenmedien:ro
       # F054: JSONLedgerStore's default base dir (src/broker/ledger_store.py)
       # resolves inside the container filesystem — without this mount, every
       # rebuild/recreate of this container silently resets HYPE/CONTRA/CRYPTOR

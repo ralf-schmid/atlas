@@ -20,6 +20,7 @@ from src.ingestion.publications_download import (
     SubscriptionNotFound,
     download_latest_issue,
     format_download_success,
+    format_session_expired_alert,
     parse_active_flag,
     select_latest_issue,
     select_subscription,
@@ -199,3 +200,14 @@ def test_format_fallback_alert_without_reason_is_unchanged():
     )
     assert "Auto-Download fehlgeschlagen" not in message
     assert message.startswith("📰 Neue Ausgabe erkannt:")
+
+
+def test_format_session_expired_alert_says_how_to_renew():
+    """F119: the alert has to carry the procedure — nothing in ATLAS can renew the
+    session (Cloudflare Turnstile), so the message is the entire call to action."""
+    message = format_session_expired_alert("landed on https://login.boersenmedien.de/?apiKey=x")
+
+    assert message.startswith("🔑 Boersenmedien-Session abgelaufen")
+    assert "login.boersenmedien.de" in message
+    assert "scripts/boersenmedien_session.py" in message
+    assert "von Hand" in message

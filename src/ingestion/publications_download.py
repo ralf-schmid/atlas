@@ -17,14 +17,17 @@ same `subject_keyword` that identifies the magazine from the mail subject.
 
 `select_subscription`/`select_latest_issue`/`download_latest_issue` are exercised
 against `BoersenmedienPortal`, a small protocol a fake implements in tests — no real
-browser needed. `PlaywrightBoersenmedienPortal`/`run_auto_download_live` are the real
-path, verified live (F078 §5), not unit-tested.
+browser needed. `PlaywrightBoersenmedienPortal`/`run_auto_download_live`/
+`run_session_check_live` are the real path, verified live (F078 §5, F119 §5), not
+unit-tested.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -172,6 +175,22 @@ def format_download_success(result: DownloadResult, article_count: int) -> str:
     )
 
 
+def format_session_expired_alert(reason: str) -> str:
+    """F119: the weekly check found the stored session dead. Says what to do, because
+    the answer is always the same manual procedure and Ralf should not have to look it
+    up — the login is behind Cloudflare Turnstile, so nothing here can renew it."""
+    return (
+        "🔑 Boersenmedien-Session abgelaufen\n\n"
+        f"{reason}\n\n"
+        "Bis zur Erneuerung lädt ATLAS keine Ausgabe mehr automatisch — "
+        "es kommt dann die Aufforderung, die PDF von Hand abzulegen.\n\n"
+        "Erneuern: Chrome-Profil öffnen, bei konto.boersenmedien.com mit "
+        '„Angemeldet bleiben?" anmelden, dann\n'
+        "  uv run python scripts/boersenmedien_session.py\n"
+        "und session_state.json auf die Box kopieren (Details im Docstring des Skripts)."
+    )
+
+
 class PlaywrightBoersenmedienPortal:
     """Real `BoersenmedienPortal` — thin wrapper around a Playwright `Page` running
     in a context built from the stored session state."""
@@ -245,13 +264,13 @@ class PlaywrightBoersenmedienPortal:
         return href if href.startswith("http") else f"{_BASE_URL}{href}"
 
 
-def run_auto_download_live(
-    magazine: Magazine,
-    base_dir: Path,
-    session_state_path: Path,
-    issue_date: datetime.date | None = None,
-) -> DownloadResult:
-    """Blocking, browser-backed entry point — run it off the event loop."""
+@contextlib.contextmanager
+def _open_portal(
+    session_state_path: Path, accept_downloads: bool
+) -> Iterator[PlaywrightBoersenmedienPortal]:
+    """One authenticated browser view of the portal. Shared by the download and the
+    session check so that both authenticate the same way — a check that opened the
+    portal differently would not be a check of the download's session."""
     if not session_state_path.exists():
         raise BoersenmedienSessionExpired(
             f"No stored session at {session_state_path} — run scripts/boersenmedien_session.py"
@@ -261,9 +280,33 @@ def run_auto_download_live(
         browser = playwright.chromium.launch()
         try:
             context = browser.new_context(
-                storage_state=str(session_state_path), accept_downloads=True
+                storage_state=str(session_state_path), accept_downloads=accept_downloads
             )
-            portal = PlaywrightBoersenmedienPortal(context.new_page())
-            return download_latest_issue(portal, magazine, base_dir, issue_date)
+            yield PlaywrightBoersenmedienPortal(context.new_page())
         finally:
             browser.close()
+
+
+def run_auto_download_live(
+    magazine: Magazine,
+    base_dir: Path,
+    session_state_path: Path,
+    issue_date: datetime.date | None = None,
+) -> DownloadResult:
+    """Blocking, browser-backed entry point — run it off the event loop."""
+    with _open_portal(session_state_path, accept_downloads=True) as portal:
+        return download_latest_issue(portal, magazine, base_dir, issue_date)
+
+
+def run_session_check_live(session_state_path: Path) -> list[SubscriptionCard]:
+    """F119: does the stored session still authenticate? Raises
+    `BoersenmedienSessionExpired` when it does not, exactly like the download does.
+
+    Read-only by construction — it loads the subscription overview and stops there.
+    It deliberately does *not* touch the issues page or a download link: this runs
+    weekly without anyone watching, and the pages behind those links carry purchase
+    actions ("In den Warenkorb", see `_SUBSCRIPTION_CARD_SELECTOR`). Listing the
+    subscriptions is enough, because that navigation is precisely where `_goto`
+    detects the login redirect."""
+    with _open_portal(session_state_path, accept_downloads=False) as portal:
+        return portal.list_subscriptions()
