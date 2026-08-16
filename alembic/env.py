@@ -18,8 +18,12 @@ if database_url:
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
+# `disable_existing_loggers=False` (not fileConfig's default): env.py also runs
+# in-process from the pytest fixture that applies the migration, and the default
+# would set `disabled=True` on every logger imported before it — including the app's
+# own. Log assertions in tests then silently capture nothing and pass regardless.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # add your model's MetaData object here
 # for 'autogenerate' support

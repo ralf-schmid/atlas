@@ -41,11 +41,19 @@ ein fehlgeschlagener Zyklus selbst (F025 §2-Prinzip).
 relevant für zukünftige Logging-Tests in diesem Repo):** Der session-scoped
 `_migrated_schema`-Fixture (autouse in `tests/orchestrator/`) ruft
 `alembic.command.upgrade` auf, was intern `logging.config.fileConfig` aus
-`alembic.ini` lädt — mit dessen Default `disable_existing_loggers=True` werden
+`alembic.ini` lädt — mit dessen Default `disable_existing_loggers=True` wurden
 dadurch alle zu diesem Zeitpunkt bereits existierenden Logger (u. a.
-`src.orchestrator.scheduler`) `.disabled = True` gesetzt. `caplog` allein reicht in
-diesem Verzeichnis deshalb nicht zum Testen von Log-Aufrufen; die Tests hier spionieren
-stattdessen direkt `logger.error` an (siehe §3).
+`src.orchestrator.scheduler`) `.disabled = True` gesetzt. `caplog` reichte in
+diesem Verzeichnis deshalb nicht zum Testen von Log-Aufrufen; die Tests hier
+spionierten stattdessen direkt `logger.error` an.
+
+**Behoben am 16.08.2026:** `alembic/env.py` ruft `fileConfig` jetzt mit
+`disable_existing_loggers=False` — nötig, weil ein Test, der auf eine Logmeldung
+assertet, sonst still wirkungslos ist (leeres `caplog.text` → die Assertion
+prüft nichts und läuft auch dann grün, wenn gar nicht mehr geloggt wird; genau so
+aufgefallen beim Bau von F119). Die Alembic-Logausgabe bleibt unverändert
+(`INFO [alembic.runtime.migration] …` per CLI verifiziert). Beide Workarounds sind
+zurückgebaut, die Tests nutzen wieder `caplog` (siehe §3).
 
 ## 3. Testdefinition (vor Umsetzung)
 

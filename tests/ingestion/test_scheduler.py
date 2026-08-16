@@ -407,21 +407,9 @@ def test_session_check_job_is_not_registered_without_its_env_var(monkeypatch, ca
     monkeypatch.delenv("BOERSENMEDIEN_SESSION_STATE")
 
     scheduler = BackgroundScheduler()
-    # Two workarounds, both caused by module-level logging config elsewhere in the
-    # test process: `alembic/env.py` runs `fileConfig(...)`, whose default
-    # `disable_existing_loggers=True` switches this logger off, and `src.api.app`
-    # replaces the root handlers on import. So the logger is re-enabled and the
-    # capture handler attached directly instead of relying on caplog's root hookup.
-    module_logger = logging.getLogger("src.ingestion.scheduler")
-    caplog.set_level(logging.ERROR, logger=module_logger.name)
-    was_disabled = module_logger.disabled
-    module_logger.disabled = False
-    module_logger.addHandler(caplog.handler)
-    try:
-        register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
-    finally:
-        module_logger.removeHandler(caplog.handler)
-        module_logger.disabled = was_disabled
+    caplog.set_level(logging.ERROR, logger="src.ingestion.scheduler")
+
+    register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
 
     assert "ingestion-publications-session-check" not in {job.id for job in scheduler.get_jobs()}
     assert "BOERSENMEDIEN_SESSION_STATE is not set" in caplog.text

@@ -4,6 +4,7 @@ never `.start()`ed — pure job-registration inspection, no real time trigger.""
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 import httpx
@@ -121,26 +122,19 @@ def _fake_telegram_config(monkeypatch):
     )
 
 
-def test_run_cycle_job_logs_structured_error_on_failure(monkeypatch) -> None:
-    # Not caplog: alembic's `command.upgrade` (session-scoped `_migrated_schema`
-    # fixture, autouse in this directory) calls `fileConfig`, which — by its own
-    # `disable_existing_loggers=True` default — disables every logger that already
-    # existed at that point, including this module's. Spying on `logger.error`
-    # directly sidesteps that global logging-plumbing quirk entirely.
+def test_run_cycle_job_logs_structured_error_on_failure(monkeypatch, caplog) -> None:
     def _raise(*args: object, **kwargs: object) -> None:
         raise RuntimeError("broker unreachable")
 
     monkeypatch.setattr(scheduler_module, "run_one_cycle", _raise)
-    calls = []
-    monkeypatch.setattr(scheduler_module.logger, "error", lambda *a, **k: calls.append((a, k)))
+    caplog.set_level(logging.ERROR, logger=scheduler_module.logger.name)
 
     _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York")  # type: ignore[arg-type]
 
-    (call,) = calls
-    args, kwargs = call
-    assert args[0] == "cycle failed"
-    assert kwargs["extra"]["seq"] == 1
-    assert kwargs["extra"]["market_session"] == "us_equity"
+    (record,) = [r for r in caplog.records if r.name == scheduler_module.logger.name]
+    assert record.getMessage() == "cycle failed"
+    assert record.seq == 1
+    assert record.market_session == "us_equity"
 
 
 def test_run_cycle_job_does_not_alert_on_first_failure(monkeypatch, _fake_telegram_config) -> None:
