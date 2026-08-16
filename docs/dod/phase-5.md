@@ -248,6 +248,17 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
 4. **Review-Fälligkeit im Detail:** §8 sagt "jede geschlossene Position binnen
    7 Tagen" — was gilt für am Wettbewerbsende noch offene Positionen und für
    `hold`-Ketten ohne Position?
+   **✅ Teilentschieden 16.08.2026 (Ralf): am Wettbewerbsende (Fr 18.09.2026) noch
+   offene Positionen werden zum Schlusskurs bewertet.** Sie gehen also mit ihrem
+   Marktwert in die Endabrechnung ein und werden nicht zwangsliquidiert; die
+   Depotwerte am Stichtag sind damit direkt vergleichbar, und keine Persona wird
+   dafür bestraft, dass ihre These am 18.09. noch läuft. Für §4.7 heißt das: die
+   Kriterien 1–3 (Sortino, Gesamtrendite, Max Drawdown) rechnen auf dieser
+   Bewertung. Umsetzung noch offen — der Stichtags-Schlusskurs muss als Snapshot
+   festgehalten werden, damit die Abrechnung reproduzierbar bleibt.
+   **Weiterhin offen:** ob diese offenen Positionen auch ein Review bekommen
+   (Kriterium 4, `thesis_confirmed`-Anteil) oder ob dort nur tatsächlich
+   geschlossene Positionen zählen — und was für `hold`-Ketten ohne Position gilt.
 5. **Alpaca-Paper-Reset-Verfahren:** ✅ Spike erledigt 26.07.2026
    ([ADR-0009](../adr/0009-alpaca-paper-reset-via-new-accounts.md)). Befund:
    Alpaca hat den In-Place-Reset abgeschafft — für exakt 5.000 USD müssen **neue**
