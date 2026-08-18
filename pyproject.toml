@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "ATLAS: Agentic Trading & Learning Analysis System"
 requires-python = ">=3.12"
 dependencies = [
-    "alpaca-py>=0.33,<1.0",
+    "alpaca-py>=0.44.0,<1.0",
     "pydantic>=2.7,<3.0",
     "pyyaml>=6.0,<7.0",
     "sqlalchemy>=2.0,<3.0",
