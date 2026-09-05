@@ -266,3 +266,92 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
    max. 3 Accounts/Login → alte vorher löschen; kein Trading-API-Reset-Endpoint).
    Manuelle Ralf-Aufgabe (Accounts + Keys), die 3 virtuellen Personas werden per
    Code (Ledger-Reset auf 5.000) zurückgesetzt. Offene F090-Detailpunkte im ADR.
+
+---
+
+## Zwischenstand 05.09.2026 — Datenstand der Testphase, 9 Handelstage vor dem Stichtag
+
+Bestandsaufnahme auf Ralfs Frage nach dem Datenstand. **Kein Feature, keine
+Code-Änderung** — reine Auswertung des dokumentierten Stands plus Code-Prüfung.
+
+**Belastbarkeit der Zahlen:** die Sitzung, in der diese Auswertung entstand, lief in
+der Cloud und hatte **keinen Zugriff auf die Produktions-DB** (Postgres liegt auf der
+UGREEN-Box im LAN). Alle Trade-Zahlen unten sind der Stand der Nachweise vom
+15./16.08.2026 aus diesem Dokument und aus
+[F120](../features/F120-guardian-cryptor-inaktivitaet.md); die Hochrechnung auf den
+18.09. ist genau das — eine Hochrechnung, kein Messwert. Vor der Endabrechnung ist
+sie gegen die DB zu ersetzen.
+
+### Zeitlicher Stand
+
+Wettbewerbsstart Mo 27.07.2026, Stichtag Fr 18.09.2026. Am 05.09. sind **30 von 40
+Handelstagen** gelaufen; es bleiben **9 Handelstage** (10 Werktage minus Labor Day am
+Mo 07.09., NYSE geschlossen).
+
+Das Repo ist seit dem 16.08. inhaltlich eingefroren — die Commits seitdem sind
+ausschließlich Dependabot-Bumps. Das ist die bewusste Konsequenz aus F120 §5 (jeder
+Research-Fix verschiebt die Vergleichsbasis mitten im Lauf), heißt aber auch: die drei
+dort beschriebenen Ursachen (Heap-Reihenfolge der Prompt-Auswahl, ISIN-only bei
+aktienfinder, `btc_dominance`-Slot-Fraß) bleiben bis zum Stichtag im System.
+
+### Datenlage: quantitativ ausreichend, strukturell nicht
+
+Tägliche `portfolio_snapshot`-Reihe und SPY-Benchmark laufen durchgehend — die
+Kriterien 1–3 aus §4.7 (Sortino, Gesamtrendite, Max Drawdown) sind rechenbar. Was
+fehlt, sind **Trades**:
+
+| Persona | Trades Stand 15.08. (Woche 3) | Hochrechnung 18.09. |
+|---|---:|---:|
+| CONTRA | 13 | ~35 |
+| CHARTIST | 9 | ~25 |
+| HYPE | 6 | ~15 |
+| VULTURE | 2 | ~5 |
+| GUARDIAN | 1 | ~2 |
+| CRYPTOR | 1 | ~2 |
+
+Das Feld ist damit faktisch ein Vierer-Feld, davon zwei Personas mit belastbarer
+Stichprobe. Der statistische Disclaimer aus §4.7 („8 Wochen reichen nicht für
+signifikante Strategie-Unterscheidung") gilt also nicht nur für die Laufzeit, sondern
+verschärft für die Trade-Zahl.
+
+### Befund 1 — die Gewichtung belohnt Nichtstun (Auswertungs-Risiko)
+
+55 % der §4.7-Gewichtung hängen an Risikomaßen: Sortino 40 %, Max Drawdown (invers)
+15 %. Beide messen Abwärtsvolatilität. Ein Portfolio, das zu ~99 % Cash ist, hat per
+Konstruktion kaum Downside Deviation und kaum Drawdown — GUARDIAN und CRYPTOR können
+die beiden schwersten Kriterien gewinnen, **weil** sie nicht gehandelt haben.
+Verstärkend: Kriterium 4 (Thesen-Qualität) fällt bei ihnen mangels abgeschlossener
+Reviews auf „nicht wertbar", und `competition_score.py` verteilt das Gewicht dann auf
+die verbleibenden Kriterien — also überwiegend auf die beiden Risikomaße.
+
+**Vorschlag (Entscheidung Ralf, ADR-pflichtig, vor dem Stichtag):** eine
+Mindest-Trade-Schwelle für die Wertbarkeit einer Persona — Vorschlag ≥ 5 geschlossene
+Positionen, darunter kein Rang, sondern Ausweisung als „nicht wertbar" mit Begründung.
+Der Punkt ist die *Vorab*-Fixierung: nach dem 18.09. entschieden wäre es
+Ergebnis-Shopping und genau das, was §4.7 verhindern soll.
+
+### Befund 2 — Stichtags-Bewertung ist entschieden, aber nicht implementiert
+
+Ralfs Ruling vom 16.08. (offene Positionen werden zum Schlusskurs bewertet, keine
+Zwangsliquidation) steht oben unter „Offene Entscheidungen" Punkt 4. Es gibt dafür
+**keinen Code**: kein Job hält den Stichtags-Schlusskurs als reproduzierbaren Snapshot
+fest. Sobald die Kurse nach dem 18.09. weiterlaufen, ist die Endabrechnung nicht mehr
+nachrechenbar. Das ist der einzige Punkt, den ich vor dem Stichtag noch umsetzen
+würde — er greift nicht in die Personas ein und verletzt den Freeze nicht.
+
+Weiterhin offen (aus Punkt 4, unverändert): bekommen am Stichtag offene Positionen ein
+Review, zählen also für Kriterium 4? Und was gilt für `hold`-Ketten ohne Position?
+
+### Befund 3 — Circuit Breaker resettet sich selbst, entgegen Invariante #8
+
+CLAUDE.md Invariante #8: „Portfolio-Drawdown > 15 % → `sell_only`, **Reset nur
+manuell**." Der Code (`src/risk/gate.py:39-47`) berechnet den Drawdown bei jedem
+Risk-Check neu aus `portfolio_peak_equity_usd` vs. aktueller Equity; es gibt keinen
+persistierten Breaker-Zustand (im ganzen Repo keine Zeile, die `sell_only` speichert).
+Erholt sich die Equity über die Schwelle, gibt der Breaker BUYs von selbst wieder
+frei — ein manueller Reset existiert nicht, weil es nichts zu resetten gibt.
+
+Bewusst **nicht** geändert: eine Verschärfung der Risk-Regeln mitten im laufenden
+Wettbewerb ist eine Geld-Entscheidung und gehört zu Ralf. Sachlich ist es bisher
+folgenlos (kein Portfolio war je in der Nähe von −15 %), vor Live-Betrieb ist es das
+nicht mehr. Gehört in den Kill-Switch-Drill der Phase 6 (siehe `phase-6.md`).
