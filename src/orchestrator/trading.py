@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.broker.protocol import BrokerAdapter, OrderSide
-from src.broker.registry import build_spread_provider
+from src.broker.registry import adapter_mode, build_spread_provider
 from src.db.models import (
     Decision,
     DecisionAction,
@@ -84,6 +84,7 @@ def execute_decision(
         raise ValueError(f"execute_decision requires an APPROVED decision, got {decision.status!r}")
 
     portfolio = session.get_one(Portfolio, decision.portfolio_id)
+    _assert_mode_matches_adapter(portfolio, broker_type)
 
     if decision.action == DecisionAction.CLOSE:
         return _execute_close(
@@ -143,6 +144,24 @@ def execute_decision(
     session.add(decision)
     session.flush()
     return order_record
+
+
+def _assert_mode_matches_adapter(portfolio: Portfolio, broker_type: str) -> None:
+    """F122 (Phase 6 preparation), Invariant #5: a paper portfolio must never reach
+    a live broker, and a live portfolio must never be settled against a paper one.
+
+    Both directions are failures worth stopping for. Routing a paper persona to the
+    live account spends real money on an experiment; routing the live portfolio to
+    a paper account produces a `portfolio.mode = 'live'` history of orders that were
+    never placed — the kind of divergence nobody notices until the tax export.
+    """
+    expected = adapter_mode(broker_type)
+    if portfolio.mode.value != expected:
+        raise ValueError(
+            f"Portfolio {portfolio.id} is mode={portfolio.mode.value!r} but its broker "
+            f"adapter {broker_type!r} trades {expected!r} — refusing to place the order "
+            "(Invariant #5, paper/live separation)."
+        )
 
 
 def _execute_close(

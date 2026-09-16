@@ -19,6 +19,20 @@ class CompetitionConfig:
     start_capital_usd: int
     benchmark_enabled: bool
     benchmark_symbol: str
+    #: F121 — last day of the competition; the scoring window is
+    #: [start_date, end_date] and the closing valuation is taken after this day's
+    #: US close. `None` (the default, so existing callers keep working) means no
+    #: end date is configured and nothing settles.
+    end_date: datetime.date | None = None
+
+    def settlement_cutoff(self) -> datetime.datetime:
+        """Upper bound of the scoring window as a naive UTC timestamp — the same
+        convention every `ts` column in the DB uses (`datetime.now(UTC)` without
+        tzinfo). Raises when no `end_date` is configured, so a caller can never
+        silently score an open-ended window as if it were the final one."""
+        if self.end_date is None:
+            raise ValueError("config/competition.yaml has no competition.end_date")
+        return datetime.datetime.combine(self.end_date, datetime.time.max)
 
 
 def load_competition_config(path: Path = _DEFAULT_CONFIG_PATH) -> CompetitionConfig:
@@ -28,15 +42,16 @@ def load_competition_config(path: Path = _DEFAULT_CONFIG_PATH) -> CompetitionCon
     # YAML (safe_load) parses an unquoted ISO date like `2026-07-27` straight into a
     # datetime.date — only a quoted value arrives as str. Accept both so the config
     # works either way (date.fromisoformat rejects a date object).
-    raw_start = comp["start_date"]
-    start_date = (
-        raw_start
-        if isinstance(raw_start, datetime.date)
-        else datetime.date.fromisoformat(raw_start)
-    )
+    start_date = _as_date(comp["start_date"])
+    raw_end = comp.get("end_date")
     return CompetitionConfig(
         start_date=start_date,
+        end_date=_as_date(raw_end) if raw_end is not None else None,
         start_capital_usd=int(comp.get("start_capital_usd", 5000)),
         benchmark_enabled=bench.get("enabled", True),
         benchmark_symbol=bench.get("benchmark_symbol", "SPY"),
     )
+
+
+def _as_date(raw: datetime.date | str) -> datetime.date:
+    return raw if isinstance(raw, datetime.date) else datetime.date.fromisoformat(raw)

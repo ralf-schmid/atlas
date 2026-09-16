@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from src.orchestrator.cycles_config import load_cycles_config
+
+_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "cycles.yaml"
 
 
 def test_loads_all_stock_cycles_including_the_deactivated_one() -> None:
@@ -29,3 +33,33 @@ def test_loads_digest_time() -> None:
     config = load_cycles_config()
 
     assert config.digest_time == "16:30"
+
+
+def test_calendar_gate_is_read_from_the_config(tmp_path) -> None:
+    """F124 §4 test 15. Shipped as `false` until the competition's final
+    settlement on 18.09.2026 (F124 §6) — this asserts the flag is wired, not which
+    value it currently holds."""
+    config = load_cycles_config()
+
+    assert config.stock_calendar_gate is False
+
+    switched_on = tmp_path / "cycles.yaml"
+    switched_on.write_text(
+        _CONFIG_PATH.read_text().replace("calendar_gate: false", "calendar_gate: true")
+    )
+    assert load_cycles_config(switched_on).stock_calendar_gate is True
+
+
+def test_missing_calendar_gate_key_defaults_to_enabled(tmp_path) -> None:
+    """The gate is the intended state; switching it off has to be a deliberate
+    line in the config, not the consequence of a deleted key."""
+    without_key = tmp_path / "cycles.yaml"
+    without_key.write_text(
+        "\n".join(
+            line
+            for line in _CONFIG_PATH.read_text().splitlines()
+            if not line.strip().startswith("calendar_gate:")
+        )
+    )
+
+    assert load_cycles_config(without_key).stock_calendar_gate is True

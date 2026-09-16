@@ -14,8 +14,8 @@ import math
 import uuid
 from decimal import Decimal
 
-from sqlalchemy import and_, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from src.db.models import (
     Decision,
@@ -118,8 +118,29 @@ def adjusted_return(
 # ---------------------------------------------------------------------------
 
 
+def time_window(
+    column: InstrumentedAttribute[datetime.datetime],
+    since: datetime.datetime,
+    until: datetime.datetime | None,
+) -> ColumnElement[bool]:
+    """`since <= column (<= until)`.
+
+    F121: every metric here used to be open-ended to the right, which is correct
+    for a running week but not for the final settlement — the paper field keeps
+    trading after the competition's last day (ARCHITECTURE.md §4.7), so a report
+    re-run in October would silently score a longer season than the one that was
+    decided. `until` closes the window; `None` keeps the old behaviour.
+    """
+    if until is None:
+        return column >= since
+    return and_(column >= since, column <= until)
+
+
 def daily_portfolio_values(
-    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
 ) -> list[Decimal]:
     """One value per calendar day — the day's *last* `portfolio_snapshot` — oldest
     first. Cycles write 2-5 snapshots a day; every series metric here (Sortino,
@@ -128,13 +149,18 @@ def daily_portfolio_values(
     stmt = (
         select(PortfolioSnapshot.total_value)
         .distinct(day)
-        .where(PortfolioSnapshot.portfolio_id == portfolio_id, PortfolioSnapshot.ts >= since)
+        .where(
+            PortfolioSnapshot.portfolio_id == portfolio_id,
+            time_window(PortfolioSnapshot.ts, since, until),
+        )
         .order_by(day, PortfolioSnapshot.ts.desc())
     )
     return list(session.scalars(stmt).all())
 
 
-def daily_benchmark_values(session: Session, since: datetime.datetime) -> list[Decimal]:
+def daily_benchmark_values(
+    session: Session, since: datetime.datetime, until: datetime.datetime | None = None
+) -> list[Decimal]:
     """Same day-close reduction for the SPY buy-and-hold benchmark (F081). The
     value is identical across portfolios — every snapshot carries the same
     computed number — so the day's last non-NULL row is the day's benchmark."""
@@ -142,7 +168,10 @@ def daily_benchmark_values(session: Session, since: datetime.datetime) -> list[D
     stmt = (
         select(PortfolioSnapshot.benchmark_value)
         .distinct(day)
-        .where(PortfolioSnapshot.ts >= since, PortfolioSnapshot.benchmark_value.is_not(None))
+        .where(
+            time_window(PortfolioSnapshot.ts, since, until),
+            PortfolioSnapshot.benchmark_value.is_not(None),
+        )
         .order_by(day, PortfolioSnapshot.ts.desc())
     )
     return [value for value in session.scalars(stmt).all() if value is not None]
@@ -174,7 +203,10 @@ def open_position_count(session: Session, portfolio_id: uuid.UUID) -> int:
 
 
 def slippage_malus_sum(
-    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
 ) -> Decimal | None:
     """Σ slippage malus (F083) over every FILLED order of this portfolio.
 
@@ -201,7 +233,7 @@ def slippage_malus_sum(
             and_(
                 Decision.portfolio_id == portfolio_id,
                 OrderRecord.status == OrderRecordStatus.FILLED,
-                OrderRecord.submitted_at >= since,
+                time_window(OrderRecord.submitted_at, since, until),
             )
         )
     ).all()
@@ -221,7 +253,12 @@ def slippage_malus_sum(
     return total
 
 
-def trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
+def trade_count(
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
+) -> int:
     """Count FILLED order_records for *portfolio_id* submitted at or after *since*.
     Uses the Decision join for portfolio filtering (OrderRecord has no
     portfolio_id directly — see F082 §1)."""
@@ -232,14 +269,16 @@ def trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datet
             and_(
                 Decision.portfolio_id == portfolio_id,
                 OrderRecord.status == OrderRecordStatus.FILLED,
-                OrderRecord.submitted_at >= since,
+                time_window(OrderRecord.submitted_at, since, until),
             )
         )
     )
     return session.scalar(stmt) or 0
 
 
-def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int, int]:
+def spread_method_split(
+    session: Session, since: datetime.datetime, until: datetime.datetime | None = None
+) -> tuple[int, int]:
     """(measured, flat) counts of FILLED orders since *since*, across all portfolios.
 
     F104 started measuring the real bid/ask spread at order time; orders placed
@@ -258,7 +297,7 @@ def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int
         .where(
             and_(
                 OrderRecord.status == OrderRecordStatus.FILLED,
-                OrderRecord.submitted_at >= since,
+                time_window(OrderRecord.submitted_at, since, until),
             )
         )
     )
@@ -266,7 +305,12 @@ def spread_method_split(session: Session, since: datetime.datetime) -> tuple[int
     return measured or 0, flat or 0
 
 
-def malus_trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime.datetime) -> int:
+def malus_trade_count(
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
+) -> int:
     """How many of the portfolio's trades carry a slippage malus (F112).
 
     Since F113 that is every filled order, so this equals `trade_count` — the
@@ -282,7 +326,7 @@ def malus_trade_count(session: Session, portfolio_id: uuid.UUID, since: datetime
             and_(
                 Decision.portfolio_id == portfolio_id,
                 OrderRecord.status == OrderRecordStatus.FILLED,
-                OrderRecord.submitted_at >= since,
+                time_window(OrderRecord.submitted_at, since, until),
             )
         )
     )

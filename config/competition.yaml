@@ -11,6 +11,13 @@
 competition:
   start_date: 2026-07-27
   start_capital_usd: 5000
+  # F121: last day of the 8-week competition (start_date + 8 weeks - 1 trading week
+  # day). Drives the closing valuation (`src/orchestrator/competition_settlement.py`)
+  # and the final §4.7 report. Ralf's ruling (16.08.2026, docs/dod/phase-5.md): open
+  # positions are valued at this day's closing price, not force-liquidated. The paper
+  # field keeps running afterwards (ARCHITECTURE.md §4.7) — this date only closes the
+  # scoring window, it stops nothing.
+  end_date: 2026-09-18
 
 benchmark:
   enabled: true

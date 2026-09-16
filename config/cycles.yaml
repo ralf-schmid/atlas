@@ -12,6 +12,15 @@
 # ab diesem Datum, siehe docs/features/F102-crypto-newsletter-ingestion.md §1.
 stock:
   timezone: America/New_York
+  # F124: Handelskalender-Gate. true = ein Aktienzyklus startet nur an einem
+  # Handelstag der NYSE und nur vor dem Schlusskurs dieses Tages (Feiertage,
+  # Half-Days). Bewusst noch false: der Wettbewerb endet am 18.09.2026, bis dahin
+  # liegt weder Feiertag noch Half-Day -- das Gate haette null Nutzen und ein
+  # Restrisiko in den letzten 48 Stunden eines Achtwochen-Experiments.
+  # AB 19.09.2026 AUF true SETZEN (docs/features/F124-handelskalender-gate.md §6),
+  # danach `docker compose build api && docker compose up -d` -- config/ ist ins
+  # Image gebacken. Gleichzeitig der Rollback-Pfad: zurueck auf false + Rebuild.
+  calendar_gate: false
   cycles:
     - seq: 1
       time: "09:00"

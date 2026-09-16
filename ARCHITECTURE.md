@@ -338,6 +338,7 @@ Sonntag: Review-Wochenlauf + Leaderboard-/Kriterien-Report
 
 - **Inkrementelle Zyklen** senken Kosten: C2–C4 erhalten nur das Research-Delta + Portfolio-Änderungen; Charter/Regeln kommen aus dem Prompt Cache.
 - Jeder Zyklus = ein LangGraph-Run mit `cycle_id`.
+- **Handelskalender-Gate (F124, ADR-0019):** „Mo–Fr" ist nicht dasselbe wie „Handelstag". Ein Aktienzyklus startet nur, wenn der Tag laut Alpaca-Handelskalender geöffnet ist **und** der Zyklus-Zeitpunkt vor dem Schluss dieses Tages liegt — das trifft ~10 Feiertage und die Half-Days (Close 13:00 ET), an denen C3/C4 sonst hinter dem Schlusskurs laufen. Geprüft wird bewusst nur der Schluss, nie die Eröffnung: C1 liegt um 09:00 ET per Design vorbörslich. Ist der Kalender nicht beschaffbar, läuft der Zyklus (fail-open). Krypto ist ausgenommen — 24/7-Markt.
 
 ### 5.3 Demo→Live-Phasenlogik (HITL-Schaltung, wie von dir spezifiziert)
 
