@@ -5,9 +5,10 @@ from __future__ import annotations
 import datetime
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import OrderRecordStatus
+from src.db.models import OrderRecordStatus, Portfolio
 from src.orchestrator.competition_config import load_competition_config
 from src.telegram.weekly_report import build_weekly_report, render_weekly_report
 from tests.db.factories import (
@@ -165,3 +166,22 @@ def test_weekly_report_stays_silent_before_the_first_measured_order(session: Ses
     text = render_weekly_report(build_weekly_report(session, _AS_OF))
 
     assert "Slippage-Malus aus zwei Methoden" not in text
+
+
+def test_weekly_report_stops_at_the_reporting_date(session: Session) -> None:
+    """F121: bounded to the right, so re-rendering an old report reproduces the
+    numbers it was sent with instead of quietly extending the window."""
+    _seed(session, "VULTURE", ["5000.00", "5200.00"])
+    make_portfolio_snapshot(
+        session,
+        session.scalars(select(Portfolio)).one(),
+        ts=_start() + datetime.timedelta(days=30, hours=16),
+        total_value=Decimal("9999.00"),
+        cash=Decimal("9999.00"),
+    )
+    session.flush()
+
+    data = build_weekly_report(session, _AS_OF)
+
+    assert data.trading_days == 2
+    assert round(data.score.personas[0].criteria.adjusted_return, 4) == 0.04

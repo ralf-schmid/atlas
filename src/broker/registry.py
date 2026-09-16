@@ -10,6 +10,7 @@ from pathlib import Path
 
 import yaml
 
+from src.broker.alpaca_live import AlpacaLiveAdapter
 from src.broker.alpaca_paper import AlpacaPaperAdapter
 from src.broker.internal_ledger import InternalLedgerAdapter
 from src.broker.ledger_store import JSONLedgerStore
@@ -22,6 +23,21 @@ from src.broker.protocol import BrokerAdapter
 
 _DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "broker.yaml"
 _STARTING_CASH = 5000.0  # parity with native accounts, see docs/adr/0003
+
+# F122 (Phase 6 preparation): which trading mode an adapter type belongs to. The
+# strings are `PortfolioMode` values — src/broker deliberately does not import the
+# DB layer, and the one caller that compares the two (`src.orchestrator.trading`)
+# has both at hand.
+ADAPTER_MODES = {
+    "alpaca_paper": "paper",
+    "internal_ledger": "paper",
+    "alpaca_live": "live",
+}
+
+# Invariant #5: live trading is never one config typo away. Even with an
+# `adapter: alpaca_live` entry and live keys in the environment, this flag has to
+# be set deliberately for the live adapter to be constructed at all.
+_LIVE_TRADING_FLAG = "ATLAS_LIVE_TRADING_ENABLED"
 
 
 def get_adapter(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> BrokerAdapter:
@@ -39,6 +55,12 @@ def get_adapter(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> Broke
         secret_key = _require_env(entry["secret_key_env"])
         return AlpacaPaperAdapter(api_key=key_id, secret_key=secret_key)
 
+    if adapter_type == "alpaca_live":
+        _require_live_trading_enabled(persona)
+        key_id = _require_env(entry["key_id_env"])
+        secret_key = _require_env(entry["secret_key_env"])
+        return AlpacaLiveAdapter(api_key=key_id, secret_key=secret_key)
+
     if adapter_type == "internal_ledger":
         market_data = build_market_data_provider(entry["market"], config["market_data"])
         return InternalLedgerAdapter(
@@ -49,6 +71,26 @@ def get_adapter(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> Broke
         )
 
     raise ValueError(f"Unknown adapter type {adapter_type!r} for persona {persona!r}")
+
+
+def adapter_mode(adapter_type: str) -> str:
+    """The `portfolio.mode` value an adapter type may serve — see
+    `src.orchestrator.trading.execute_decision`, which refuses to place an order
+    when the portfolio and its adapter disagree (Invariant #5)."""
+    try:
+        return ADAPTER_MODES[adapter_type]
+    except KeyError:
+        raise ValueError(f"Unknown adapter type {adapter_type!r}") from None
+
+
+def _require_live_trading_enabled(persona: str) -> None:
+    if os.environ.get(_LIVE_TRADING_FLAG, "").lower() != "true":
+        raise ValueError(
+            f"Persona {persona!r} is configured for live trading, but "
+            f"{_LIVE_TRADING_FLAG} is not set to 'true'. Live trading is enabled "
+            "deliberately (Phase 6, ARCHITECTURE.md §8), never as a side effect of "
+            "a config edit."
+        )
 
 
 def get_adapter_type(persona: str, config_path: Path = _DEFAULT_CONFIG_PATH) -> str:
@@ -67,6 +109,15 @@ def load_market_data_config(config_path: Path = _DEFAULT_CONFIG_PATH) -> dict[st
     `get_adapter` already does inline."""
     config = yaml.safe_load(config_path.read_text())
     return dict(config["market_data"])
+
+
+def load_market_data_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> tuple[str, str]:
+    """F124: the resolved (key_id, secret_key) of the shared market-data key, for
+    callers that need an Alpaca client this module doesn't build — the trading
+    calendar uses a `TradingClient`, not a market-data client. Keeps env-var
+    resolution in the one module that owns it (Invariant #6)."""
+    market_data = load_market_data_config(config_path)
+    return _require_env(market_data["key_id_env"]), _require_env(market_data["secret_key_env"])
 
 
 def build_market_data_provider(
@@ -105,24 +156,33 @@ def validate_all_credentials(config_path: Path = _DEFAULT_CONFIG_PATH) -> None:
     """F092: validate ALL configured Alpaca keys at startup. Raises on the first
     invalid key — the caller should exit with a clear message.
 
-    Personas with `internal_ledger` adapter are skipped (no external credentials).
+    Personas with `internal_ledger` adapter are skipped (no external credentials);
+    a live persona is validated the same way once Phase 6 configures one.
     Market data credentials are validated against both stock and crypto endpoints
     (same key, different API client).
     """
     config = yaml.safe_load(config_path.read_text())
     personas = config["personas"]
 
-    for _, entry in sorted(personas.items()):
-        if entry["adapter"] != "alpaca_paper":
+    for persona, entry in sorted(personas.items()):
+        adapter_class = _ALPACA_ADAPTERS.get(entry["adapter"])
+        if adapter_class is None:
             continue
+        if adapter_class is AlpacaLiveAdapter:
+            _require_live_trading_enabled(persona)
         key_id = _require_env(entry["key_id_env"])
         secret_key = _require_env(entry["secret_key_env"])
-        adapter = AlpacaPaperAdapter(api_key=key_id, secret_key=secret_key)
-        adapter.validate_credentials()
+        adapter_class(api_key=key_id, secret_key=secret_key).validate_credentials()
 
     market_data = config["market_data"]
     stock_provider = build_market_data_provider("stock", market_data)
     stock_provider.validate_credentials()
+
+
+_ALPACA_ADAPTERS: dict[str, type[AlpacaPaperAdapter]] = {
+    "alpaca_paper": AlpacaPaperAdapter,
+    "alpaca_live": AlpacaLiveAdapter,
+}
 
 
 def _require_env(var_name: str) -> str:

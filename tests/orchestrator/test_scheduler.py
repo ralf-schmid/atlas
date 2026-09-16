@@ -4,6 +4,7 @@ never `.start()`ed — pure job-registration inspection, no real time trigger.""
 
 from __future__ import annotations
 
+import datetime
 import logging
 import uuid
 
@@ -12,7 +13,9 @@ import pytest
 
 from src.db.models import MarketSession
 from src.orchestrator import scheduler as scheduler_module
+from src.orchestrator.competition_settlement import SettlementResult
 from src.orchestrator.cycles_config import CyclesConfig, StockCycle, load_cycles_config
+from src.orchestrator.market_calendar import CalendarVerdict
 from src.orchestrator.scheduler import (
     _daily_digest_job,
     _run_cycle_job,
@@ -433,3 +436,228 @@ def test_meta_review_sweep_job_logs_its_summary(monkeypatch) -> None:
 
     (call,) = infos
     assert call[1:] == (3, 1, 0)
+
+
+# ---------------------------------------------------------------------------
+# F121 — competition settlement job
+# ---------------------------------------------------------------------------
+
+
+class _FakeSettlementSession:
+    def __init__(self) -> None:
+        self.committed = False
+
+    def __enter__(self) -> _FakeSettlementSession:
+        return self
+
+    def __exit__(self, *exc_info: object) -> None:
+        return None
+
+    def commit(self) -> None:
+        self.committed = True
+
+
+def test_settlement_job_is_registered_after_the_close_on_weekdays() -> None:
+    config = load_cycles_config()
+
+    scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
+
+    job = scheduler.get_job("competition-settlement")
+    assert job is not None
+    assert str(job.trigger.timezone) == "America/New_York"
+    assert _field(job, "hour") == "16"
+    assert _field(job, "minute") == "35"
+    assert _field(job, "day_of_week") == "mon-fri"
+
+
+def test_settlement_job_does_nothing_on_a_normal_day(monkeypatch, _fake_telegram_config) -> None:
+    """It fires every weekday and has to be a no-op on all but one of them."""
+    calls: list[object] = []
+    monkeypatch.setattr(scheduler_module, "run_final_settlement", lambda *a, **k: calls.append(a))
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _unexpected_send)
+
+    scheduler_module._final_settlement_job(
+        lambda: _FakeSettlementSession(),  # type: ignore[arg-type]
+        now=datetime.datetime(2026, 9, 17, 20, 35),
+    )
+
+    assert calls == []
+
+
+def test_settlement_job_settles_and_pushes_the_final_report(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    result = SettlementResult(
+        settled_at=datetime.datetime(2026, 9, 18, 20, 35), personas=["CONTRA"], failed=[]
+    )
+    monkeypatch.setattr(scheduler_module, "run_final_settlement", lambda *a, **k: result)
+    monkeypatch.setattr(scheduler_module, "build_final_report", lambda *a, **k: object())
+    monkeypatch.setattr(scheduler_module, "render_final_report_telegram", lambda report: "final")
+    sent: list[str] = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    scheduler_module._final_settlement_job(
+        lambda: _FakeSettlementSession(),  # type: ignore[arg-type]
+        now=datetime.datetime(2026, 9, 18, 20, 35),
+    )
+
+    assert sent == ["final"]
+
+
+def test_settlement_job_names_the_portfolios_it_could_not_value(
+    monkeypatch, _fake_telegram_config
+) -> None:
+    result = SettlementResult(
+        settled_at=datetime.datetime(2026, 9, 18, 20, 35),
+        personas=["CONTRA"],
+        failed=["CRYPTOR"],
+    )
+    monkeypatch.setattr(scheduler_module, "run_final_settlement", lambda *a, **k: result)
+    monkeypatch.setattr(scheduler_module, "build_final_report", lambda *a, **k: object())
+    monkeypatch.setattr(scheduler_module, "render_final_report_telegram", lambda report: "final")
+    sent: list[str] = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+
+    scheduler_module._final_settlement_job(
+        lambda: _FakeSettlementSession(),  # type: ignore[arg-type]
+        now=datetime.datetime(2026, 9, 18, 20, 35),
+    )
+
+    assert "CRYPTOR" in sent[0] and "final" in sent[0]
+
+
+def test_settlement_job_alerts_instead_of_failing_silently(
+    monkeypatch, _fake_telegram_config, caplog
+) -> None:
+    """Unlike the daily digest there is no "tomorrow" for this job — a failure has
+    to reach Ralf while the closing prices are still recoverable."""
+
+    def _raise(*a: object, **k: object) -> None:
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(scheduler_module, "run_final_settlement", _raise)
+    sent: list[str] = []
+
+    async def _fake_send_alert(config: object, text: str) -> None:
+        sent.append(text)
+
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _fake_send_alert)
+    caplog.set_level(logging.ERROR, logger=scheduler_module.logger.name)
+
+    scheduler_module._final_settlement_job(
+        lambda: _FakeSettlementSession(),  # type: ignore[arg-type]
+        now=datetime.datetime(2026, 9, 18, 20, 35),
+    )
+
+    assert len(sent) == 1 and "Endabrechnung" in sent[0]
+
+
+async def _unexpected_send(config: object, text: str) -> None:
+    raise AssertionError(f"no Telegram message expected, got {text!r}")
+
+
+# --- F124 trading-calendar gate, see F124 §4 tests 10-14 -----------------------
+
+
+class _FakeCalendar:
+    """Records every lookup so a test can prove the calendar was *not* consulted."""
+
+    def __init__(self, allowed: bool, reason: str) -> None:
+        self._verdict = CalendarVerdict(allowed=allowed, reason=reason)
+        self.calls: list[datetime.datetime] = []
+
+    def evaluate(self, now: datetime.datetime) -> CalendarVerdict:
+        self.calls.append(now)
+        return self._verdict
+
+
+def _install_calendar(monkeypatch, calendar: _FakeCalendar) -> _FakeCalendar:
+    monkeypatch.setattr(scheduler_module, "get_market_calendar", lambda: calendar)
+    return calendar
+
+
+@pytest.fixture
+def _cycle_spy(monkeypatch):
+    runs: list[tuple[int, str]] = []
+
+    def _record(graph, session_factory, trading_day, seq, market_session):  # type: ignore[no-untyped-def]
+        runs.append((seq, market_session.value))
+        return {}
+
+    monkeypatch.setattr(scheduler_module, "run_one_cycle", _record)
+    return runs
+
+
+def test_stock_cycle_is_skipped_on_a_non_trading_day(monkeypatch, _cycle_spy, caplog) -> None:
+    calendar = _install_calendar(monkeypatch, _FakeCalendar(False, "not_a_trading_day"))
+    caplog.set_level(logging.INFO, logger=scheduler_module.logger.name)
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York", True)  # type: ignore[arg-type]
+
+    assert _cycle_spy == []
+    assert len(calendar.calls) == 1
+    (record,) = [r for r in caplog.records if r.getMessage() == "cycle skipped"]
+    assert record.reason == "not_a_trading_day"
+    assert record.market_session == "us_equity"
+
+
+def test_stock_cycle_runs_on_a_trading_day(monkeypatch, _cycle_spy) -> None:
+    _install_calendar(monkeypatch, _FakeCalendar(True, "trading_day"))
+
+    _run_cycle_job(None, lambda: None, 3, MarketSession.US_EQUITY, "America/New_York", True)  # type: ignore[arg-type]
+
+    assert _cycle_spy == [(3, "us_equity")]
+
+
+def test_crypto_cycle_never_consults_the_calendar(monkeypatch, _cycle_spy) -> None:
+    """24/7 market — even with the gate switched on, crypto must not be gated
+    (and `now` would be UTC here, not exchange-local)."""
+    calendar = _install_calendar(monkeypatch, _FakeCalendar(False, "not_a_trading_day"))
+
+    _run_cycle_job(None, lambda: None, 0, MarketSession.CRYPTO, "UTC", True)  # type: ignore[arg-type]
+
+    assert calendar.calls == []
+    assert _cycle_spy == [(0, "crypto")]
+
+
+def test_disabled_gate_never_consults_the_calendar(monkeypatch, _cycle_spy) -> None:
+    """The rollback path (F124 §7): with `calendar_gate: false` the scheduler
+    behaves exactly as it did before F124."""
+    calendar = _install_calendar(monkeypatch, _FakeCalendar(False, "not_a_trading_day"))
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York", False)  # type: ignore[arg-type]
+
+    assert calendar.calls == []
+    assert _cycle_spy == [(1, "us_equity")]
+
+
+def test_skipped_cycle_does_not_count_as_a_failure(monkeypatch, _cycle_spy) -> None:
+    """A holiday is not an outage: no failure streak, no Telegram alert — two
+    skips in a row would otherwise trip the 2x alert threshold."""
+    _install_calendar(monkeypatch, _FakeCalendar(False, "not_a_trading_day"))
+    monkeypatch.setattr("src.telegram.alerts.send_alert", _unexpected_send)
+
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York", True)  # type: ignore[arg-type]
+    _run_cycle_job(None, lambda: None, 1, MarketSession.US_EQUITY, "America/New_York", True)  # type: ignore[arg-type]
+
+    assert scheduler_module._consecutive_failures == {}
+
+
+def test_stock_jobs_carry_the_configured_gate_flag_and_crypto_jobs_never_do() -> None:
+    config = load_cycles_config()
+
+    scheduler = build_scheduler(graph=None, session_factory=lambda: None, cycles_config=config)  # type: ignore[arg-type]
+
+    for seq in (1, 3, 4):
+        assert scheduler.get_job(f"stock-c{seq}").args[-1] is config.stock_calendar_gate
+    for job in scheduler.get_jobs():
+        if job.id.startswith("crypto-"):
+            assert job.args[-1] is False

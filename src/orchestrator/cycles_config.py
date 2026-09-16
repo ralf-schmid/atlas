@@ -27,6 +27,11 @@ class CyclesConfig:
     crypto_weekday_times: list[str]
     crypto_weekend_times: list[str]
     digest_time: str  # "HH:MM", America/New_York (stock_timezone) — F070
+    # F124: operator off-switch for the trading-calendar gate on the US equity
+    # cycles. Defaults to `True` — the gate is the intended state, switching it
+    # off has to be a deliberate line in config/cycles.yaml
+    # (docs/adr/0019-handelskalender-gate-fail-open.md).
+    stock_calendar_gate: bool = True
 
 
 def load_cycles_config(path: Path = _DEFAULT_CONFIG_PATH) -> CyclesConfig:
@@ -38,6 +43,7 @@ def load_cycles_config(path: Path = _DEFAULT_CONFIG_PATH) -> CyclesConfig:
         stock_cycles=[
             StockCycle(seq=c["seq"], time=c["time"], active=c["active"]) for c in stock["cycles"]
         ],
+        stock_calendar_gate=bool(stock.get("calendar_gate", True)),
         crypto_timezone=crypto["timezone"],
         crypto_weekday_times=crypto["weekday_times"],
         crypto_weekend_times=crypto["weekend_times"],

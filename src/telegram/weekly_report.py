@@ -12,30 +12,20 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from jinja2 import Environment
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.db.models import Persona, Portfolio, PortfolioMode
+from src.db.models import PortfolioMode
 from src.metrics.competition_score import (
     CRITERION_LABELS,
     CRITERION_WEIGHTS,
     CompetitionScore,
-    PersonaCriteria,
-    reliability_inputs,
+    collect_persona_criteria,
     score_personas,
-    thesis_quality,
 )
 from src.metrics.performance import (
-    adjusted_return,
     daily_benchmark_values,
-    daily_portfolio_values,
-    daily_returns,
-    max_drawdown,
     simple_return,
-    slippage_malus_sum,
-    sortino_ratio,
     spread_method_split,
-    trade_count,
 )
 from src.orchestrator.competition_config import load_competition_config
 
@@ -143,52 +133,25 @@ def build_weekly_report(
 ) -> WeeklyReportData:
     competition = load_competition_config()
     since = datetime.datetime.combine(competition.start_date, datetime.time.min)
+    # F121: bounded by the reporting date instead of "everything up to now", so a
+    # report re-rendered later reproduces the numbers it was sent with. For the
+    # Sunday job (as_of = today) this changes nothing — nothing lies in the future.
+    until = datetime.datetime.combine(as_of, datetime.time.max)
 
-    portfolios = session.execute(
-        select(Portfolio, Persona.name)
-        .join(Persona, Portfolio.persona_id == Persona.id)
-        .where(
-            Persona.active.is_(True),
-            Portfolio.mode == mode,
-            Portfolio.archived_at.is_(None),
-        )
-        .order_by(Persona.name)
-    ).all()
+    collected = collect_persona_criteria(
+        session, since, competition.start_capital_usd, until=until, mode=mode
+    )
+    criteria = [entry.criteria for entry in collected]
+    trading_days = max((len(entry.daily_values) for entry in collected), default=0)
 
-    criteria: list[PersonaCriteria] = []
-    trading_days = 0
-    for portfolio, persona_name in portfolios:
-        values = daily_portfolio_values(session, portfolio.id, since)
-        trading_days = max(trading_days, len(values))
-        raw = simple_return([Decimal(str(competition.start_capital_usd)), *values])
-        share, reviews_total = thesis_quality(session, portfolio.id, since)
-        reliability = reliability_inputs(session, portfolio.id, since)
-        criteria.append(
-            PersonaCriteria(
-                persona=persona_name,
-                sortino=sortino_ratio(daily_returns(values)),
-                adjusted_return=adjusted_return(
-                    raw,
-                    slippage_malus_sum(session, portfolio.id, since),
-                    competition.start_capital_usd,
-                ),
-                max_drawdown=max_drawdown(values),
-                thesis_quality=share,
-                reliability=reliability.score(),
-                reliability_inputs=reliability,
-                reviews_total=reviews_total,
-                trades=trade_count(session, portfolio.id, since),
-            )
-        )
-
-    benchmark_values = daily_benchmark_values(session, since)
+    benchmark_values = daily_benchmark_values(session, since, until)
     benchmark_return = (
         simple_return([Decimal(str(competition.start_capital_usd)), *benchmark_values])
         if benchmark_values
         else None
     )
 
-    measured, flat = spread_method_split(session, since)
+    measured, flat = spread_method_split(session, since, until)
 
     return WeeklyReportData(
         as_of=as_of,

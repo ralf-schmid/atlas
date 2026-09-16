@@ -29,19 +29,35 @@ from __future__ import annotations
 import datetime
 import uuid
 from dataclasses import dataclass
+from decimal import Decimal
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, func, select, true
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from src.db.models import (
     AgentRun,
     AgentRunStatus,
+    Cycle,
     Decision,
     DecisionStatus,
     OrderRecord,
     OrderRecordStatus,
+    Persona,
+    Portfolio,
+    PortfolioMode,
     Review,
     ReviewVerdict,
+)
+from src.metrics.performance import (
+    adjusted_return,
+    daily_portfolio_values,
+    daily_returns,
+    max_drawdown,
+    simple_return,
+    slippage_malus_sum,
+    sortino_ratio,
+    time_window,
+    trade_count,
 )
 
 # §4.7, verbatim. Changing these changes who wins — never silently (CLAUDE.md).
@@ -216,8 +232,89 @@ def score_personas(criteria: list[PersonaCriteria], since: datetime.date) -> Com
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True, slots=True)
+class PortfolioCriteria:
+    """One portfolio's §4.7 inputs plus what the callers need on top of them:
+    the portfolio id (the settlement report resolves its closing positions from
+    it) and the daily value series (the number of trading days in the report
+    header)."""
+
+    persona: str
+    portfolio_id: uuid.UUID
+    criteria: PersonaCriteria
+    daily_values: list[Decimal]
+
+
+def collect_persona_criteria(
+    session: Session,
+    since: datetime.datetime,
+    start_capital_usd: int,
+    until: datetime.datetime | None = None,
+    mode: PortfolioMode = PortfolioMode.PAPER,
+) -> list[PortfolioCriteria]:
+    """The five criteria for every active, non-archived portfolio of *mode*.
+
+    Extracted from `build_weekly_report` (F089) when the final settlement report
+    (F121) needed the identical assembly over a closed window — the weekly
+    standings and the report that decides the competition must not drift apart
+    into two implementations of §4.7.
+    """
+    portfolios = session.execute(
+        select(Portfolio, Persona.name)
+        .join(Persona, Portfolio.persona_id == Persona.id)
+        .where(
+            Persona.active.is_(True),
+            Portfolio.mode == mode,
+            Portfolio.archived_at.is_(None),
+        )
+        .order_by(Persona.name)
+    ).all()
+
+    collected: list[PortfolioCriteria] = []
+    for portfolio, persona_name in portfolios:
+        values = daily_portfolio_values(session, portfolio.id, since, until)
+        raw = simple_return([Decimal(str(start_capital_usd)), *values])
+        share, reviews_total = thesis_quality(session, portfolio.id, since, until)
+        reliability = reliability_inputs(session, portfolio.id, since, until)
+        collected.append(
+            PortfolioCriteria(
+                persona=persona_name,
+                portfolio_id=portfolio.id,
+                daily_values=values,
+                criteria=PersonaCriteria(
+                    persona=persona_name,
+                    sortino=sortino_ratio(daily_returns(values)),
+                    adjusted_return=adjusted_return(
+                        raw,
+                        slippage_malus_sum(session, portfolio.id, since, until),
+                        start_capital_usd,
+                    ),
+                    max_drawdown=max_drawdown(values),
+                    thesis_quality=share,
+                    reliability=reliability.score(),
+                    reliability_inputs=reliability,
+                    reviews_total=reviews_total,
+                    trades=trade_count(session, portfolio.id, since, until),
+                ),
+            )
+        )
+    return collected
+
+
+def _cycle_until(
+    cycle_id: InstrumentedAttribute[uuid.UUID], until: datetime.datetime | None
+) -> ColumnElement[bool]:
+    """Bounds a row that has no timestamp of its own by its cycle's trading day."""
+    if until is None:
+        return true()
+    return cycle_id.in_(select(Cycle.id).where(Cycle.trading_day <= until.date()))
+
+
 def thesis_quality(
-    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
 ) -> tuple[float | None, int]:
     """§4.7 criterion 4: share of `thesis_confirmed` among that portfolio's reviews.
 
@@ -228,7 +325,10 @@ def thesis_quality(
     rows = session.execute(
         select(Review.verdict, func.count())
         .join(Decision, Decision.id == Review.decision_id)
-        .where(Decision.portfolio_id == portfolio_id, Review.reviewed_at >= since)
+        .where(
+            Decision.portfolio_id == portfolio_id,
+            time_window(Review.reviewed_at, since, until),
+        )
         .group_by(Review.verdict)
     ).all()
     total = sum(count for _, count in rows)
@@ -239,12 +339,22 @@ def thesis_quality(
 
 
 def reliability_inputs(
-    session: Session, portfolio_id: uuid.UUID, since: datetime.datetime
+    session: Session,
+    portfolio_id: uuid.UUID,
+    since: datetime.datetime,
+    until: datetime.datetime | None = None,
 ) -> ReliabilityInputs:
-    """§4.7 criterion 5: error rate, risk-gate reject rate, fill plausibility."""
+    """§4.7 criterion 5: error rate, risk-gate reject rate, fill plausibility.
+
+    `agent_run` and `decision` carry no timestamp of their own; their season is
+    already fixed by `portfolio_id` (the competition portfolios were created at
+    the reset, F090). For a settlement report that has to stay reproducible after
+    the season, `until` additionally bounds them through their cycle's
+    `trading_day` — F121.
+    """
     runs = session.execute(
         select(AgentRun.status, func.count())
-        .where(AgentRun.portfolio_id == portfolio_id)
+        .where(AgentRun.portfolio_id == portfolio_id, _cycle_until(AgentRun.cycle_id, until))
         .group_by(AgentRun.status)
     ).all()
     run_counts = {status: count for status, count in runs}
@@ -269,7 +379,11 @@ def reliability_inputs(
     gated = session.scalar(
         select(func.count())
         .select_from(Decision)
-        .where(Decision.portfolio_id == portfolio_id, Decision.status.in_(gate_reached))
+        .where(
+            Decision.portfolio_id == portfolio_id,
+            Decision.status.in_(gate_reached),
+            _cycle_until(Decision.cycle_id, until),
+        )
     )
     rejected = session.scalar(
         select(func.count())
@@ -277,6 +391,7 @@ def reliability_inputs(
         .where(
             Decision.portfolio_id == portfolio_id,
             Decision.status == DecisionStatus.RISK_REJECTED,
+            _cycle_until(Decision.cycle_id, until),
         )
     )
     risk_reject_rate = (rejected or 0) / gated if gated else None
@@ -296,7 +411,7 @@ def reliability_inputs(
         .join(Decision, Decision.id == OrderRecord.decision_id)
         .where(
             Decision.portfolio_id == portfolio_id,
-            OrderRecord.submitted_at >= since,
+            time_window(OrderRecord.submitted_at, since, until),
             OrderRecord.status.in_(terminal),
         )
         .group_by(OrderRecord.status)

@@ -12,6 +12,7 @@ from src.broker.registry import (
     get_adapter,
     get_adapter_type,
     load_market_data_config,
+    load_market_data_credentials,
     validate_all_credentials,
     validate_market_data_credentials,
 )
@@ -190,3 +191,23 @@ def test_validate_market_data_credentials_missing_env_raises(monkeypatch):
 
     with pytest.raises(ValueError, match="ALPACA_MARKET_DATA_KEY_ID"):
         validate_market_data_credentials()
+
+
+# --- F124: load_market_data_credentials ---
+
+
+def test_load_market_data_credentials_resolves_the_shared_key(monkeypatch):
+    """The trading calendar needs a `TradingClient`, which this module doesn't
+    build — but env-var resolution stays here (Invariant #6)."""
+    monkeypatch.setenv("ALPACA_MARKET_DATA_KEY_ID", "md-key")
+    monkeypatch.setenv("ALPACA_MARKET_DATA_SECRET_KEY", "md-secret")
+
+    assert load_market_data_credentials() == ("md-key", "md-secret")
+
+
+def test_load_market_data_credentials_missing_env_raises(monkeypatch):
+    monkeypatch.delenv("ALPACA_MARKET_DATA_KEY_ID", raising=False)
+    monkeypatch.delenv("ALPACA_MARKET_DATA_SECRET_KEY", raising=False)
+
+    with pytest.raises(ValueError, match="ALPACA_MARKET_DATA_KEY_ID"):
+        load_market_data_credentials()

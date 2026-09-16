@@ -37,8 +37,12 @@ from src.db.models import (
 )
 from src.llm.client import LiteLLMClient
 from src.llm.config import LlmConfig
+from src.metrics.final_report import build_final_report, render_final_report_telegram
+from src.orchestrator.competition_config import load_competition_config
+from src.orchestrator.competition_settlement import is_settlement_due, run_final_settlement
 from src.orchestrator.cycles_config import CyclesConfig
 from src.orchestrator.graph import CycleState
+from src.orchestrator.market_calendar import get_market_calendar
 from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.trading import execute_decision
 from src.review.agent import run_review_sweep
@@ -150,6 +154,13 @@ _WEEKLY_REPORT_DAY = "sun"
 _WEEKLY_REPORT_HOUR = 19
 _WEEKLY_REPORT_MINUTE = 0
 
+# F121: 16:35 ET — after the 16:00 close, five minutes behind the daily digest so
+# the two pushes don't collide. Runs every weekday and returns immediately unless
+# the day is the competition's last one (`is_settlement_due`); a cron job plus a
+# date guard survives a container restart, a one-shot date trigger would not.
+_SETTLEMENT_HOUR = 16
+_SETTLEMENT_MINUTE = 35
+
 
 def build_scheduler(
     graph: CompiledStateGraph[CycleState, None, CycleState, CycleState],
@@ -184,6 +195,7 @@ def build_scheduler(
                 cycle.seq,
                 MarketSession.US_EQUITY,
                 cycles_config.stock_timezone,
+                cycles_config.stock_calendar_gate,
             ],
             id=f"stock-c{cycle.seq}",
             replace_existing=True,
@@ -198,7 +210,16 @@ def build_scheduler(
             hour=hour,
             minute=minute,
             timezone=cycles_config.crypto_timezone,
-            args=[graph, session_factory, 0, MarketSession.CRYPTO, cycles_config.crypto_timezone],
+            # F124: no calendar gate for crypto -- a 24/7 market has no exchange
+            # calendar. Passed explicitly so the intent is visible at registration.
+            args=[
+                graph,
+                session_factory,
+                0,
+                MarketSession.CRYPTO,
+                cycles_config.crypto_timezone,
+                False,
+            ],
             id=f"crypto-weekday-{time_str}",
             replace_existing=True,
         )
@@ -212,7 +233,14 @@ def build_scheduler(
             hour=hour,
             minute=minute,
             timezone=cycles_config.crypto_timezone,
-            args=[graph, session_factory, 0, MarketSession.CRYPTO, cycles_config.crypto_timezone],
+            args=[
+                graph,
+                session_factory,
+                0,
+                MarketSession.CRYPTO,
+                cycles_config.crypto_timezone,
+                False,
+            ],
             id=f"crypto-weekend-{time_str}",
             replace_existing=True,
         )
@@ -293,6 +321,22 @@ def build_scheduler(
         replace_existing=True,
     )
 
+    # F121: closing valuation on the competition's last day. Ralf's ruling of
+    # 16.08.2026 — open positions are valued at the closing price — needs a
+    # snapshot taken after the close; the last cycle of the day (C4, 15:15 ET)
+    # writes one 45 minutes too early.
+    scheduler.add_job(
+        _final_settlement_job,
+        trigger="cron",
+        day_of_week="mon-fri",
+        hour=_SETTLEMENT_HOUR,
+        minute=_SETTLEMENT_MINUTE,
+        timezone=cycles_config.stock_timezone,
+        args=[session_factory],
+        id="competition-settlement",
+        replace_existing=True,
+    )
+
     if llm_client is not None and llm_config is not None:
         scheduler.add_job(
             _review_sweep_job,
@@ -328,14 +372,38 @@ def _run_cycle_job(
     seq: int,
     market_session: MarketSession,
     timezone: str,
+    calendar_gate: bool = False,
 ) -> None:
     """A single failed cycle (e.g. a broker network error) must not take down the
     scheduler thread and silently cancel every future cycle — see F025 §2."""
     # trading_day in the market's timezone, not the host's: the UGREEN runs on
     # Europe/Berlin, where a 00:00-UTC crypto cycle would otherwise get tomorrow's
     # date and a US C4 cycle could get the wrong day around midnight.
-    trading_day = datetime.datetime.now(zoneinfo.ZoneInfo(timezone)).date()
+    now = datetime.datetime.now(zoneinfo.ZoneInfo(timezone))
+    trading_day = now.date()
     job_key = f"{market_session.value}-{seq}"
+
+    # F124: both conditions on purpose. `calendar_gate` is the operator's
+    # off-switch (config/cycles.yaml), the session check is what makes the
+    # exchange-local close comparison inside `evaluate` valid at all — `now` is
+    # ET here only for US equity cycles.
+    if calendar_gate and market_session is MarketSession.US_EQUITY:
+        verdict = get_market_calendar().evaluate(now)
+        if not verdict.allowed:
+            # INFO, not WARNING: a holiday is the expected case, not a fault. The
+            # failure counter and the silent-cycle alert stay untouched — nothing
+            # ran, so there is nothing to have failed.
+            logger.info(
+                "cycle skipped",
+                extra={
+                    "seq": seq,
+                    "market_session": market_session.value,
+                    "trading_day": trading_day.isoformat(),
+                    "reason": verdict.reason,
+                },
+            )
+            return
+
     try:
         final_state = run_one_cycle(graph, session_factory, trading_day, seq, market_session)
         _consecutive_failures[job_key] = 0
@@ -473,6 +541,48 @@ def _weekly_report_job(session_factory: Callable[[], Session]) -> None:
         asyncio.run(send_alert(load_telegram_config(), text))
     except Exception:
         logger.error("failed to send weekly Telegram report", exc_info=True)
+
+
+def _final_settlement_job(
+    session_factory: Callable[[], Session],
+    now: datetime.datetime | None = None,
+    adapter_factory: Callable[[str], BrokerAdapter] = get_adapter,
+) -> None:
+    """F121: on the competition's last day only, writes the closing valuation and
+    pushes the Endabrechnung to Telegram.
+
+    Same non-fatal contract as the other report jobs — but unlike them this one
+    has no "tomorrow" to fall back on, so a failure additionally alerts instead of
+    only logging: the valuation the winner is decided from must not go missing
+    quietly. Re-running it manually is `scripts/final_settlement.py`.
+    """
+    from src.telegram.alerts import send_alert
+
+    now = now or datetime.datetime.now(datetime.UTC).replace(tzinfo=None)
+    try:
+        competition = load_competition_config()
+        if not is_settlement_due(now, competition):
+            return
+        with session_factory() as session:
+            result = run_final_settlement(session, adapter_factory, now)
+            session.commit()
+            report = build_final_report(session, competition)
+            text = render_final_report_telegram(report)
+        if result.failed:
+            text = f"⚠️ Schlussbewertung fehlgeschlagen für: {', '.join(result.failed)}\n\n{text}"
+        asyncio.run(send_alert(load_telegram_config(), text))
+    except Exception:
+        logger.error("F121: competition settlement job failed", exc_info=True)
+        try:
+            asyncio.run(
+                send_alert(
+                    load_telegram_config(),
+                    "⚠️ F121: Endabrechnung fehlgeschlagen — Schlussbewertung manuell "
+                    "nachholen (scripts/final_settlement.py), Logs prüfen.",
+                )
+            )
+        except Exception:
+            logger.error("F121: settlement failure alert could not be sent", exc_info=True)
 
 
 def _sweep_expired_hitl_job(

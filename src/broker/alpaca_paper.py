@@ -11,6 +11,7 @@ import datetime
 import time
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import ClassVar
 
 from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
@@ -105,10 +106,17 @@ class AlpacaPaperAdapter:
     # shares — the sizing layer must reject anything that rounds to 0 up front.
     requires_whole_shares = True
 
+    # F121/F122: which Alpaca endpoint this adapter talks to. The paper/live split
+    # is exactly this one flag — `AlpacaLiveAdapter` (src/broker/alpaca_live.py)
+    # overrides it and inherits everything else unchanged. Never read from an
+    # argument or an environment variable here: a class attribute cannot be
+    # flipped by a config typo or a stray env var (Invariant #5).
+    _paper: ClassVar[bool] = True
+
     def __init__(self, api_key: str, secret_key: str) -> None:
         self._api_key = api_key
         self._secret_key = secret_key
-        self._client = TradingClient(api_key, secret_key, paper=True)
+        self._client = TradingClient(api_key, secret_key, paper=self._paper)
 
     def validate_credentials(self) -> None:
         self._client.get_account()

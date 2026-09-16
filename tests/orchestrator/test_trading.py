@@ -7,6 +7,7 @@ import uuid
 from decimal import Decimal
 from unittest.mock import patch
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -425,3 +426,42 @@ def test_fill_status_requires_both_timestamp_and_price():
     assert _fill_status(ts, None) is OrderRecordStatus.NEW  # der eigentliche Defekt
     assert _fill_status(None, 12.5) is OrderRecordStatus.NEW
     assert _fill_status(None, None) is OrderRecordStatus.NEW
+
+
+# --- F122: paper/live separation in the one code path that places orders ---
+
+
+def test_execute_decision_refuses_a_paper_portfolio_on_a_live_adapter(session: Session) -> None:
+    """Invariant #5. The guard sits in `execute_decision` because that is the only
+    place an order can be placed at all (Invariant #2)."""
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_decision(session, portfolio)
+
+    with pytest.raises(ValueError, match="Invariant #5"):
+        execute_decision(session, decision, _FakeAdapter(), "alpaca_live")
+
+    assert decision.status == DecisionStatus.APPROVED
+    assert session.scalars(select(OrderRecord)).all() == []
+
+
+def test_execute_decision_refuses_a_live_portfolio_on_a_paper_adapter(session: Session) -> None:
+    """The other direction is just as wrong: a live-mode order history of orders
+    that were never really placed."""
+    portfolio = _make_portfolio(session)
+    portfolio.mode = PortfolioMode.LIVE
+    session.flush()
+    decision = _make_approved_decision(session, portfolio)
+
+    with pytest.raises(ValueError, match="Invariant #5"):
+        execute_decision(session, decision, _FakeAdapter(), "alpaca_paper")
+
+
+def test_execute_decision_accepts_the_matching_pair(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    portfolio.mode = PortfolioMode.LIVE
+    session.flush()
+    decision = _make_approved_decision(session, portfolio)
+
+    order_record = execute_decision(session, decision, _FakeAdapter(), "alpaca_live")
+
+    assert order_record.mode == PortfolioMode.LIVE
