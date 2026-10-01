@@ -125,13 +125,16 @@ def extract_dividend_history(page: Page) -> list[dict[str, str]]:
 
 
 def login(page: Page, username: str, password: str) -> None:
-    """Logs into aktienfinder.de. Discovered flow (no public docs): `/profil` ->
-    click "Anmelden" -> fills the `#username`/`#password` fields that appear -> click
-    the "Weiter" submit button. Raises `AktienfinderLoginError` if the nav bar doesn't
-    show "Abmelden" afterward (wrong credentials, or the site's login flow changed)."""
-    page.goto(f"{_BASE_URL}/profil", wait_until="networkidle", timeout=30_000)
-    page.get_by_text("Anmelden", exact=True).first.click()
-    page.wait_for_timeout(500)
+    """Logs into aktienfinder.de. Discovered flow (no public docs): `/anmelden` ->
+    fill `#username`/`#password` -> click the "Weiter" submit button. Raises
+    `AktienfinderLoginError` if the nav bar doesn't show "Abmelden" afterward (wrong
+    credentials, or the site's login flow changed).
+
+    F125: straight to `/anmelden`, no longer `/profil` + click "Anmelden". Since
+    ~25.09.2026 that click lands on `/anmelden` *and* opens a login modal on top —
+    two forms with the same `#username`/`#password` ids. `fill` hit the page form,
+    the click resolved to the modal's still-disabled "Weiter" and timed out."""
+    page.goto(f"{_BASE_URL}/anmelden", wait_until="networkidle", timeout=30_000)
     page.fill("#username", username)
     page.fill("#password", password)
     page.get_by_role("button", name="Weiter").click()
