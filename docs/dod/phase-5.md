@@ -254,8 +254,16 @@ Nummerierung fortlaufend ab F079; jede Umsetzung folgt dem Feature-Prozess
    Depotwerte am Stichtag sind damit direkt vergleichbar, und keine Persona wird
    dafür bestraft, dass ihre These am 18.09. noch läuft. Für §4.7 heißt das: die
    Kriterien 1–3 (Sortino, Gesamtrendite, Max Drawdown) rechnen auf dieser
-   Bewertung. Umsetzung noch offen — der Stichtags-Schlusskurs muss als Snapshot
-   festgehalten werden, damit die Abrechnung reproduzierbar bleibt.
+   Bewertung. **Umsetzung erledigt 05.09.2026
+   ([F121](../features/F121-endabrechnung-und-gewinner-report.md)):** ein
+   Scheduler-Job schreibt am Stichtag um 16:35 ET (nach dem Close — der letzte
+   Zyklus C4 läuft 45 Minuten davor) je Portfolio die Schlussbewertung, und alle
+   §4.7-Kennzahlen haben jetzt eine Obergrenze, damit der Report auch im Dezember
+   dieselbe Saison bewertet. **Nachtrag 01.10.2026:** der Job lief am Stichtag
+   nicht (Box bis 01.10. auf F119); Schlussbewertung aus C4-Positionen +
+   Schlusskursen des 18.09. rekonstruiert, Report
+   [`endabrechnung-2026-09-18.md`](../reports/endabrechnung-2026-09-18.md),
+   Details im F121-Nachtrag.
    **Weiterhin offen:** ob diese offenen Positionen auch ein Review bekommen
    (Kriterium 4, `thesis_confirmed`-Anteil) oder ob dort nur tatsächlich
    geschlossene Positionen zählen — und was für `hold`-Ketten ohne Position gilt.
