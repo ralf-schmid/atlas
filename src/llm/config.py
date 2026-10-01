@@ -42,6 +42,9 @@ class ResearchAgentsConfig:
     news_max_items_per_cycle: int
     news_batch_size: int
     market_enabled: bool
+    # F126: hard ceiling on the market_research prompt. Default only matters for
+    # configs that predate the key — config/llm.yaml sets it explicitly.
+    market_max_items_per_cycle: int = 1000
 
     @classmethod
     def from_raw(cls, raw: object) -> ResearchAgentsConfig:
@@ -51,6 +54,7 @@ class ResearchAgentsConfig:
             news_max_items_per_cycle=int(values.get("news_max_items_per_cycle", 200)),
             news_batch_size=int(values.get("news_batch_size", 25)),
             market_enabled=bool(values.get("market_enabled", True)),
+            market_max_items_per_cycle=int(values.get("market_max_items_per_cycle", 1000)),
         )
 
 

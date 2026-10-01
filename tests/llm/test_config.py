@@ -51,3 +51,12 @@ def test_no_local_llm_providers_in_trading_path():
     assert "ollama" not in providers
     assert "llamacpp" not in providers
     assert providers <= {"anthropic", "groq", "opencode-zen"}
+
+
+def test_market_research_cap_is_read_from_the_config():
+    """F126: the shipped config sets the cap explicitly; a missing key falls back to
+    the same default instead of an uncapped prompt."""
+    from src.llm.config import ResearchAgentsConfig
+
+    assert load_llm_config().research_agents.market_max_items_per_cycle == 1000
+    assert ResearchAgentsConfig.from_raw({}).market_max_items_per_cycle == 1000
