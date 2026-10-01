@@ -632,7 +632,15 @@ def sweep_expired_hitl_decisions(
             outcome = HitlOutcome(decision=HitlDecision.REJECTED, decided_by="timeout")
             apply_hitl_outcome(session, decision, outcome, now)
             hitl = decision.hitl or {}
-            expired.append((decision.id, hitl.get("thread_id"), hitl.get("interrupt_id")))
+            thread_id = hitl.get("thread_id")
+            interrupt_id = hitl.get("interrupt_id")
+            expired.append(
+                (
+                    decision.id,
+                    thread_id if isinstance(thread_id, str) else None,
+                    interrupt_id if isinstance(interrupt_id, str) else None,
+                )
+            )
         session.commit()
 
     for decision_id, thread_id, interrupt_id in expired:
@@ -903,6 +911,12 @@ def reconcile_order_fills(
         )
         for order_record, persona_name in session.execute(stmt).all():
             if get_adapter_type(persona_name) != "alpaca_paper":
+                continue
+            if order_record.broker_order_id is None:
+                logger.error(
+                    "order_record has no broker_order_id, cannot reconcile",
+                    extra={"order_record_id": str(order_record.id)},
+                )
                 continue
             broker_adapter = adapter_factory(persona_name)
             assert isinstance(broker_adapter, AlpacaPaperAdapter)
