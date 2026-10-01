@@ -370,9 +370,9 @@ def _cycle_summary(session: Session, cycle: Cycle) -> CycleSummaryOut:
         decisions=decisions or 0,
         agent_runs=runs[0],
         failed_runs=runs[1],
-        tokens_in=int(runs[2]),
-        tokens_out=int(runs[3]),
-        cost_usd=float(runs[4]),
+        tokens_in=int(runs[2] or 0),
+        tokens_out=int(runs[3] or 0),
+        cost_usd=float(runs[4] or 0),
     )
 
 
@@ -426,6 +426,7 @@ def get_cycle_trace(
         hitl = decision.hitl or {}
         if not hitl.get("required"):
             continue
+        decided_by = hitl.get("decided_by")
         hitl_events.append(
             HitlEventOut(
                 decision_id=decision.id,
@@ -435,7 +436,7 @@ def get_cycle_trace(
                 amount_usd=_as_float(hitl.get("amount_usd")),
                 requested_at=_as_datetime(hitl.get("requested_at")),
                 decided_at=_as_datetime(hitl.get("at")),
-                decided_by=hitl.get("decided_by"),
+                decided_by=decided_by if isinstance(decided_by, str) else None,
             )
         )
 
@@ -735,9 +736,16 @@ def get_persona_holding_chart(
         )
         .order_by(OrderRecord.filled_at.asc())
     ).all()
+    # The WHERE above already excludes NULLs; SQLAlchemy 2.1 still types the
+    # columns Optional, so narrow explicitly instead of trusting the query.
+    complete_fills = [
+        (filled_at, fill_price, qty, action)
+        for filled_at, fill_price, qty, action in fill_rows
+        if filled_at is not None and fill_price is not None and qty is not None
+    ]
 
-    if fill_rows:
-        first_fill_at = min(filled_at for filled_at, _, _, _ in fill_rows)
+    if complete_fills:
+        first_fill_at = min(filled_at for filled_at, _, _, _ in complete_fills)
         chart_start = first_fill_at.date() - datetime.timedelta(days=2)
     else:
         # F074: demo/seed positions (scripts/seed_demo_snapshot.py) have no backing
@@ -751,7 +759,7 @@ def get_persona_holding_chart(
             qty=float(qty),
             action="buy" if action == DecisionAction.BUY else "sell",
         )
-        for filled_at, fill_price, qty, action in fill_rows
+        for filled_at, fill_price, qty, action in complete_fills
     ]
 
     bars = _read_market_bars(session, instrument, chart_start)
@@ -911,7 +919,12 @@ def get_persona_decisions(
                 instrument=decision.instrument,
                 action=decision.action.value,
                 status=decision.status.value,
-                conviction=expected.get("conviction"),
+                conviction=(
+                    float(conviction)
+                    if isinstance(conviction := expected.get("conviction"), int | float)
+                    and not isinstance(conviction, bool)
+                    else None
+                ),
                 thesis_text=decision.thesis_text,
                 rejection_reason=decision.rejection_reason,
                 expected=DecisionExpectationOut(
