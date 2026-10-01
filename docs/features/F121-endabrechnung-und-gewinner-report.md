@@ -143,3 +143,22 @@ exakt wie vorher.
   `scripts/final_report.py` rendert den Report auf dem aktuellen Stand.
 - **Deploy:** Image-Rebuild nötig — `config/competition.yaml` ist ins Image
   gebacken, ein Restart allein sieht das neue `end_date` nicht.
+
+## Nachtrag 01.10.2026 — Schlussbewertung nachgeholt
+
+Am Stichtag lief die Box noch auf F119, der Job `competition-settlement` existierte
+dort nicht; letzter Snapshot je Portfolio war C4 (15:16 ET). `scripts/final_settlement.py`
+taugt **nicht** zum Nachholen nach dem Stichtag: es liest Positionen und Kurse
+*jetzt* beim Broker, `--now` stempelt nur den Zeitpunkt um.
+
+Rekonstruiert statt dessen: Positionen aus dem C4-`position_snapshot` (zwischen C4
+und Close keine Fills — bei Alpaca für VULTURE/GUARDIAN/CHARTIST geprüft, die
+Ledger-Personas handeln nur in Zyklen), bewertet mit dem SIP-Tagesschlusskurs vom
+18.09. (Aktien) bzw. der 1-Minuten-Bar 19:59 UTC (UNI/USD); Cash aus C4. Je
+Portfolio ein Snapshot mit `ts = 2026-09-18 20:35:00`. Abweichung zur C4-Bewertung
+−17 bis +5 USD, Rangfolge der Depotwerte unverändert.
+
+Report: [`docs/reports/endabrechnung-2026-09-18.md`](../reports/endabrechnung-2026-09-18.md)
+— Sieger nach §4.7 CRYPTOR (0,909). VULTUREs Wert enthält die ungewollte
+GPRO-Short-Position (−146, F125 §2); auf die Rangfolge hat sie keinen Einfluss
+(Platz 5, Score-Abstand zu Platz 4 und 6 größer als ihr Marktwert-Effekt).
