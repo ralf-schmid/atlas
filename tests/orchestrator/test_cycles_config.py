@@ -36,18 +36,16 @@ def test_loads_digest_time() -> None:
 
 
 def test_calendar_gate_is_read_from_the_config(tmp_path) -> None:
-    """F124 §4 test 15. Shipped as `false` until the competition's final
-    settlement on 18.09.2026 (F124 §6) — this asserts the flag is wired, not which
-    value it currently holds."""
+    """F124 §4 test 15. Switched on 01.10.2026 with the F125 deploy (F124 §6)."""
     config = load_cycles_config()
 
-    assert config.stock_calendar_gate is False
+    assert config.stock_calendar_gate is True
 
-    switched_on = tmp_path / "cycles.yaml"
-    switched_on.write_text(
-        _CONFIG_PATH.read_text().replace("calendar_gate: false", "calendar_gate: true")
+    switched_off = tmp_path / "cycles.yaml"
+    switched_off.write_text(
+        _CONFIG_PATH.read_text().replace("calendar_gate: true", "calendar_gate: false")
     )
-    assert load_cycles_config(switched_on).stock_calendar_gate is True
+    assert load_cycles_config(switched_off).stock_calendar_gate is False
 
 
 def test_missing_calendar_gate_key_defaults_to_enabled(tmp_path) -> None:
