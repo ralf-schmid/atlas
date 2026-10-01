@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.broker.protocol import ClosePositionResult, OrderResult, OrderSide
+from src.broker.protocol import ClosePositionResult, OrderResult, OrderSide, Position
 from src.db.models import (
     Decision,
     DecisionAction,
@@ -28,6 +28,17 @@ from src.orchestrator.graph import create_cycle
 from src.orchestrator.trading import execute_decision, measure_spread_bps
 
 
+def _long(symbol: str, qty: float, side: OrderSide = OrderSide.BUY) -> Position:
+    return Position(
+        symbol=symbol,
+        qty=qty,
+        side=side,
+        avg_entry_price=150.0,
+        market_value=qty * 150.0,
+        unrealized_pl=0.0,
+    )
+
+
 class _FakeAdapter:
     def __init__(
         self,
@@ -35,10 +46,14 @@ class _FakeAdapter:
         should_fail: bool = False,
         filled_at: datetime.datetime | None = None,
         fill_price: float | None = None,
+        positions: list[Position] | None = None,
     ) -> None:
         self.should_fail = should_fail
         self.filled_at = filled_at
         self.fill_price = fill_price
+        # F125: CLOSE checks the broker holds the position — default matches the
+        # 2 AAPL a `_make_approved_close_decision` closes.
+        self.positions = positions if positions is not None else [_long("AAPL", 2.0)]
         self.calls: list[dict[str, object]] = []
         self.close_calls: list[dict[str, object]] = []
 
@@ -73,8 +88,8 @@ class _FakeAdapter:
     def cancel_order(self, order_id: str) -> None:
         raise NotImplementedError
 
-    def get_positions(self) -> list[object]:
-        raise NotImplementedError
+    def get_positions(self) -> list[Position]:
+        return self.positions
 
     def get_account_balance(self) -> object:
         raise NotImplementedError
@@ -409,6 +424,45 @@ def test_execute_decision_close_rejects_missing_quantity(session: Session) -> No
 
     assert adapter.close_calls == []
     assert session.scalars(select(OrderRecord)).all() == []
+
+
+# F125: a CLOSE must never sell more than the broker holds long.
+
+
+@pytest.mark.parametrize(
+    "positions",
+    [
+        [],  # first CLOSE (or a stop fill) already flattened it — BTCT/RZLV/PDSB
+        [_long("AAPL", 1.0)],  # fewer shares than the CLOSE wants to sell
+        [_long("AAPL", 2.0, OrderSide.SELL)],  # a short is no position to close
+        [_long("MSFT", 2.0)],
+    ],
+)
+def test_execute_decision_close_refuses_without_covering_long_position(
+    session: Session, positions: list[Position]
+) -> None:
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_close_decision(session, portfolio)
+    adapter = _FakeAdapter(positions=positions)
+
+    with pytest.raises(ValueError, match="would open a short"):
+        execute_decision(session, decision, adapter, "alpaca_paper")
+
+    assert adapter.close_calls == []
+    assert session.scalars(select(OrderRecord)).all() == []
+    assert decision.status == DecisionStatus.APPROVED
+
+
+def test_execute_decision_close_matches_crypto_symbol_without_slash(session: Session) -> None:
+    portfolio = _make_portfolio(session)
+    decision = _make_approved_close_decision(session, portfolio)
+    decision.instrument = "BTC/USD"
+    decision.quantity = Decimal("0.123457")
+    adapter = _FakeAdapter(positions=[_long("BTCUSD", 0.1234567)])
+
+    execute_decision(session, decision, adapter, "alpaca_paper")
+
+    assert len(adapter.close_calls) == 1
 
 
 def test_fill_status_requires_both_timestamp_and_price():

@@ -175,6 +175,8 @@ def _execute_close(
     if decision.quantity is None:
         raise ValueError(f"Decision {decision.id} has no quantity")
 
+    _assert_long_position_covers(broker_adapter, decision.instrument, float(decision.quantity))
+
     stop_order_ids = _collect_open_stop_order_ids(
         session, decision.portfolio_id, decision.instrument
     )
@@ -205,6 +207,33 @@ def _execute_close(
     session.add(decision)
     session.flush()
     return order_record
+
+
+def _assert_long_position_covers(broker_adapter: BrokerAdapter, symbol: str, qty: float) -> None:
+    """F125: a CLOSE is a plain market sell — without this check it sells whatever
+    the decision says, held or not. Live finding 2026-09-14: a second VULTURE CLOSE
+    on GPRO, stuck in the retry sweep since 02.09., executed after the first CLOSE
+    had already sold the position and opened an unprotected 146-share short
+    (Invariant #4). For non-shortable assets Alpaca rejects with 422 instead, which
+    the sweep treated as transient and retried every few minutes for weeks.
+
+    The broker, not `order_record`, is the source of truth here: a stop-loss fill
+    removes the position without leaving an order_record behind. ValueError = the
+    sweep's permanent-failure path (F080): EXECUTION_FAILED plus one alert.
+    """
+    normalized = symbol.replace("/", "")
+    held = sum(
+        position.qty
+        for position in broker_adapter.get_positions()
+        if position.side == OrderSide.BUY and position.symbol.replace("/", "") == normalized
+    )
+    # 1e-6 = decision.quantity's numeric(18,6) scale: a fractional crypto qty
+    # rounded to six places may sit a hair above the ledger's float.
+    if held + 1e-6 < qty:
+        raise ValueError(
+            f"CLOSE {qty} {symbol} exceeds the long position held at the broker "
+            f"({held}) — refusing to sell, it would open a short"
+        )
 
 
 def _collect_open_stop_order_ids(

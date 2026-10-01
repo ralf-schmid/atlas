@@ -284,6 +284,40 @@ def test_value_error_marks_decision_execution_failed_and_alerts_once() -> None:
     mock_bot.send_message.assert_called_once()
 
 
+def test_close_without_position_is_permanent_not_retried_forever() -> None:
+    """F125: a CLOSE whose position is already gone at the broker (first CLOSE or a
+    stop fill got there first) used to stay APPROVED — a 422 from Alpaca looked
+    transient, so the sweep retried it every few minutes for weeks; on a shortable
+    symbol the retry eventually *succeeded* and opened a short. Now: permanent."""
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:dummy-token")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "42")
+    session_factory = get_session_factory()
+    decision_id = _seed_approved_decision(session_factory, stop_loss_price=140.0)
+    with session_factory() as session:
+        session.get_one(Decision, decision_id).action = DecisionAction.CLOSE
+        session.commit()
+
+    class _FlatAdapter(_FakeAdapter):
+        def close_position(self, **kwargs: object) -> object:
+            raise AssertionError("must not reach the broker")
+
+        def get_positions(self) -> list[Position]:
+            return []
+
+    with patch("src.telegram.alerts.Bot") as mock_bot_cls:
+        mock_bot = mock_bot_cls.return_value
+        mock_bot.send_message = AsyncMock()
+        count = retry_stuck_decisions(session_factory, adapter_factory=lambda _p: _FlatAdapter())
+
+    assert count == 0
+    with session_factory() as session:
+        decision = session.get_one(Decision, decision_id)
+        assert decision.status == DecisionStatus.EXECUTION_FAILED
+        assert "would open a short" in (decision.rejection_reason or "")
+    mock_bot.send_message.assert_called_once()
+
+
 def test_execution_failed_decision_is_not_retried_again() -> None:
     """F080 test 2: a Decision marked EXECUTION_FAILED must be excluded by the
     status==APPROVED filter and never retried again."""

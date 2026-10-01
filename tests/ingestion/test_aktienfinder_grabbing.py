@@ -262,7 +262,7 @@ def test_login_fills_credentials_and_submits():
     login(page, "user@example.com", "hunter2")
 
     assert page.filled == {"#username": "user@example.com", "#password": "hunter2"}
-    assert page.goto_calls == ["https://aktienfinder.net/profil"]
+    assert page.goto_calls == ["https://aktienfinder.net/anmelden"]
 
 
 def test_login_raises_when_nav_bar_does_not_show_abmelden():
