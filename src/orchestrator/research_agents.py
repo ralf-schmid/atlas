@@ -117,6 +117,18 @@ def select_news_items(items: list[ResearchItem], limit: int) -> list[ResearchIte
     return candidates[:limit]
 
 
+def select_market_items(items: list[ResearchItem], limit: int) -> list[ResearchItem]:
+    """F126: newest first, capped. The synthesis window (F047) only closes on a
+    cycle that produced a Decision, so after an LLM outage the market pool keeps
+    growing — 01.10.2026, nine days without Decisions: 8889 items, a 424 899-token
+    prompt against a 200 000 limit. The surplus is almost entirely repeated
+    market_mover/screener snapshots of the same symbols; the cycle's technical
+    indicators carry the cycle timestamp and are always the newest, so they survive."""
+    candidates = [item for item in items if item.agent == "market_research"]
+    candidates.sort(key=lambda item: item.published_at or _UNDATED, reverse=True)
+    return candidates[:limit]
+
+
 def build_news_messages(batch: list[ResearchItem]) -> list[dict[str, object]]:
     """Untrusted article text goes inside tagged blocks (Invariant #9).
 
@@ -275,9 +287,19 @@ def _run_market_research(
     if not config.market_enabled:
         return EnrichmentResult(0, 0, 0, 0.0)
 
-    market_items = [item for item in items if item.agent == "market_research"]
+    market_items = select_market_items(items, config.market_max_items_per_cycle)
     if not market_items:
         return EnrichmentResult(0, 0, 0, 0.0)
+    available = sum(1 for item in items if item.agent == "market_research")
+    if available > len(market_items):
+        logger.warning(
+            "market_research input capped",
+            extra={
+                "cycle_id": str(cycle.id),
+                "available": available,
+                "used": len(market_items),
+            },
+        )
 
     role = llm_config.roles["market_research"]
     try:

@@ -30,6 +30,10 @@ research_agents:
   news_max_items_per_cycle: 200
   news_batch_size: 25
   market_enabled: true
+  # F126: Obergrenze fuer den market_research-Prompt (neueste Items zuerst). Normal
+  # sind ~440 Items/Zyklus (~21k Tokens); nach einem LLM-Ausfall staut sich der Pool
+  # auf (01.10.2026: 8889 Items, 425k Tokens > 200k Limit). 1000 Items ~ 48k Tokens.
+  market_max_items_per_cycle: 1000
 
 # F084: Review-Agent. Sonnet, laeuft als Scheduler-Job, nicht im Zyklus-Graphen.
 # `enabled: false` schaltet nur kuenftige Laeufe ab; geschriebene Reviews bleiben

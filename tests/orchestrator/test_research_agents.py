@@ -17,6 +17,7 @@ from src.orchestrator.research_agents import (
     build_market_messages,
     build_news_messages,
     enrich_research_items,
+    select_market_items,
     select_news_items,
 )
 
@@ -106,6 +107,57 @@ def test_news_prompt_neutralises_an_injection_attempt_into_a_json_string():
 
     assert "OWNED" in user  # content is preserved for analysis
     assert '\\"OWNED\\"' in user  # ...but escaped inside the JSON payload
+
+
+# F126: market_research input cap.
+
+
+def test_select_market_items_takes_only_market_research_items():
+    items = [_item("market_news"), _item("market_mover", agent="market_research")]
+
+    assert [i.source_type for i in select_market_items(items, 10)] == ["market_mover"]
+
+
+def test_select_market_items_keeps_the_newest_and_respects_the_limit():
+    t = datetime.datetime(2026, 10, 1, 19, 15)
+    stale = _item(
+        "market_mover",
+        agent="market_research",
+        summary="alt",
+        published_at=t - datetime.timedelta(days=9),
+    )
+    undated = _item("screener_result", agent="market_research", summary="ohne Datum")
+    indicator = _item("technical_indicator", agent="market_research", summary="neu", published_at=t)
+
+    selected = select_market_items([stale, undated, indicator], 2)
+
+    assert [i.summary for i in selected] == ["neu", "alt"]
+
+
+def test_market_research_prompt_is_capped(session):
+    from src.db.models import MarketSession
+    from src.orchestrator.graph import create_cycle
+
+    cycle = create_cycle(session, datetime.date(2026, 10, 1), 4, MarketSession.US_EQUITY)
+    t = datetime.datetime(2026, 10, 1, 19, 0)
+    items = [
+        _item(
+            "market_mover",
+            agent="market_research",
+            summary=f"mover-{n}",
+            published_at=t + datetime.timedelta(minutes=n),
+        )
+        for n in range(5)
+    ]
+    config = _llm_config(news_max_items_per_cycle=0, market_max_items_per_cycle=2)
+    client = _FakeClient(content="- Auffälligkeit")
+
+    enrich_research_items(session, cycle, items, client, config, config.research_agents)
+
+    (messages,) = client.calls
+    user_content = str(messages[-1]["content"])
+    assert "mover-4" in user_content and "mover-3" in user_content
+    assert "mover-2" not in user_content
 
 
 def test_market_prompt_forbids_the_model_from_calculating():
