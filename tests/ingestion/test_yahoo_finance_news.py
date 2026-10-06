@@ -32,7 +32,7 @@ _SAMPLE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 </channel></rss>
 """
 
-# F108: shape of feeds.finance.yahoo.com/rss/2.0/headline (the `rssindex` feed
+# F127: shape of feeds.finance.yahoo.com/rss/2.0/headline (the `rssindex` feed
 # above returns 404 since ~2026-10) — RFC 822 `pubDate`, no `<source>` element.
 _HEADLINE_FEED = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <rss version="2.0"><channel>

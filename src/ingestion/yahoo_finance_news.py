@@ -67,7 +67,7 @@ def parse_rss_feed(xml_text: str) -> list[Headline]:
         link = item.findtext("link", default="")
         pub_date = item.findtext("pubDate", default="")
         source_el = item.find("source")
-        # F108: the headline feed has no `<source>` — the link's host is the
+        # F127: the headline feed has no `<source>` — the link's host is the
         # actual publisher (fool.com, cnn.com, ...), not Yahoo.
         if source_el is not None and source_el.text:
             source = source_el.text
@@ -93,7 +93,7 @@ def parse_rss_feed(xml_text: str) -> list[Headline]:
 
 def _parse_pub_date(raw: str) -> datetime.datetime:
     """Accepts both ISO 8601 (old `rssindex` feed) and RFC 822 (the
-    `rss/2.0/headline` feed, F108); normalized to naive UTC."""
+    `rss/2.0/headline` feed, F127); normalized to naive UTC."""
     try:
         parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
