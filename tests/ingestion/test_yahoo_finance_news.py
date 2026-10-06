@@ -32,6 +32,21 @@ _SAMPLE_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 </channel></rss>
 """
 
+# F108: shape of feeds.finance.yahoo.com/rss/2.0/headline (the `rssindex` feed
+# above returns 404 since ~2026-10) — RFC 822 `pubDate`, no `<source>` element.
+_HEADLINE_FEED = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<rss version="2.0"><channel>
+<description>Latest Financial News for ^GSPC</description>
+<item>
+<description>US equities rose.</description>
+<guid isPermaLink="false">6d6c0d75-c5fb-3e41-a6d4-7f80a9f83a57</guid>
+<link>https://www.cnn.com/2026/10/06/investing/us-stocks-bonds?.tsrc=rss</link>
+<pubDate>Tue, 06 Oct 2026 17:29:16 +0000</pubDate>
+<title>US stocks hit record high</title>
+</item>
+</channel></rss>
+"""
+
 _MALFORMED_ITEM_FEED = """<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel>
 <item>
@@ -59,6 +74,20 @@ def test_parse_rss_feed_extracts_headlines():
             source="Insider Monkey",
             published_at=datetime.datetime(2026, 7, 9, 10, 38, 15),
         ),
+    ]
+
+
+def test_parse_rss_feed_handles_rfc822_dates_and_missing_source():
+    headlines = parse_rss_feed(_HEADLINE_FEED)
+
+    assert headlines == [
+        Headline(
+            guid="6d6c0d75-c5fb-3e41-a6d4-7f80a9f83a57",
+            title="US stocks hit record high",
+            url="https://www.cnn.com/2026/10/06/investing/us-stocks-bonds?.tsrc=rss",
+            source="cnn.com",
+            published_at=datetime.datetime(2026, 10, 6, 17, 29, 16),
+        )
     ]
 
 

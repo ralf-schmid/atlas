@@ -9,9 +9,11 @@ duplicates.
 from __future__ import annotations
 
 import datetime
+import email.utils
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -65,7 +67,13 @@ def parse_rss_feed(xml_text: str) -> list[Headline]:
         link = item.findtext("link", default="")
         pub_date = item.findtext("pubDate", default="")
         source_el = item.find("source")
-        source = source_el.text if source_el is not None and source_el.text else "Yahoo Finance"
+        # F108: the headline feed has no `<source>` — the link's host is the
+        # actual publisher (fool.com, cnn.com, ...), not Yahoo.
+        if source_el is not None and source_el.text:
+            source = source_el.text
+        else:
+            source = urlparse(link).hostname or "Yahoo Finance"
+            source = source.removeprefix("www.")
 
         if not guid or not pub_date:
             continue
@@ -84,7 +92,15 @@ def parse_rss_feed(xml_text: str) -> list[Headline]:
 
 
 def _parse_pub_date(raw: str) -> datetime.datetime:
-    return datetime.datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+    """Accepts both ISO 8601 (old `rssindex` feed) and RFC 822 (the
+    `rss/2.0/headline` feed, F108); normalized to naive UTC."""
+    try:
+        parsed = datetime.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        parsed = email.utils.parsedate_to_datetime(raw)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(datetime.UTC)
+    return parsed.replace(tzinfo=None)
 
 
 def sync_market_news_headlines(session: Session, headlines: list[Headline]) -> int:
