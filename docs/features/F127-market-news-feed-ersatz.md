@@ -1,6 +1,6 @@
-# F108 — Market-News-Sync: Ersatz für den abgeschalteten Yahoo-`rssindex`-Feed
+# F127 — Market-News-Sync: Ersatz für den abgeschalteten Yahoo-`rssindex`-Feed
 
-Status: umgesetzt (Deploy offen, siehe §5)
+Status: umgesetzt, live verifiziert auf `atlas-ugreen` (2026-10-06)
 Datum: 2026-10-06
 Auslöser: Telegram-Alert „Market-News-Sync mehrfach fehlgeschlagen"
 
@@ -54,9 +54,24 @@ des echten neuen Feeds über `HttpYahooFinanceFeedProvider` → 19 Headlines kor
 geparst. `ruff check`, `ruff format --check`, `mypy src/ingestion` → sauber. Die
 DB-gestützten Tests laufen in CI.
 
-**Deploy offen:** rsync + `docker compose build scheduler` + `up -d scheduler` auf
-der Box; danach im Scheduler-Log prüfen, dass `Market-News-Sync` ohne Fehler läuft
-und `market_news_headline` neue Zeilen bekommt.
+CI auf PR #126 grün (`lint`, `test`, `integration`, `web`, `gitleaks`, `sast`,
+`pip-audit`), damit auch die DB-gestützten Tests.
+
+**Live (2026-10-06, `atlas-ugreen`, atlas `aad60b7`):** rsync + `docker compose
+build api web scheduler telegram-bot` + `up -d` + `alembic upgrade head` (keine
+neue Revision). Scheduler 18:52 UTC neu gestartet, `_market_news_job`
+registriert. Manueller Sync-Lauf im `scheduler`-Container → **20 neue
+Headlines**; `market_news_headline` ohne `alpaca:`-GUIDs zeigt 20 Zeilen mit
+`synced_at` 18:56 UTC. Kein Fehler im Scheduler-Log.
+
+Stolperstein beim Deploy: Der erste Build lief ohne vorherigen rsync (auf dem
+deployenden Mac fehlte der SSH-Alias `atlas-ugreen`) und baute damit den alten
+Code neu; erkennbar an `rssindex` in `config/ingestion.yaml` auf der Box. Vor
+dem Build deshalb prüfen, dass der neue Stand angekommen ist.
+
+Hinweis zur Nummer: Das Feature hieß im Commit/PR #126 versehentlich „F108"; die
+Nummer war schon durch `F108-indikator-plausibilitaet.md` belegt, daher
+umbenannt.
 
 ## 6. Rollback-Pfad
 
