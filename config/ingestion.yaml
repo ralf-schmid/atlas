@@ -279,7 +279,11 @@ market_news:
   # stattdessen Yahoo Finance's oeffentliches Top-Stories-RSS: kein Login, per
   # robots.txt erlaubt, syndiziert echte Reuters-Artikel (`source`) sowie
   # Analysten-Kursziel-/Rating-Meldungen (Argus Research, Evercore, RBC, ...).
-  feed_url: "https://finance.yahoo.com/news/rssindex"
+  # F108 (2026-10-06): `finance.yahoo.com/news/rssindex` liefert seit ~Anfang
+  # Oktober HTTP 404 (Job schlug jeden Lauf fehl) — Ersatz ist Yahoos weiterhin
+  # erreichbarer Headline-Feed fuer die drei grossen US-Indizes (Markt-
+  # Nachrichten, keine Einzeltitel → kein Persona-Vorteil, Invariante #10).
+  feed_url: "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^DJI,^IXIC&region=US&lang=en-US"
 
 schedule:
   # Siehe docs/features/F035-ingestion-scheduler-activation.md. America/New_York
