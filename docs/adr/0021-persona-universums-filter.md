@@ -1,6 +1,6 @@
 # Persona-Universum bei der Prompt-Auswahl berücksichtigen?
 
-* Status: proposed — Entscheidung liegt bei Ralf
+* Status: accepted (Option D, Ralf, 17.10.2026)
 * Deciders: Ralf Schmid
 * Datum: 2026-10-17
 * Betrifft Invariante(n): **#10 Fairness** (unmittelbar)
@@ -61,11 +61,11 @@ Symbol-Liste. Das wäre eine eigene Entscheidung.
 
 ## Entscheidung
 
-*Offen.* Claudes Empfehlung: **D jetzt, C nur bei Bedarf nach den ersten zwei
-Wochen von Saison 2.** D löst den CRYPTOR-Fall ohne Invarianten-Berührung und
-ohne Konflikt mit der Entscheidung vom 15.08. C bleibt die Option, falls GUARDIAN
-oder CRYPTOR auch danach praktisch nicht handeln. B ist mit Invariante #10 nicht
-vereinbar.
+Gewählt: **Option D**, umgesetzt als [F129](../features/F129-krypto-indikator-bucket.md).
+C bleibt als Option, falls nach den ersten zwei Wochen von Saison 2 GUARDIAN oder
+CRYPTOR weiterhin praktisch nicht handeln. D löst den CRYPTOR-Fall ohne
+Invarianten-Berührung und ohne Konflikt mit der Entscheidung vom 15.08. B ist mit
+Invariante #10 nicht vereinbar.
 
 ### Konsequenzen (für D)
 
@@ -73,5 +73,4 @@ vereinbar.
   `charter_version`-Bump nötig ist
 * Schlecht, weil die Aktien-Personas ~3–4 Krypto-Indikatoren je Zyklus sehen, mit
   denen sie nichts anfangen können. Diese Slots fehlen ihnen für Aktien.
-* Folgearbeit: Feature F129 (Bucket-Split in `_select_prompt_items`, Tests,
-  Trace-Nachweis), vor dem Start von Saison 2
+* Folgearbeit: F129 (umgesetzt 17.10.2026), Trace-Nachweis nach dem Deploy

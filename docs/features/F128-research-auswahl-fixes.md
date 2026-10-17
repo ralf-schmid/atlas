@@ -23,7 +23,7 @@ lassen sich die erwarteten Effekte stichprobenhaft nachweisen (§6).
 **Non-Scope:**
 - U1 Punkt 2 aus F120 §5, also ein **persona-spezifischer Universums-Filter**.
   Er berührt Invariante #10 unmittelbar und braucht vorher einen ADR, siehe
-  [ADR-0021](../adr/0021-persona-universums-filter.md) (`proposed`).
+  [ADR-0021](../adr/0021-persona-universums-filter.md) (accepted: Option D → F129).
 - **Volatilitätsadaptives Sizing** (ADR-0018 D.5). Es berührt Invariante #1 und
   die Positionsgröße, ist also ein Geld-Thema mit eigenem ADR.
 - Munich Re (`DE0008430026`) hat keinen Ticker-Eintrag (F067: kein liquider

@@ -1002,7 +1002,7 @@ def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> 
     remain citable regardless (id validation uses the full cycle pool)."""
     buckets: dict[str, list[ResearchItem]] = {}
     for item in research_items:
-        buckets.setdefault(item.source_type, []).append(item)
+        buckets.setdefault(_selection_bucket(item), []).append(item)
     # F128 (F120 U1): one ingestion run stamps every row with the same published_at,
     # and the pool query has no ORDER BY — ties kept heap order, i.e. alphabetical,
     # so every cycle showed the same first ~8 symbols. Ties now break on the row id:
@@ -1022,6 +1022,16 @@ def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> 
                 selected.append(bucket[round_idx])
         round_idx += 1
     return selected
+
+
+def _selection_bucket(item: ResearchItem) -> str:
+    """F129 (ADR-0021 option D): ~10 crypto pairs against ~380 stocks got a share of
+    the technical_indicator slots proportional to their count. Asset class by pair
+    format (F116) splits that one bucket — a rule about the data, not about any
+    persona, so every persona still sees the same slice (Invariant #10)."""
+    if item.source_type == "technical_indicator" and any("/" in s for s in item.instruments):
+        return "technical_indicator:crypto"
+    return item.source_type
 
 
 def _select_companion_items(

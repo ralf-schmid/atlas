@@ -2652,3 +2652,21 @@ def test_buy_on_unmapped_isin_still_rejected_for_missing_prices(session: Session
     assert decision.action == DecisionAction.REJECT_IDEA
     assert decision.instrument == "DE0008430026"
     assert decision.rejection_reason == "insufficient_price_history"
+
+
+def test_prompt_selection_gives_crypto_indicators_their_own_bucket() -> None:
+    """F129 (ADR-0021 option D): ten crypto pairs among ~380 indicator symbols got
+    a share of the indicator slots proportional to their count — CRYPTOR saw his
+    universe in roughly every fifth cycle. Asset class (pair format, F116) now
+    splits the technical_indicator bucket, the same rule for every persona."""
+    from src.orchestrator.persona_analysis import _select_prompt_items
+
+    cycle_id = uuid.uuid4()
+    equities = _technical_items(cycle_id, [f"S{i:03d}" for i in range(380)])
+    cryptos = _technical_items(cycle_id, ["BTC/USD", "ETH/USD", "SOL/USD", "LINK/USD"])
+
+    selected = _select_prompt_items(equities + cryptos, 8)
+
+    assert len([i for i in selected if "/" in i.instruments[0]]) == 4
+    assert len([i for i in selected if "/" not in i.instruments[0]]) == 4
+    assert {i.source_type for i in selected} == {"technical_indicator"}

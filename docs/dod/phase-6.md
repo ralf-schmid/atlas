@@ -27,7 +27,8 @@ bevor der Nachweis existiert.
 | 17.10. | Abschlussbewertung + ADR-0020-Entwurf (Optionen A/B/C) | Claude | ✅ |
 | 17.10. | ADR-0020 angenommen: Option B (Live vertagt) | Ralf | ✅ |
 | 17.10. | F120-Fixes 1/3/4 umgesetzt (F128), Universums-Filter als ADR-0021-Entwurf | Claude | ✅ Code, Deploy offen |
-| offen | ADR-0021 entscheiden, F128 deployen, Saison 2 terminieren | Ralf | |
+| 17.10. | ADR-0021 angenommen (Option D), umgesetzt als F129 | Ralf + Claude | ✅ Code, Deploy offen |
+| offen | F128+F129 deployen, Saison 2 terminieren | Ralf | |
 | danach | Live-Konto, Funding, Keys, Aktivierung | Ralf (manuell) | |
 | danach | Erste Live-Order mit HITL, Kill-Switch-Drill, Steuer-Export | Ralf + Claude | |
 
