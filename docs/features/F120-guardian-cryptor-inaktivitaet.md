@@ -1,7 +1,8 @@
 # F120 — Warum GUARDIAN und CRYPTOR praktisch nicht handeln
 
-**Status:** Analyse abgeschlossen, **keine Änderung umgesetzt** — die Fixes greifen in
-den laufenden Wettbewerb ein, Entscheidung liegt bei Ralf (§5)
+**Status:** Analyse abgeschlossen. Fixes 1, 3 und 4 aus §5 umgesetzt in
+[F128](F128-research-auswahl-fixes.md) (17.10.2026, nach Wettbewerbsende).
+Fix 2 (Universums-Filter) ist offen als [ADR-0021](../adr/0021-persona-universums-filter.md) (`proposed`).
 **Phase:** 5 (Betriebsbefund, kein neues Feature — wie [F101](F101-trade-activity-root-cause.md))
 **Auslöser:** Ralf, 16.08.2026 — beide Personas haben in drei Wettbewerbswochen je
 **genau einen** Kauf getätigt (GUARDIAN 1 buy / 102 hold, CRYPTOR 1 buy / 108 hold)

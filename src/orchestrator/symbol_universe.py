@@ -9,10 +9,15 @@ broker call — `position_snapshot` is already refreshed every cycle by
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import yaml
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from src.db.models import AktienfinderScreenerCandidate, PositionSnapshot, ScreenerResult
+
+_DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "ingestion.yaml"
 
 
 def resolve_symbol_universe(session: Session, seed_watchlist: list[str]) -> list[str]:
@@ -35,13 +40,24 @@ def resolve_stock_seed_watchlist(config: dict[str, object]) -> list[str]:
     (F064) — that has its own sync job/provider (crypto, not stock)."""
     market_data_config = config["market_data"]
     assert isinstance(market_data_config, dict)
+
+    seed = set(market_data_config["watchlist"]) | set(ticker_by_isin(config).values())
+    return sorted(seed)
+
+
+def ticker_by_isin(config: dict[str, object]) -> dict[str, str]:
+    """F067 `aktienfinder.ticker_by_isin` — the ISINs whose tickers get market bars."""
     aktienfinder_config = config.get("aktienfinder", {})
     assert isinstance(aktienfinder_config, dict)
-    ticker_by_isin = aktienfinder_config.get("ticker_by_isin", {})
-    assert isinstance(ticker_by_isin, dict)
+    mapping = aktienfinder_config.get("ticker_by_isin", {})
+    assert isinstance(mapping, dict)
+    return {str(isin): str(ticker) for isin, ticker in mapping.items()}
 
-    seed = set(market_data_config["watchlist"]) | set(ticker_by_isin.values())
-    return sorted(seed)
+
+def load_ticker_by_isin(config_path: Path = _DEFAULT_CONFIG_PATH) -> dict[str, str]:
+    """F128: the same mapping, read from disk for the decision path — so a buy on
+    an aktienfinder ISIN lands on exactly the ticker the price sync covers."""
+    return ticker_by_isin(yaml.safe_load(config_path.read_text()))
 
 
 def _open_position_instruments(session: Session) -> set[str]:
