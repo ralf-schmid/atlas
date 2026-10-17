@@ -185,8 +185,8 @@ vorgesehene Weg ein **Kraken-Adapter**. Der ist nicht gebaut, und phase-6.md
 schätzt ihn auf eine Größenordnung mehr Arbeit als F122: Order-Pfad,
 GTC-Stop-Semantik, Gebühren- und Malus-Modell, Lot-Tracking für §23 EStG.
 
-Damit gibt es drei Wege. Die Wahl ist eine Geld- und Regelfrage, deshalb
-entscheidet Ralf (Entwurf: [ADR-0020](../adr/0020-gewinner-entscheidung-und-live-gang.md)):
+Damit gibt es drei Wege. **Entschieden am 17.10.2026: Option B**
+([ADR-0020](../adr/0020-gewinner-entscheidung-und-live-gang.md), accepted):
 
 | Option | Inhalt | Regelkonform? | Aufwand | Einschätzung |
 |---|---|---|---|---|

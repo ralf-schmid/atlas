@@ -1,6 +1,6 @@
 # Gewinner-Entscheidung nach §4.7 und Weg in die Live-Phase
 
-* Status: proposed — Entscheidung liegt bei Ralf
+* Status: accepted (Option B, Ralf, 17.10.2026)
 * Deciders: Ralf Schmid
 * Datum: 2026-10-17
 * Betrifft Invariante(n): #5 (Paper/Live-Trennung), #10 (Fairness) — je nach Option
@@ -43,13 +43,28 @@ Drei Befunde machen das mehr als eine Formalie:
 
 ## Entscheidung
 
-*Offen.* Claudes Empfehlung: **Option B** (Begründung: Abschlussbewertung §6).
+Gewählt: **Option B** — CRYPTOR ist Sieger der ersten Saison nach §4.7; der
+Live-Gang wird vertagt. Begründung (Abschlussbewertung §6): Das Ergebnis ist
+statistisch nicht belastbar und überwiegend durch Datenhunger (F120) entstanden;
+ein Kraken-Adapter für diesen Sieger stünde in keinem Verhältnis, und ein
+Ausweichen auf Platz 2 (Option C) bräche die vorab fixierten Kriterien.
+
+Verworfen: A (Aufwand gegen Aussagekraft), C (Post-hoc-Auswahl, Bruch von §4.7).
 
 ### Konsequenzen
 
-* A: regelkonform; neues Feature „Kraken-Adapter" inkl. Lot-Tracking (§23 EStG),
+* A (verworfen): regelkonform; neues Feature „Kraken-Adapter" inkl. Lot-Tracking (§23 EStG),
   Kraken-Gebühren im Malus-Modell, eigener Paper-Smoke-Test.
-* B: regelkonform; P6-DoD-Punkt 1 erledigt, Punkte 2–5 ruhen; F120-Fixes und
-  Saison-2-Planung werden die nächsten Arbeitspakete.
-* C: Abweichung von §4.7, hier ausdrücklich zu begründen; Live-Gang über F122
+* B (gewählt): regelkonform; P6-DoD-Punkt 1 erledigt, Punkte 2–5 ruhen bis zur
+  Kür nach Saison 2. Keine Live-Keys, kein Live-Konto, `ATLAS_LIVE_TRADING_ENABLED`
+  bleibt ungesetzt. Folgearbeit in dieser Reihenfolge:
+  1. F120-Fixes (deterministische Bucket-Reihenfolge, ISIN→Ticker,
+     `btc_dominance` eindampfen); persona-spezifischer Universums-Filter nur mit
+     eigenem ADR (Invariante #10), Vola-Sizing (ADR-0018 D.5) in derselben Runde.
+  2. Saison 2 festlegen (Start/Ende in `config/competition.yaml`, Reset wie
+     F090/ADR-0009) — Termine entscheidet Ralf.
+  3. Altlasten vor jedem Live-Gang: HITL-Timeout end-to-end, Digest gegen
+     DB-Query, P3-Ingestion-Nachweise (phase-6.md §6).
+  4. GPRO-Short (VULTURE, −146) im Paper-Dashboard glattstellen.
+* C (verworfen): Abweichung von §4.7, hier ausdrücklich zu begründen; Live-Gang über F122
   sofort vorbereitbar, offene Positionsgrößen-Entscheidung (phase-6.md §5.3).

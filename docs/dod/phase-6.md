@@ -10,7 +10,9 @@ Offen ist Ralfs Gewinner-Entscheidung als ADR; davor wird live nichts angefasst.
 Optionen für den Live-Gang:
 [`abschlussbewertung-2026-10-17.md`](../reports/abschlussbewertung-2026-10-17.md).
 ADR-Entwurf zur Entscheidung: [ADR-0020](../adr/0020-gewinner-entscheidung-und-live-gang.md)
-(`proposed`, Empfehlung Option B — Live vertagen, erst F120-Fixes + zweite Saison).
+— **am 17.10.2026 von Ralf angenommen: Option B.** CRYPTOR ist Sieger der
+ersten Saison; der Live-Gang ist vertagt, bis F120-Fixes und eine zweite Saison
+vorliegen. Die DoD-Punkte 2–5 ruhen bis dahin.
 
 Diese Datei ist die Vorbereitung, nicht der Abschluss: kein Punkt wird abgehakt,
 bevor der Nachweis existiert.
@@ -23,7 +25,8 @@ bevor der Nachweis existiert.
 | Fr 18.09., 16:35 ET | Schlussbewertung + Endabrechnung per Telegram (automatisch) | Scheduler | ❌ nicht gelaufen (Box auf F119) → am 01.10. rekonstruiert, s. F121 Nachtrag |
 | 01.10. | Gewinner-Report als Markdown | Claude | ✅ `docs/reports/endabrechnung-2026-09-18.md` |
 | 17.10. | Abschlussbewertung + ADR-0020-Entwurf (Optionen A/B/C) | Claude | ✅ |
-| offen | ADR-0020 annehmen (Gewinner-Entscheidung + Live-Weg) | Ralf entscheidet | |
+| 17.10. | ADR-0020 angenommen: Option B (Live vertagt) | Ralf | ✅ |
+| offen | F120-Fixes, danach Saison 2 terminieren | Ralf (Go) + Claude | |
 | danach | Live-Konto, Funding, Keys, Aktivierung | Ralf (manuell) | |
 | danach | Erste Live-Order mit HITL, Kill-Switch-Drill, Steuer-Export | Ralf + Claude | |
 
@@ -38,7 +41,9 @@ P6 stoppt nichts.
 
 ## 2. DoD-Checkliste
 
-- [ ] **Gewinner-Report (8 Wochen, alle 5 Kriterien) erzeugt; Entscheidung als ADR**
+- [x] **Gewinner-Report (8 Wochen, alle 5 Kriterien) erzeugt; Entscheidung als ADR**
+      *Erledigt 17.10.2026:* [ADR-0020](../adr/0020-gewinner-entscheidung-und-live-gang.md)
+      accepted — Sieger CRYPTOR, Live-Gang vertagt (Option B).
       *Code steht ([F121](../features/F121-endabrechnung-und-gewinner-report.md)):*
       Schlussbewertung zum Stichtag (`competition-settlement`-Job, 16:35 ET),
       geschlossenes Wertungsfenster in allen Kennzahlen, Report als Markdown
@@ -46,7 +51,7 @@ P6 stoppt nichts.
       *Erledigt 01.10.2026:* Schlussbewertung rekonstruiert (C4-Positionen +
       Schlusskurse 18.09., F121 Nachtrag), Report
       [`endabrechnung-2026-09-18.md`](../reports/endabrechnung-2026-09-18.md).
-      Der Telegram-Push ist nicht gelaufen. *Offen:* der ADR mit Ralfs Entscheidung.
+      Der Telegram-Push ist nicht gelaufen.
 - [ ] **Live-Keys ausschließlich in der Prod-Umgebung; gitleaks-Scan über die
       gesamte Repo-Historie sauber**
       *Offen, rein Ops.* gitleaks läuft in CI je Push; der Historien-Scan ist
