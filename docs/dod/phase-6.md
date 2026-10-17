@@ -6,6 +6,12 @@ Checkliste aus ARCHITECTURE.md §8. **Status (01.10.2026):** Wettbewerb am
 (Score 0,909)**. Code-Vorbereitung F121–F123 live auf der Box seit 01.10.2026.
 Offen ist Ralfs Gewinner-Entscheidung als ADR; davor wird live nichts angefasst.
 
+**Nachtrag 17.10.2026:** Abschlussbewertung mit Nachrechnung, Sensitivität und
+Optionen für den Live-Gang:
+[`abschlussbewertung-2026-10-17.md`](../reports/abschlussbewertung-2026-10-17.md).
+ADR-Entwurf zur Entscheidung: [ADR-0020](../adr/0020-gewinner-entscheidung-und-live-gang.md)
+(`proposed`, Empfehlung Option B — Live vertagen, erst F120-Fixes + zweite Saison).
+
 Diese Datei ist die Vorbereitung, nicht der Abschluss: kein Punkt wird abgehakt,
 bevor der Nachweis existiert.
 
@@ -16,7 +22,8 @@ bevor der Nachweis existiert.
 | bis 17.09. | Trockenlauf Settlement + Endabrechnung gegen die Produktions-DB (F121 §7) | Claude/Ralf | ❌ entfallen — F121 war bis 01.10. nicht auf der Box |
 | Fr 18.09., 16:35 ET | Schlussbewertung + Endabrechnung per Telegram (automatisch) | Scheduler | ❌ nicht gelaufen (Box auf F119) → am 01.10. rekonstruiert, s. F121 Nachtrag |
 | 01.10. | Gewinner-Report als Markdown | Claude | ✅ `docs/reports/endabrechnung-2026-09-18.md` |
-| offen | ADR mit der Gewinner-Entscheidung | Ralf entscheidet | |
+| 17.10. | Abschlussbewertung + ADR-0020-Entwurf (Optionen A/B/C) | Claude | ✅ |
+| offen | ADR-0020 annehmen (Gewinner-Entscheidung + Live-Weg) | Ralf entscheidet | |
 | danach | Live-Konto, Funding, Keys, Aktivierung | Ralf (manuell) | |
 | danach | Erste Live-Order mit HITL, Kill-Switch-Drill, Steuer-Export | Ralf + Claude | |
 
