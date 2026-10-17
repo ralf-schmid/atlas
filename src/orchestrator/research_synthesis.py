@@ -45,7 +45,11 @@ from src.orchestrator.indicators import (
     detect_price_level_break,
 )
 from src.orchestrator.instrument_names import load_instrument_aliases, match_instruments
-from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
+from src.orchestrator.symbol_universe import (
+    resolve_stock_seed_watchlist,
+    resolve_symbol_universe,
+    ticker_by_isin,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +99,9 @@ def synthesize_research_items(
         *_research_items_from_publication_articles(
             session, cycle.id, window_start, window_end, aliases
         ),
-        *_research_items_from_aktienfinder_snapshots(session, cycle.id, window_start, window_end),
+        *_research_items_from_aktienfinder_snapshots(
+            session, cycle.id, window_start, window_end, ticker_by_isin(config)
+        ),
         *_research_items_from_aktienfinder_screener_candidates(
             session, cycle.id, window_start, window_end
         ),
@@ -247,7 +253,11 @@ def _research_items_from_aktienfinder_snapshots(
     cycle_id: uuid.UUID,
     window_start: datetime.datetime,
     window_end: datetime.datetime,
+    tickers: dict[str, str],
 ) -> list[ResearchItem]:
+    """F128 (F120 U2): the deep-grab stores the ISIN as `symbol`, and an ISIN has no
+    market bars — tag the mapped ticker instead (F067), so a buy is sizable and the
+    F101 companion lookup finds these rows. Unmapped ISINs stay as they are."""
     stmt = select(AktienfinderSnapshot).where(
         AktienfinderSnapshot.synced_at > window_start, AktienfinderSnapshot.synced_at <= window_end
     )
@@ -261,15 +271,20 @@ def _research_items_from_aktienfinder_snapshots(
             url=None,
             published_at=_as_datetime(snapshot.snapshot_date),
             summary=(
-                f"aktienfinder-Snapshot {snapshot.symbol}: "
+                f"aktienfinder-Snapshot {_ticker_label(snapshot.symbol, tickers)}: "
                 f"Kurs {snapshot.fields.get('price')}, "
                 f"Dividendenrendite {snapshot.fields.get('dividend_yield')}"
             ),
-            instruments=[snapshot.symbol],
+            instruments=[tickers.get(snapshot.symbol, snapshot.symbol)],
             raw={**snapshot.fields, "screenshot_path": snapshot.screenshot_path},
         )
         for snapshot in snapshots
     ]
+
+
+def _ticker_label(isin: str, tickers: dict[str, str]) -> str:
+    ticker = tickers.get(isin)
+    return f"{ticker} (ISIN {isin})" if ticker else isin
 
 
 def _research_items_from_aktienfinder_screener_candidates(
@@ -500,30 +515,44 @@ def _research_items_from_btc_dominance_snapshots(
     window_start: datetime.datetime,
     window_end: datetime.datetime,
 ) -> list[ResearchItem]:
-    stmt = select(BtcDominanceSnapshot).where(
-        BtcDominanceSnapshot.synced_at > window_start,
-        BtcDominanceSnapshot.synced_at <= window_end,
+    """F128 (F120 U3): one row per cycle, not one per hourly reading — ~12 rows that
+    differ in the third decimal took ~23 % of the 30-item prompt budget. The latest
+    reading plus its change over the window carries the same information."""
+    stmt = (
+        select(BtcDominanceSnapshot)
+        .where(
+            BtcDominanceSnapshot.synced_at > window_start,
+            BtcDominanceSnapshot.synced_at <= window_end,
+        )
+        .order_by(BtcDominanceSnapshot.snapshot_at)
     )
     snapshots = session.scalars(stmt).all()
+    if not snapshots:
+        return []
+    first, latest = snapshots[0], snapshots[-1]
+    change = latest.btc_dominance_pct - first.btc_dominance_pct
     return [
         ResearchItem(
             cycle_id=cycle_id,
             agent="market_research",
             source_type="btc_dominance",
-            source_ref=str(snapshot.id),
+            source_ref=str(latest.id),
             url=None,
-            published_at=snapshot.snapshot_at,
+            published_at=latest.snapshot_at,
             summary=(
-                f"BTC-Dominanz: {snapshot.btc_dominance_pct}% "
-                f"(Gesamt-Marktkapitalisierung {snapshot.total_market_cap_usd} USD)"
+                f"BTC-Dominanz: {latest.btc_dominance_pct}% "
+                f"({change:+} Prozentpunkte seit {first.snapshot_at:%d.%m. %H:%M} UTC, "
+                f"{len(snapshots)} Messungen; "
+                f"Gesamt-Marktkapitalisierung {latest.total_market_cap_usd} USD)"
             ),
             instruments=["BTC/USD"],
             raw={
-                "btc_dominance_pct": str(snapshot.btc_dominance_pct),
-                "total_market_cap_usd": str(snapshot.total_market_cap_usd),
+                "btc_dominance_pct": str(latest.btc_dominance_pct),
+                "first_btc_dominance_pct": str(first.btc_dominance_pct),
+                "readings": len(snapshots),
+                "total_market_cap_usd": str(latest.total_market_cap_usd),
             },
         )
-        for snapshot in snapshots
     ]
 
 

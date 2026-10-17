@@ -2522,3 +2522,151 @@ def test_companion_items_reach_the_prompt_and_stay_citable(
     assert decision is not None
     assert decision.input_research_ids == [snapshot.id]
     assert "AAPL quality scores stable" in _user_text(json.loads(captured_requests[0]))
+
+
+def _technical_items(cycle_id: uuid.UUID, symbols: list[str]) -> list[ResearchItem]:
+    """Same timestamp for every row — exactly what one indicator run writes."""
+    published_at = datetime.datetime(2026, 10, 19, 13, 0)
+    return [
+        ResearchItem(
+            id=uuid.uuid4(),
+            cycle_id=cycle_id,
+            agent="market_research",
+            source_type="technical_indicator",
+            source_ref=symbol,
+            published_at=published_at,
+            summary=f"Indikatoren {symbol}",
+            instruments=[symbol],
+            raw={},
+        )
+        for symbol in symbols
+    ]
+
+
+def test_prompt_selection_breaks_timestamp_ties_by_id_not_by_insertion_order() -> None:
+    """F128 (F120 U1): with one shared published_at the old sort kept heap order,
+    which is insertion order, which is alphabetical — every cycle showed the same
+    first ~8 symbols (AADX, AAOI, AAPL, …). Ties now break on the per-cycle UUID."""
+    from src.orchestrator.persona_analysis import _select_prompt_items
+
+    symbols = [f"S{i:03d}" for i in range(200)]  # inserted alphabetically
+    items = _technical_items(uuid.uuid4(), symbols)
+
+    selected = _select_prompt_items(items, 8)
+
+    assert [item.id for item in selected] == sorted(item.id for item in items)[:8]
+
+
+def test_prompt_selection_is_independent_of_input_order() -> None:
+    """F128: deterministic — the F101 companion lookup calls the selection twice and
+    relies on getting the same slice; every persona of a cycle sees the same one."""
+    from src.orchestrator.persona_analysis import _select_prompt_items
+
+    items = _technical_items(uuid.uuid4(), [f"S{i:03d}" for i in range(50)])
+
+    forward = _select_prompt_items(items, 8)
+    backward = _select_prompt_items(list(reversed(items)), 8)
+
+    assert [item.id for item in forward] == [item.id for item in backward]
+
+
+def test_prompt_selection_keeps_recency_as_the_primary_key() -> None:
+    from src.orchestrator.persona_analysis import _select_prompt_items
+
+    items = _technical_items(uuid.uuid4(), ["OLD", "NEW"])
+    old, new = items
+    new.published_at = old.published_at + datetime.timedelta(minutes=1)  # type: ignore[operator]
+    new.id = uuid.UUID(int=2**128 - 1)  # largest possible id: loses every tie
+    old.id = uuid.UUID(int=0)
+
+    selected = _select_prompt_items(items, 1)
+
+    assert selected == [new]
+
+
+def test_buy_on_mapped_aktienfinder_isin_is_placed_on_the_ticker(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F128 (F120 U2): the aktienfinder snapshot carried only the ISIN; a buy on
+    it died at insufficient_price_history although AAPL bars sat in the same DB."""
+    monkeypatch.setattr("src.orchestrator.persona_analysis.is_hitl_required", lambda mode: False)
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    _seed_market_bars(session, "AAPL")
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "US0378331005",
+            "conviction": 0.5,
+            "thesis_text": "Fair-Value-Abschlag 18 %",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.BUY
+    assert decision.instrument == "AAPL"
+    assert decision.rejection_reason is None
+
+
+def test_buy_on_unmapped_isin_still_rejected_for_missing_prices(session: Session) -> None:
+    """F128: Munich Re has no ticker mapping on purpose (F067) — no price, no stop,
+    no buy (Invariant #4)."""
+    persona, portfolio = _seed_vulture(session)
+    cycle, item = _make_cycle_with_research_item(session)
+    content = json.dumps(
+        {
+            "action": "buy",
+            "instrument": "DE0008430026",
+            "conviction": 0.5,
+            "thesis_text": "Munich Re unter Fair Value",
+            "input_research_ids": [str(item.id)],
+        }
+    )
+    adapter = _FakeAdapter(AccountBalance(cash=5000, equity=5000, buying_power=5000))
+
+    decision = analyze_persona_cycle(
+        session,
+        _fake_client(content),
+        _llm_config(),
+        cycle.id,
+        portfolio.id,
+        persona.id,
+        "VULTURE",
+        adapter,
+    )
+
+    assert decision is not None
+    assert decision.action == DecisionAction.REJECT_IDEA
+    assert decision.instrument == "DE0008430026"
+    assert decision.rejection_reason == "insufficient_price_history"
+
+
+def test_prompt_selection_gives_crypto_indicators_their_own_bucket() -> None:
+    """F129 (ADR-0021 option D): ten crypto pairs among ~380 indicator symbols got
+    a share of the indicator slots proportional to their count — CRYPTOR saw his
+    universe in roughly every fifth cycle. Asset class (pair format, F116) now
+    splits the technical_indicator bucket, the same rule for every persona."""
+    from src.orchestrator.persona_analysis import _select_prompt_items
+
+    cycle_id = uuid.uuid4()
+    equities = _technical_items(cycle_id, [f"S{i:03d}" for i in range(380)])
+    cryptos = _technical_items(cycle_id, ["BTC/USD", "ETH/USD", "SOL/USD", "LINK/USD"])
+
+    selected = _select_prompt_items(equities + cryptos, 8)
+
+    assert len([i for i in selected if "/" in i.instruments[0]]) == 4
+    assert len([i for i in selected if "/" not in i.instruments[0]]) == 4
+    assert {i.source_type for i in selected} == {"technical_indicator"}

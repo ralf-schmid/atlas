@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import datetime
 from decimal import Decimal
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
 from src.db.models import AktienfinderScreenerCandidate, ScreenerResult
-from src.orchestrator.symbol_universe import resolve_stock_seed_watchlist, resolve_symbol_universe
+from src.orchestrator.symbol_universe import (
+    load_ticker_by_isin,
+    resolve_stock_seed_watchlist,
+    resolve_symbol_universe,
+)
 from tests.db.factories import make_persona, make_portfolio, make_position_snapshot
 
 
@@ -135,3 +140,24 @@ def test_resolve_stock_seed_watchlist_without_aktienfinder_section() -> None:
     seed = resolve_stock_seed_watchlist(config)
 
     assert seed == ["AAPL"]
+
+
+def test_load_ticker_by_isin_reads_the_same_mapping_the_seed_watchlist_uses(
+    tmp_path: Path,
+) -> None:
+    """F128: one reading point for `aktienfinder.ticker_by_isin` — the decision
+    path must translate exactly the ISINs whose tickers get market bars."""
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(
+        "market_data:\n  watchlist: [SPY]\n"
+        "aktienfinder:\n  ticker_by_isin:\n    US0378331005: AAPL\n"
+    )
+
+    assert load_ticker_by_isin(config_path) == {"US0378331005": "AAPL"}
+
+
+def test_load_ticker_by_isin_without_aktienfinder_section(tmp_path: Path) -> None:
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text("market_data:\n  watchlist: [SPY]\n")
+
+    assert load_ticker_by_isin(config_path) == {}

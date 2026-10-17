@@ -45,6 +45,7 @@ from src.orchestrator.market_pricing import compute_atr14, get_latest_price
 from src.orchestrator.reporting import generate_portfolio_snapshot
 from src.orchestrator.research_search import SEARCH_RESEARCH_POOL_TOOL, search_research_pool
 from src.orchestrator.risk_inputs import read_portfolio_risk_state
+from src.orchestrator.symbol_universe import load_ticker_by_isin
 from src.orchestrator.trading import execute_decision
 from src.personas.charters import render_charter
 from src.review.embeddings import EmbeddingProvider
@@ -421,6 +422,12 @@ def _resolve_decision(
         )
 
     cited_ids = [uuid.UUID(rid) for rid in parsed.input_research_ids]
+
+    # F128 (F120 U2): an aktienfinder ISIN has no price series; its mapped ticker
+    # does (F067). Unmapped ISINs pass through and fail at the price lookup as before.
+    ticker = load_ticker_by_isin().get(parsed.instrument or "")
+    if ticker is not None:
+        parsed = parsed.model_copy(update={"instrument": ticker})
 
     if parsed.action == "hold":
         return _persist_decision(
@@ -995,8 +1002,14 @@ def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> 
     remain citable regardless (id validation uses the full cycle pool)."""
     buckets: dict[str, list[ResearchItem]] = {}
     for item in research_items:
-        buckets.setdefault(item.source_type, []).append(item)
+        buckets.setdefault(_selection_bucket(item), []).append(item)
+    # F128 (F120 U1): one ingestion run stamps every row with the same published_at,
+    # and the pool query has no ORDER BY — ties kept heap order, i.e. alphabetical,
+    # so every cycle showed the same first ~8 symbols. Ties now break on the row id:
+    # a fresh UUID4 per cycle, so the slice rotates across cycles, yet stays the
+    # same for every persona within one cycle.
     for bucket in buckets.values():
+        bucket.sort(key=lambda item: str(item.id))
         bucket.sort(key=lambda item: item.published_at or datetime.datetime.min, reverse=True)
 
     selected: list[ResearchItem] = []
@@ -1009,6 +1022,16 @@ def _select_prompt_items(research_items: list[ResearchItem], max_items: int) -> 
                 selected.append(bucket[round_idx])
         round_idx += 1
     return selected
+
+
+def _selection_bucket(item: ResearchItem) -> str:
+    """F129 (ADR-0021 option D): ~10 crypto pairs against ~380 stocks got a share of
+    the technical_indicator slots proportional to their count. Asset class by pair
+    format (F116) splits that one bucket — a rule about the data, not about any
+    persona, so every persona still sees the same slice (Invariant #10)."""
+    if item.source_type == "technical_indicator" and any("/" in s for s in item.instruments):
+        return "technical_indicator:crypto"
+    return item.source_type
 
 
 def _select_companion_items(

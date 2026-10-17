@@ -1113,3 +1113,74 @@ def test_aktienfinder_blog_item_without_a_company_name_stays_untagged(session: S
     blog_items = [item for item in items if item.source_type == "aktienfinder_blog"]
     assert len(blog_items) == 1
     assert blog_items[0].instruments == []
+
+
+def _add_aktienfinder_snapshot(session: Session, isin: str) -> None:
+    session.add(
+        AktienfinderSnapshot(
+            symbol=isin,
+            snapshot_date=datetime.date(2026, 7, 7),
+            fields={"price": "200 USD", "dividend_yield": "0,5 %"},
+            screenshot_path="/tmp/shot.png",
+            synced_at=_INSIDE_WINDOW,
+        )
+    )
+    session.flush()
+
+
+def test_aktienfinder_snapshot_with_mapped_isin_is_tagged_with_the_ticker(
+    session: Session,
+) -> None:
+    """F128 (F120 U2): only the ISIN reached the persona, and the ISIN has no
+    market_bar rows — the quality universe GUARDIAN is built for was unbuyable."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    _add_aktienfinder_snapshot(session, "US0378331005")
+
+    items = synthesize_research_items(session, cycle)
+
+    [snapshot_item] = [i for i in items if i.source_type == "aktienfinder_snapshot"]
+    assert snapshot_item.instruments == ["AAPL"]
+    assert "AAPL" in snapshot_item.summary
+    assert "US0378331005" in snapshot_item.summary
+    assert snapshot_item.source_ref.startswith("US0378331005/")
+
+
+def test_aktienfinder_snapshot_with_unmapped_isin_keeps_the_isin(session: Session) -> None:
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    _add_aktienfinder_snapshot(session, "DE0008430026")  # Munich Re, unmapped on purpose
+
+    items = synthesize_research_items(session, cycle)
+
+    [snapshot_item] = [i for i in items if i.source_type == "aktienfinder_snapshot"]
+    assert snapshot_item.instruments == ["DE0008430026"]
+
+
+def test_btc_dominance_collapses_to_one_item_per_cycle(session: Session) -> None:
+    """F128 (F120 U3): hourly ingestion put ~12 near-identical rows into every
+    cycle — 7 of 30 prompt slots on 16.08. for one number."""
+    _make_cycle_at(session, _WINDOW_START, seq=1)
+    cycle = _make_cycle_at(session, _WINDOW_END, seq=2)
+    readings = [("56.173", 10), ("56.181", 25), ("56.290", 50)]
+    for pct, minute in readings:
+        ts = _WINDOW_START + datetime.timedelta(minutes=minute)
+        session.add(
+            BtcDominanceSnapshot(
+                snapshot_at=ts,
+                btc_dominance_pct=Decimal(pct),
+                total_market_cap_usd=Decimal("2100000000000.00"),
+                synced_at=ts,
+            )
+        )
+    session.flush()
+
+    items = synthesize_research_items(session, cycle)
+
+    [btc_item] = [i for i in items if i.source_type == "btc_dominance"]
+    assert btc_item.published_at == _WINDOW_START + datetime.timedelta(minutes=50)
+    assert "56.290" in btc_item.summary
+    assert "+0.117" in btc_item.summary
+    assert btc_item.raw["first_btc_dominance_pct"] == "56.173"
+    assert btc_item.raw["btc_dominance_pct"] == "56.290"
+    assert btc_item.raw["readings"] == 3
