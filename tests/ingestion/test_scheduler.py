@@ -42,9 +42,28 @@ def _fake_telegram_config(monkeypatch):
     )
 
 
-def test_register_ingestion_jobs_registers_six_jobs_reddit_disabled() -> None:
-    """Reddit is disabled by default (config/ingestion.yaml) until F039 credentials
-    are provisioned — see docs/deployment.md."""
+_AKTIENFINDER_JOBS = {
+    "aktienfinder_screener_discovery": "ingestion-aktienfinder-screener-discovery",
+    "aktienfinder": "ingestion-aktienfinder",
+    "aktienfinder_blog": "ingestion-aktienfinder-blog",
+}
+
+
+def _config_with(tmp_path: Path, **schedule_overrides: dict[str, object]) -> Path:
+    import yaml
+
+    config = yaml.safe_load(scheduler_module._DEFAULT_CONFIG_PATH.read_text())
+    for key, override in schedule_overrides.items():
+        config["schedule"][key].update(override)
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    return config_path
+
+
+def test_register_ingestion_jobs_default_config_has_no_site_access_jobs() -> None:
+    """Reddit is disabled until F039 credentials are provisioned. Since 02.11.2026 the
+    aktienfinder jobs and the Boersenmedien session check are off as well: no job in
+    the shipped config opens aktienfinder.net or konto.boersenmedien.com."""
     scheduler = BackgroundScheduler()
 
     register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
@@ -53,17 +72,50 @@ def test_register_ingestion_jobs_registers_six_jobs_reddit_disabled() -> None:
     assert job_ids == {
         "ingestion-edgar",
         "ingestion-vulture-screener",
-        "ingestion-aktienfinder-screener-discovery",
         "ingestion-market-data",
         "ingestion-crypto-market-data",
-        "ingestion-aktienfinder",
         "ingestion-coingecko",
-        "ingestion-aktienfinder-blog",
         "ingestion-market-news",
         "ingestion-alpaca-news",
         "ingestion-alpaca-screener",
-        "ingestion-publications-session-check",
     }
+
+
+@pytest.mark.parametrize(("key", "job_id"), sorted(_AKTIENFINDER_JOBS.items()))
+def test_aktienfinder_job_registers_only_when_explicitly_enabled(
+    tmp_path, key: str, job_id: str
+) -> None:
+    scheduler = BackgroundScheduler()
+    config_path = _config_with(tmp_path, **{key: {"enabled": True}})
+
+    register_ingestion_jobs(scheduler, session_factory=lambda: None, config_path=config_path)  # type: ignore[arg-type]
+
+    assert job_id in {job.id for job in scheduler.get_jobs()}
+
+
+@pytest.mark.parametrize(("key", "job_id"), sorted(_AKTIENFINDER_JOBS.items()))
+def test_aktienfinder_job_stays_off_without_enabled_key(tmp_path, key: str, job_id: str) -> None:
+    """Fail-closed, unlike reddit/alpaca_*: a config that predates the switch must not
+    silently restart the scraping."""
+    import yaml
+
+    config = yaml.safe_load(scheduler_module._DEFAULT_CONFIG_PATH.read_text())
+    config["schedule"][key].pop("enabled")
+    config_path = tmp_path / "ingestion.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+
+    scheduler = BackgroundScheduler()
+    register_ingestion_jobs(scheduler, session_factory=lambda: None, config_path=config_path)  # type: ignore[arg-type]
+
+    assert job_id not in {job.id for job in scheduler.get_jobs()}
+
+
+def test_shipped_config_disables_publications_auto_download() -> None:
+    import yaml
+
+    config = yaml.safe_load(scheduler_module._DEFAULT_CONFIG_PATH.read_text())
+
+    assert config["publications"]["auto_download"] is False
 
 
 def test_register_ingestion_jobs_registers_reddit_when_enabled(tmp_path) -> None:
@@ -400,26 +452,30 @@ def test_session_check_job_is_not_registered_when_disabled(tmp_path) -> None:
     assert "ingestion-publications-session-check" not in {job.id for job in scheduler.get_jobs()}
 
 
-def test_session_check_job_is_not_registered_without_its_env_var(monkeypatch, caplog) -> None:
+def test_session_check_job_is_not_registered_without_its_env_var(
+    monkeypatch, caplog, tmp_path
+) -> None:
     """The gap that shipped with F119: the variable lived on `api` but not on
     `scheduler`. Failing at registration puts it in the startup log instead of in a
     generic failure alert two weekly runs later."""
     monkeypatch.delenv("BOERSENMEDIEN_SESSION_STATE")
+    config_path = _config_with(tmp_path, publications_session_check={"enabled": True})
 
     scheduler = BackgroundScheduler()
     caplog.set_level(logging.ERROR, logger="src.ingestion.scheduler")
 
-    register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
+    register_ingestion_jobs(scheduler, session_factory=lambda: None, config_path=config_path)  # type: ignore[arg-type]
 
     assert "ingestion-publications-session-check" not in {job.id for job in scheduler.get_jobs()}
     assert "BOERSENMEDIEN_SESSION_STATE is not set" in caplog.text
 
 
-def test_session_check_runs_weekly_on_the_configured_day() -> None:
+def test_session_check_runs_weekly_on_the_configured_day(tmp_path) -> None:
     """Monday, so an alert has two days of lead time before DER AKTIONÄR arrives."""
+    config_path = _config_with(tmp_path, publications_session_check={"enabled": True})
     scheduler = BackgroundScheduler()
 
-    register_ingestion_jobs(scheduler, session_factory=lambda: None)  # type: ignore[arg-type]
+    register_ingestion_jobs(scheduler, session_factory=lambda: None, config_path=config_path)  # type: ignore[arg-type]
 
     job = scheduler.get_job("ingestion-publications-session-check")
     fields = {field.name: str(field) for field in job.trigger.fields}
