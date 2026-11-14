@@ -299,6 +299,11 @@ schedule:
     # F068: vor market_data_sync (06:30), damit dessen resolve_symbol_universe
     # noch am selben Tag die frisch entdeckten Ticker sieht.
     time: "06:15"
+    # Abgeschaltet seit 02.11.2026: aktienfinder.net hat den automatisierten Zugriff
+    # auf die Webseite beanstandet. Fail-closed — fehlt der Schalter, bleibt der Job
+    # aus (src/ingestion/scheduler.py:_aktienfinder_enabled). Nur nach Klaerung mit
+    # aktienfinder wieder auf true setzen.
+    enabled: false
   market_data_sync:
     time: "06:30"
   crypto_market_data_sync:
@@ -309,6 +314,11 @@ schedule:
     interval_minutes: 60
   aktienfinder:
     time: "07:00"
+    # Abgeschaltet seit 02.11.2026: aktienfinder.net hat den automatisierten Zugriff
+    # auf die Webseite beanstandet. Fail-closed — fehlt der Schalter, bleibt der Job
+    # aus (src/ingestion/scheduler.py:_aktienfinder_enabled). Nur nach Klaerung mit
+    # aktienfinder wieder auf true setzen.
+    enabled: false
   coingecko:
     interval_minutes: 60
   reddit:
@@ -320,6 +330,11 @@ schedule:
     enabled: false
   aktienfinder_blog:
     time: "05:30"
+    # Abgeschaltet seit 02.11.2026: aktienfinder.net hat den automatisierten Zugriff
+    # auf die Webseite beanstandet. Fail-closed — fehlt der Schalter, bleibt der Job
+    # aus (src/ingestion/scheduler.py:_aktienfinder_enabled). Nur nach Klaerung mit
+    # aktienfinder wieder auf true setzen.
+    enabled: false
   market_news:
     interval_minutes: 30
   alpaca_news:
@@ -342,7 +357,9 @@ schedule:
     time: "07:30"
     # Rollback-Schalter wie bei reddit/alpaca_*: false = Job wird gar nicht erst
     # registriert. Der Auto-Download selbst bleibt davon unberuehrt.
-    enabled: true
+    # 02.11.2026 abgeschaltet: der Check startet selbst einen Browser gegen
+    # konto.boersenmedien.com (gleicher Anlass wie auto_download oben).
+    enabled: false
 
 publications:
   # n8n erkennt die Benachrichtigungs-Mail (Absender/Betreff, siehe F013) und ruft den
@@ -356,7 +373,9 @@ publications:
   # F078 §6 Rollback-Schalter: false = Verhalten exakt wie F013 (nur Telegram-
   # Aufforderung, kein Browser-Start). config/ ist ins Image gebacken - Aenderung
   # braucht einen Rebuild, keinen Code-Revert.
-  auto_download: true
+  # 02.11.2026 abgeschaltet: kein automatisierter Seitenzugriff mehr, solange ATLAS
+  # stillgelegt ist (gleicher Anlass wie die aktienfinder-Jobs).
+  auto_download: false
   # Playwright-storage_state aus scripts/boersenmedien_session.py. Kein Passwort in
   # der .env: das Login-Formular haengt hinter Cloudflare Turnstile, Ralf meldet sich
   # einmalig selbst an (F078 §2.2). Datei ist ein Credential (Rechte 600), liegt nur

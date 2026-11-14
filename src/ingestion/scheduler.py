@@ -82,17 +82,18 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
-    hour, minute = _parse_time(schedule["aktienfinder_screener_discovery"]["time"])
-    scheduler.add_job(
-        _aktienfinder_screener_discovery_job,
-        trigger="cron",
-        hour=hour,
-        minute=minute,
-        timezone=timezone,
-        args=[session_factory, config_path],
-        id="ingestion-aktienfinder-screener-discovery",
-        replace_existing=True,
-    )
+    if _aktienfinder_enabled(schedule["aktienfinder_screener_discovery"]):
+        hour, minute = _parse_time(schedule["aktienfinder_screener_discovery"]["time"])
+        scheduler.add_job(
+            _aktienfinder_screener_discovery_job,
+            trigger="cron",
+            hour=hour,
+            minute=minute,
+            timezone=timezone,
+            args=[session_factory, config_path],
+            id="ingestion-aktienfinder-screener-discovery",
+            replace_existing=True,
+        )
 
     hour, minute = _parse_time(schedule["market_data_sync"]["time"])
     scheduler.add_job(
@@ -115,17 +116,18 @@ def register_ingestion_jobs(
         replace_existing=True,
     )
 
-    hour, minute = _parse_time(schedule["aktienfinder"]["time"])
-    scheduler.add_job(
-        _aktienfinder_job,
-        trigger="cron",
-        hour=hour,
-        minute=minute,
-        timezone=timezone,
-        args=[session_factory, config_path],
-        id="ingestion-aktienfinder",
-        replace_existing=True,
-    )
+    if _aktienfinder_enabled(schedule["aktienfinder"]):
+        hour, minute = _parse_time(schedule["aktienfinder"]["time"])
+        scheduler.add_job(
+            _aktienfinder_job,
+            trigger="cron",
+            hour=hour,
+            minute=minute,
+            timezone=timezone,
+            args=[session_factory, config_path],
+            id="ingestion-aktienfinder",
+            replace_existing=True,
+        )
 
     scheduler.add_job(
         _coingecko_job,
@@ -146,17 +148,18 @@ def register_ingestion_jobs(
             replace_existing=True,
         )
 
-    hour, minute = _parse_time(schedule["aktienfinder_blog"]["time"])
-    scheduler.add_job(
-        _aktienfinder_blog_job,
-        trigger="cron",
-        hour=hour,
-        minute=minute,
-        timezone=timezone,
-        args=[session_factory, config_path],
-        id="ingestion-aktienfinder-blog",
-        replace_existing=True,
-    )
+    if _aktienfinder_enabled(schedule["aktienfinder_blog"]):
+        hour, minute = _parse_time(schedule["aktienfinder_blog"]["time"])
+        scheduler.add_job(
+            _aktienfinder_blog_job,
+            trigger="cron",
+            hour=hour,
+            minute=minute,
+            timezone=timezone,
+            args=[session_factory, config_path],
+            id="ingestion-aktienfinder-blog",
+            replace_existing=True,
+        )
 
     scheduler.add_job(
         _market_news_job,
@@ -217,6 +220,13 @@ def register_ingestion_jobs(
                 id="ingestion-publications-session-check",
                 replace_existing=True,
             )
+
+
+def _aktienfinder_enabled(job_schedule: dict[str, object]) -> bool:
+    """aktienfinder.net objected to automated access to its site (Nov 2026), so these
+    jobs are fail-closed: unlike reddit/alpaca_* a missing `enabled` key means off.
+    Only an explicit `enabled: true` registers them."""
+    return job_schedule.get("enabled", False) is True
 
 
 def _edgar_job(session_factory: Callable[[], Session], config_path: Path) -> None:
