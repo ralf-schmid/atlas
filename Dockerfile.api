@@ -26,6 +26,12 @@ RUN uv sync --frozen --no-dev
 # missing AKTIENFINDER_USERNAME/_PASSWORD failing first, further up the call
 # chain (see docs/deployment.md, local-only, not in the repo).
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Playwright >= 1.65 bundles a Node 26 driver that links libatomic.so.1, which
+# python:3.12-slim does not ship (exit 127 "libatomic.so.1: cannot open shared
+# object file" before --with-deps gets to install anything).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
 RUN uv run playwright install --with-deps chromium
 
 # Non-root: UID/GID matching user ralf / group familie on the UGREEN box, so any
