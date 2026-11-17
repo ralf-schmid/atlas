@@ -20,7 +20,7 @@ dependencies = [
     "pymupdf>=2.1",
     "playwright>=1.65.2",
     "langgraph>=1.2.20",
-    "langgraph-checkpoint-postgres>=3.2.0",
+    "langgraph-checkpoint-postgres>=3.2.1",
     "apscheduler>=3.11.3",
     "fastembed>=0.9.1,<1.0",
 ]
