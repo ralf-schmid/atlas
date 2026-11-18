@@ -22,9 +22,10 @@ services:
       retries: 10
 
   litellm:
-    # LiteLLM v1.92.0 — per Digest gepinnt (2026-07-05), weil main-latest ein mutable
-    # Dev-Tag ist. Update: neuen Digest eintragen + Deployment verifizieren.
-    image: ghcr.io/berriai/litellm:main-latest@sha256:10264d97c2e80a664c02688b7015b3909dff024764c76aef676a6bd495ca136a
+    # LiteLLM v1.108.11 (LTS-Linie) — per Digest gepinnt (2026-11-18, Security:
+    # CVE-2026-114612 / GHSA-7hp6-4w63-5g45 und GHSA-g5ff-637f-6q2m, beide in v1.92.0).
+    # Update: neuen Digest eintragen + Deployment verifizieren.
+    image: ghcr.io/berriai/litellm:v1.108.11-lts@sha256:95253c31752cc3efc6c60f7e1a0ec064ede73ba48c19cc466a8af71e7fec48a7
     restart: unless-stopped
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
